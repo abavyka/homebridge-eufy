@@ -1,13 +1,10 @@
 # Collecting diagnostics safely
 
-Use **Debug diagnostics** in the plugin dashboard to choose one evidence profile, mark one reproduction
-interval, and review the generated manifest. The manifest shows each requested evidence class as
-included or missing and lists the classes that can never be collected. Confirm the review to download
-an encrypted `.eufysupport.gz` archive. The final `.gz` suffix allows the encrypted archive to be
-attached to a GitHub issue. Nothing is uploaded by the plugin.
+Use **Diagnostics** in the plugin dashboard: picking the area the problem is in starts a capture, and
+finishing it downloads an encrypted `.eufysupport.gz` diagnostics file. The final `.gz` suffix allows
+the file to be attached to a GitHub issue. Nothing is uploaded by the plugin.
 
-- Reproduce one issue at a time and end the interval promptly.
-- Review the manifest before confirming the export.
+- Reproduce one issue at a time and finish the capture promptly.
 - Share only the encrypted archive through a channel agreed with a maintainer.
 - Delete downloaded archives when the support case is complete and within 24 hours where possible.
 - Never upload the Homebridge storage directory, account stores, raw logs, or raw SDK objects.

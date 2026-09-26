@@ -273,6 +273,9 @@ function renderDiagnostics(state) {
   diagnosticsHandoff.hidden = !diagnosticsArchiveDownloaded;
   diagnosticsHandoffNote.hidden = !diagnosticsArchiveDownloaded;
   if (!offering) diagnosticsResultStatus.textContent = '';
+  else if (!diagnosticsArchiveDownloaded && state.missingEvidence?.length) {
+    diagnosticsResultStatus.textContent = messages.diagnosticsMissingEvidence ?? '';
+  }
   diagnosticsStartAnother.hidden = !diagnosticsArchiveDownloaded;
   if (!reviewed) {
     diagnosticsExport.disabled = true;
@@ -288,19 +291,7 @@ function renderDiagnostics(state) {
     });
     diagnosticsCaptureNote.textContent = (messages.diagnosticsCaptureKeepsRunning ?? '').replace('{time}', stopsAt);
   }
-  const statusKey = reviewing
-    ? state.missingEvidence?.length
-      ? 'diagnosticsMissingEvidence'
-      : 'diagnosticsComplete'
-    : {
-        inactive: 'diagnosticsInactive',
-        reproducing: 'diagnosticsReproducing',
-        complete: state.missingEvidence?.length ? 'diagnosticsMissingEvidence' : 'diagnosticsComplete',
-        expired: 'diagnosticsExpired',
-      }[state.status];
-  diagnosticsStatus.textContent = (
-    choosing && state.status !== 'expired' ? '' : (messages[statusKey] ?? '')
-  ).replace('{evidence}', state.missingEvidence?.join(', ') ?? '');
+  diagnosticsStatus.textContent = '';
 }
 
 /**
@@ -417,7 +408,7 @@ async function startDiagnosticsCapture(profile) {
       closeDashboardPanel();
       return;
     }
-    diagnosticsGuidance.focus?.();
+    diagnosticsPhaseTitle.focus?.();
   } catch {
     await redrawDiagnosticsAfterFailure('reproducing');
   } finally {

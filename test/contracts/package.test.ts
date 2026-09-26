@@ -163,14 +163,7 @@ async function renderUi(
       this.focused = true;
     },
   };
-  const diagnosticsYes = interactiveElement({});
-  const diagnosticsNo = interactiveElement({});
-  const diagnosticsDirect = interactiveElement({});
-  const diagnosticsDirectPanel = { hidden: true };
-  const diagnosticsDirectChoose = interactiveElement({});
-  const diagnosticsDirectBack = interactiveElement({});
   const diagnosticsCancel = interactiveElement({ disabled: false });
-  const diagnosticsProfile = interactiveElement({ disabled: false, value: 'startup-authentication', focus() {} });
   const diagnosticsReproduction = interactiveElement({ disabled: true, textContent: '' });
   const diagnosticsStatus = { textContent: '' };
   const diagnosticsIssue = interactiveElement({
@@ -193,14 +186,14 @@ async function renderUi(
     },
   });
   const diagnosticsActions = { hidden: true };
-  const diagnosticsGuidance = {
+  const diagnosticsGuidance = { hidden: true };
+  const diagnosticsPhaseTitle = {
     focused: false,
-    hidden: true,
+    textContent: '',
     focus() {
       this.focused = true;
     },
   };
-  const diagnosticsPhaseTitle = { textContent: '' };
   const diagnosticsGuidanceAction = { textContent: '' };
   const diagnosticsCaptureNote = { textContent: '' };
   const diagnosticsHandoff = { hidden: true };
@@ -275,7 +268,6 @@ async function renderUi(
   let saveButtonDisables = 0;
   let saveButtonEnables = 0;
   let configWritesFail = false;
-  let diagnosticsReproductionMode = 'now';
   let diagnosticsSelectedProfile = 'control-state';
   const translatedNodes = translationKeys.map((key) => ({ dataset: { i18n: key }, textContent: '__untranslated__' }));
   const translatedLabels = [
@@ -348,14 +340,7 @@ async function renderUi(
           '[data-diagnostics-close]': diagnosticsClose,
           '[data-diagnostics-wizard]': diagnosticsWizardPanel,
           '[data-diagnostics-question-text]': diagnosticsQuestionText,
-          '[data-diagnostics-answer="yes"]': diagnosticsYes,
-          '[data-diagnostics-answer="no"]': diagnosticsNo,
-          '[data-diagnostics-direct]': diagnosticsDirect,
-          '[data-diagnostics-direct-panel]': diagnosticsDirectPanel,
-          '[data-diagnostics-direct-choose]': diagnosticsDirectChoose,
-          '[data-diagnostics-direct-back]': diagnosticsDirectBack,
           '[data-diagnostics-cancel]': diagnosticsCancel,
-          '[data-diagnostics-profile]': diagnosticsProfile,
           '[data-diagnostics-reproduction]': diagnosticsReproduction,
           '[data-diagnostics-status]': diagnosticsStatus,
           '[data-diagnostics-issue]': diagnosticsIssue,
@@ -446,37 +431,15 @@ async function renderUi(
         if (path === '/auth/start') return authenticationStart;
         if (path === '/dashboard') return dashboardSnapshot;
         if (path === '/diagnostics/authorize') {
-          const payload = body as { profile?: unknown; reproductionMode?: unknown };
-          const fields =
-            body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body).sort().join(',') : '';
-          const profiles = new Set([
-            'startup-authentication',
-            'device-representation',
-            'control-state',
-            'live-media',
-            'hksv-recording',
-            'dashboard-ui',
-            'other',
-          ]);
-          const mode = fields === 'profile' ? 'now' : payload?.reproductionMode;
-          const naming = fields === 'affectedDevices,profile,reproductionMode';
-          const named = (payload as { affectedDevices?: unknown }).affectedDevices;
-          if (
-            (fields !== 'profile' && fields !== 'profile,reproductionMode' && !naming) ||
-            !profiles.has(String(payload?.profile)) ||
-            !['now', 'intermittent'].includes(String(mode)) ||
-            (naming &&
-              named !== 'all' &&
-              !(Array.isArray(named) && named.every((serial) => typeof serial === 'string')))
-          ) {
+          const payload = body as { profile?: unknown };
+          if (Object.keys(payload ?? {}).join(',') !== 'profile' || typeof payload.profile !== 'string') {
             throw new Error('Invalid diagnostics request');
           }
-          diagnosticsReproductionMode = String(mode);
-          diagnosticsSelectedProfile = String(payload.profile);
+          diagnosticsSelectedProfile = payload.profile;
           return {
             status: 'authorized',
             profile: diagnosticsSelectedProfile,
-            reproductionMode: diagnosticsReproductionMode,
+            reproductionMode: 'now',
             supportCaseId: 'support-00000000-0000-4000-8000-000000000001',
             expiresAt: '2026-08-20T10:18:42.832Z',
             missingEvidence: [],
@@ -488,7 +451,7 @@ async function renderUi(
             status: 'reproducing',
             expiresAt: '2026-08-20T10:18:42.832Z',
             profile: diagnosticsSelectedProfile,
-            reproductionMode: diagnosticsReproductionMode,
+            reproductionMode: 'now',
             missingEvidence: [],
             partialExportAvailable: false,
           };
@@ -498,7 +461,7 @@ async function renderUi(
             status: 'complete',
             supportCaseId: 'support-00000000-0000-4000-8000-000000000001',
             profile: diagnosticsSelectedProfile,
-            reproductionMode: diagnosticsReproductionMode,
+            reproductionMode: 'now',
             missingEvidence: [],
             partialExportAvailable: true,
             issueUrl: 'https://example.invalid/issue',
@@ -511,7 +474,7 @@ async function renderUi(
               archiveFormat: 'synthetic',
               version: 2,
               keyId: 'synthetic-key',
-              reproductionMode: diagnosticsReproductionMode,
+              reproductionMode: 'now',
               archiveExpiresAt: '2026-08-20T10:18:42.832Z',
               reproductionStartedAt: '2026-08-19T09:00:00.000Z',
               evidence: [
@@ -611,14 +574,7 @@ async function renderUi(
     diagnosticsWizardPanel,
     diagnosticsTiles,
     diagnosticsQuestionText,
-    diagnosticsYes,
-    diagnosticsNo,
-    diagnosticsDirect,
-    diagnosticsDirectPanel,
-    diagnosticsDirectChoose,
-    diagnosticsDirectBack,
     diagnosticsCancel,
-    diagnosticsProfile,
     diagnosticsReproduction,
     diagnosticsStatus,
     diagnosticsIssue,
@@ -1111,31 +1067,21 @@ describe('packed plugin', () => {
         'diagnosticDescription',
         'diagnosticNoAction',
         'diagnosticOnly',
-        'diagnosticsAuthorize',
         'diagnosticsArchiveDownloaded',
         'diagnosticsArchiveHandoff',
         'diagnosticsAttention',
         'diagnosticsCaptureKeepsRunning',
         'diagnosticsCaptureTimedOut',
         'diagnosticsCollectingFinishHere',
-        'diagnosticsComplete',
         'diagnosticsControlAction',
         'diagnosticsDashboardAction',
         'diagnosticsDevicesAction',
-        'diagnosticsEndReproduction',
-        'diagnosticsExpired',
         'diagnosticsFailed',
-        'diagnosticsInactive',
         'diagnosticsLiveAction',
         'diagnosticsMissingEvidence',
         'diagnosticsOtherAction',
-        'diagnosticsProfileChanged',
-        'diagnosticsReauthorize',
         'diagnosticsRecordingAction',
-        'diagnosticsReproducing',
-        'diagnosticsStartReproduction',
         'diagnosticsStartupAction',
-        'diagnosticsSummary',
         'deviceBattery',
         'deviceStatusHidden',
         'deviceStatusOnline',
@@ -1248,7 +1194,7 @@ describe('packed plugin', () => {
         closeDiagnostics: 'Retour aux appareils',
         dashboardActionsLabel: 'Actions du tableau de bord',
         menuAdvanced: 'Réglages avancés',
-        menuDiagnostics: 'Diagnostics de débogage',
+        menuDiagnostics: 'Diagnostic',
         menuRelogin: 'Se reconnecter ou remplacer le compte',
         setupSequenceLabel: 'Étapes de configuration',
       });
@@ -1339,8 +1285,9 @@ describe('packed plugin', () => {
       ]);
       expect(menuUi, 'the capture screen follows the pick').toMatchObject({
         diagnosticsWizardPanel: { hidden: true },
-        diagnosticsGuidance: { focused: true, hidden: false },
-        diagnosticsPhaseTitle: { textContent: catalogs['i18n/en.json'].diagnosticsProfileControl },
+        diagnosticsGuidance: { hidden: false },
+        diagnosticsPhaseTitle: { focused: true, textContent: catalogs['i18n/en.json'].diagnosticsProfileControl },
+        diagnosticsStatus: { textContent: '' },
         diagnosticsGuidanceAction: { textContent: catalogs['i18n/en.json'].diagnosticsControlAction },
         diagnosticsActions: { hidden: false },
         diagnosticsReproduction: { disabled: false },
@@ -1743,14 +1690,15 @@ describe('packed plugin', () => {
           reproductionMode: 'now',
           expiresAt: '2026-08-19T10:18:42.832Z',
           reproductionEndedAt: '2026-08-19T10:18:42.832Z',
-          missingEvidence: [],
+          missingEvidence: ['sdk-log'],
           partialExportAvailable: true,
         },
       );
       await timedOutUi.mastheadDiagnostics.dispatch('click');
-      expect(timedOutUi).toMatchObject({
+      expect(timedOutUi, 'and a file missing details says so inside the dialog').toMatchObject({
         diagnosticsResult: { open: true },
         diagnosticsResultHeading: { textContent: catalogs['i18n/en.json'].diagnosticsCaptureTimedOut },
+        diagnosticsResultStatus: { textContent: catalogs['i18n/en.json'].diagnosticsMissingEvidence },
         diagnosticsExport: { hidden: false },
       });
 

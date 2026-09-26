@@ -188,14 +188,14 @@
       </div>
     </div>
     <div class="diagnostics-stage">
-      <div class="diagnostics-wizard diagnostics-surface" data-diagnostics-wizard aria-live="polite">
+      <div class="diagnostics-wizard diagnostics-surface" data-diagnostics-wizard>
         <div class="diagnostics-question" data-diagnostics-question>
-          <strong
+          <h3
             id="diagnostics-question-heading"
             tabindex="-1"
             data-diagnostics-question-text
             data-i18n="diagnosticsTilesHeading"
-          ></strong>
+          ></h3>
           <div class="diagnostics-tiles" role="group" aria-labelledby="diagnostics-question-heading">
             <button type="button" data-diagnostics-tile="startup-authentication">
               <span data-i18n="diagnosticsProfileStartup"></span>
@@ -229,8 +229,8 @@
         </div>
         <p class="diagnostics-note" data-i18n="diagnosticsPrivacy"></p>
       </div>
-      <div class="diagnostics-guidance diagnostics-surface" data-diagnostics-guidance tabindex="-1" hidden>
-        <strong data-diagnostics-phase-title></strong>
+      <div class="diagnostics-guidance diagnostics-surface" data-diagnostics-guidance hidden>
+        <h3 tabindex="-1" data-diagnostics-phase-title></h3>
         <div>
           <span class="guidance-label" data-i18n="diagnosticsActionLabel"></span>
           <p data-diagnostics-guidance-action></p>
@@ -242,7 +242,7 @@
         <p class="diagnostics-note" data-diagnostics-capture-note></p>
       </div>
       <dialog class="blocking-dialog diagnostics-result" data-diagnostics-result aria-labelledby="diagnostics-result-heading">
-        <strong id="diagnostics-result-heading" tabindex="-1" data-diagnostics-result-heading data-i18n="diagnosticsEvidenceReady"></strong>
+        <h2 id="diagnostics-result-heading" tabindex="-1" data-diagnostics-result-heading data-i18n="diagnosticsEvidenceReady"></h2>
         <p data-diagnostics-handoff-note hidden></p>
         <button type="button" data-diagnostics-export disabled hidden data-i18n="diagnosticsArchiveExport"></button>
         <div class="diagnostics-handoff" data-diagnostics-handoff hidden>

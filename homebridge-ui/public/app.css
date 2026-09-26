@@ -297,7 +297,16 @@ h2 {
   gap: 16px;
 }
 
-.diagnostics-question > strong {
+.diagnostics-question > h3,
+.diagnostics-guidance > h3 {
+  margin: 0;
+}
+
+.diagnostics-guidance > h3 {
+  font-size: inherit;
+}
+
+.diagnostics-question > h3 {
   font-size: clamp(17px, 4vw, 21px);
   line-height: 1.35;
   letter-spacing: -0.01em;
@@ -346,6 +355,7 @@ button.diagnostics-quiet-action {
   flex: 1 1 auto;
 }
 
+.diagnostics-result h2,
 .diagnostics-result p {
   margin-bottom: 0;
 }
@@ -2040,6 +2050,16 @@ input:focus-visible {
 
   .diagnostics-actions button {
     width: 100%;
+  }
+
+  /* Two actions side by side leave each a sliver of a label at this width, so they stack. */
+  .diagnostics-handoff:not([hidden]) {
+    grid-template-columns: 1fr;
+  }
+
+  .diagnostics-choice-actions {
+    display: grid;
+    gap: 8px;
   }
 
   .device-grid {

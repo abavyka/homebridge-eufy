@@ -10,13 +10,12 @@
   ];
 
   /**
-   * Which screen a session puts on the panel. A session that is not capturing is still a question to answer,
-   * since picking an area replaces it with a capture of that area.
+   * Which screen a session puts on the panel: its file while one can be downloaded, its capture while one runs, and
+   * otherwise the question, since picking an area replaces the session with a capture of that area.
    */
   function screen(session) {
     if (session.partialExportAvailable) return 'review';
     if (session.status === 'reproducing') return 'reproduce';
-    if (session.status === 'complete') return 'status';
     return 'choose';
   }
 
