@@ -46,16 +46,21 @@
   }
 
   function chooseReproductionMode(state, reproductionMode) {
-    return { ...state, mode: 'match', reproductionMode };
+    return { ...state, reproductionMode };
   }
 
   function backFromFrequency(state) {
     return deviceProfiles.includes(state.profile) ? { ...state, mode: 'devices' } : start();
   }
 
-  function screen(session) {
+  /**
+   * Which screen a session puts on the panel. A reporter changing their answers is back at the questions while
+   * the session they answered for waits, since a new answer replaces it rather than adding another.
+   */
+  function screen(session, changingAnswers = false) {
     if (session.partialExportAvailable) return 'review';
     if (session.status === 'inactive' || session.status === 'expired') return 'choose';
+    if (changingAnswers && session.status === 'authorized') return 'choose';
     if (session.status === 'authorized' || session.status === 'reproducing') return 'reproduce';
     return 'status';
   }

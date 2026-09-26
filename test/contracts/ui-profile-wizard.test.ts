@@ -119,8 +119,7 @@ describe('diagnostics profile wizard', () => {
     const frequency = wizard.chooseDevices(wizard.select(wizard.start(), 'live-media'), 'all');
     const intermittent = wizard.chooseReproductionMode(frequency, 'intermittent');
 
-    expect(intermittent).toMatchObject({
-      mode: 'match',
+    expect(intermittent, 'the last answer is the whole of it, with nothing left to confirm').toMatchObject({
       profile: 'live-media',
       reproductionMode: 'intermittent',
     });

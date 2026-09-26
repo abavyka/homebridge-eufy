@@ -62,7 +62,9 @@ describe('custom UI downloads', () => {
     expect(document).toMatch(/data-diagnostics-frequency hidden/);
     expect(document).toContain('data-diagnostics-frequency-answer="intermittent"');
     expect(document).toContain('data-diagnostics-frequency-answer="now"');
-    expect(document).toMatch(/data-diagnostics-match hidden/);
+    expect(document, 'the last answer opens the session, with no summary to confirm').not.toContain(
+      'data-diagnostics-match',
+    );
     expect(document).toMatch(/data-diagnostics-actions hidden/);
     expect(document, 'the archive is a dialog of its own, closed until a session completes').toMatch(
       /<dialog[^>]+data-diagnostics-result/,
@@ -72,9 +74,7 @@ describe('custom UI downloads', () => {
     expect(document, 'the heading takes focus and is the one the group is named by').toMatch(
       /id="diagnostics-question-heading"\s+tabindex="-1"\s+data-diagnostics-question-text/,
     );
-    expect(document).toContain('tabindex="-1" data-diagnostics-guidance-title');
     expect(document).toContain('aria-labelledby="diagnostics-question-heading"');
-    expect(document).toContain('aria-labelledby="diagnostics-match-heading"');
     expect(document).toContain('aria-labelledby="diagnostics-frequency-heading"');
     expect(document).not.toContain('diagnostics-steps');
     expect(document).not.toContain('data-diagnostics-case');

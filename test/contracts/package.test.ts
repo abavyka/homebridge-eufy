@@ -182,10 +182,9 @@ async function renderUi(
   const diagnosticsFrequencyNow = interactiveElement({});
   const diagnosticsFrequencyIntermittent = interactiveElement({});
   const diagnosticsFrequencyBack = interactiveElement({});
-  const diagnosticsMatch = { hidden: true };
-  const diagnosticsReject = interactiveElement({});
+  const diagnosticsChangeAnswers = interactiveElement({ hidden: false });
+  const diagnosticsPrivacy = { hidden: true };
   const diagnosticsProfile = interactiveElement({ disabled: false, value: 'startup-authentication', focus() {} });
-  const diagnosticsAuthorize = interactiveElement({ disabled: false, textContent: '' });
   const diagnosticsReproduction = interactiveElement({ disabled: true, textContent: '' });
   const diagnosticsStatus = { textContent: '' };
   const diagnosticsIssue = interactiveElement({
@@ -208,14 +207,6 @@ async function renderUi(
     },
   });
   const diagnosticsActions = { hidden: true };
-  const diagnosticsGuidanceTitle = {
-    focused: false,
-    textContent: '',
-    focus() {
-      this.focused = true;
-    },
-  };
-  const diagnosticsModeSummary = { textContent: '' };
   const diagnosticsGuidance = {
     focused: false,
     hidden: true,
@@ -378,10 +369,9 @@ async function renderUi(
           '[data-diagnostics-frequency-answer="now"]': diagnosticsFrequencyNow,
           '[data-diagnostics-frequency-answer="intermittent"]': diagnosticsFrequencyIntermittent,
           '[data-diagnostics-frequency-back]': diagnosticsFrequencyBack,
-          '[data-diagnostics-match]': diagnosticsMatch,
-          '[data-diagnostics-reject]': diagnosticsReject,
+          '[data-diagnostics-change-answers]': diagnosticsChangeAnswers,
+          '[data-diagnostics-privacy]': diagnosticsPrivacy,
           '[data-diagnostics-profile]': diagnosticsProfile,
-          '[data-diagnostics-authorize]': diagnosticsAuthorize,
           '[data-diagnostics-reproduction]': diagnosticsReproduction,
           '[data-diagnostics-status]': diagnosticsStatus,
           '[data-diagnostics-devices]': diagnosticsDevices,
@@ -392,8 +382,6 @@ async function renderUi(
           '[data-diagnostics-existing-issue]': diagnosticsExistingIssue,
           '[data-diagnostics-result]': diagnosticsResult,
           '[data-diagnostics-actions]': diagnosticsActions,
-          '[data-diagnostics-guidance-title]': diagnosticsGuidanceTitle,
-          '[data-diagnostics-mode-summary]': diagnosticsModeSummary,
           '[data-diagnostics-guidance]': diagnosticsGuidance,
           '[data-diagnostics-phase-title]': diagnosticsPhaseTitle,
           '[data-diagnostics-guidance-before-section]': diagnosticsGuidanceBeforeSection,
@@ -649,18 +637,15 @@ async function renderUi(
     diagnosticsFrequencyNow,
     diagnosticsFrequencyIntermittent,
     diagnosticsFrequencyBack,
-    diagnosticsMatch,
-    diagnosticsReject,
+    diagnosticsChangeAnswers,
+    diagnosticsPrivacy,
     diagnosticsProfile,
-    diagnosticsAuthorize,
     diagnosticsReproduction,
     diagnosticsStatus,
     diagnosticsIssue,
     diagnosticsExistingIssue,
     diagnosticsResult,
     diagnosticsActions,
-    diagnosticsModeSummary,
-    diagnosticsGuidanceTitle,
     diagnosticsGuidance,
     diagnosticsPhaseTitle,
     diagnosticsGuidanceBeforeSection,
@@ -1016,7 +1001,6 @@ describe('packed plugin', () => {
           'diagnosticsActionLabel',
           'diagnosticsArchiveExport',
           'diagnosticsBeforeLabel',
-          'diagnosticsBestMatch',
           'diagnosticsEvidenceReady',
           'diagnosticsExistingIssue',
           'diagnosticsEyebrow',
@@ -1037,7 +1021,6 @@ describe('packed plugin', () => {
           'diagnosticsPrivacy',
           'diagnosticsFrequencyBack',
           'diagnosticsQuestionReproduceNow',
-          'diagnosticsContinue',
           'diagnosticsStartRecording',
           'diagnosticsChangeAnswers',
           'diagnosticsStartAnother',
@@ -1159,10 +1142,6 @@ describe('packed plugin', () => {
         'diagnosticsLiveBefore',
         'diagnosticsLiveSummary',
         'diagnosticsMissingEvidence',
-        'diagnosticsModeIntermittent',
-        'diagnosticsModeIntermittentSummary',
-        'diagnosticsModeNow',
-        'diagnosticsModeNowSummary',
         'diagnosticsNowFinish',
         'diagnosticsOtherAction',
         'diagnosticsOtherBefore',
@@ -1364,7 +1343,6 @@ describe('packed plugin', () => {
         diagnosticsResult: { open: false },
         diagnosticsQuestion: { hidden: false },
         diagnosticsFrequency: { hidden: true },
-        diagnosticsMatch: { hidden: true },
         diagnosticsActions: { hidden: true },
       });
       const controlTile = menuUi.diagnosticsTiles.find(
@@ -1382,22 +1360,24 @@ describe('packed plugin', () => {
         diagnosticsDevices: { hidden: true },
         diagnosticsFrequency: { hidden: false },
         diagnosticsFrequencyHeading: { focused: true },
-        diagnosticsMatch: { hidden: true },
       });
       await menuUi.diagnosticsFrequencyIntermittent.dispatch('click');
-      expect(menuUi).toMatchObject({
-        diagnosticsFrequency: { hidden: true },
-        diagnosticsMatch: { hidden: false },
-        diagnosticsGuidanceTitle: { textContent: catalogs['i18n/en.json'].diagnosticsProfileControl },
-        diagnosticsModeSummary: { textContent: catalogs['i18n/en.json'].diagnosticsModeIntermittentSummary },
+      expect(menuUi, 'the last answer opens the session, with no summary to confirm').toMatchObject({
+        diagnosticsWizardPanel: { hidden: true },
+        diagnosticsActions: { hidden: false },
+        diagnosticsChangeAnswers: { hidden: false },
+        diagnosticsPrivacy: { hidden: false },
       });
-      expect(menuUi.diagnosticsGuidanceTitle.focused).toBe(true);
-      await menuUi.diagnosticsReject.dispatch('click');
-      expect(menuUi.diagnosticsQuestion.hidden, 'changing the answer returns to the one opening screen').toBe(false);
+      await menuUi.diagnosticsChangeAnswers.dispatch('click');
+      expect(menuUi, 'changing the answers returns to the one opening screen').toMatchObject({
+        diagnosticsWizardPanel: { hidden: false },
+        diagnosticsQuestion: { hidden: false },
+        diagnosticsQuestionText: { focused: true },
+        diagnosticsActions: { hidden: true },
+      });
       await controlTile.dispatch('click');
       await menuUi.diagnosticsDevicesEvery.dispatch('click');
       await menuUi.diagnosticsFrequencyIntermittent.dispatch('click');
-      await menuUi.diagnosticsAuthorize.dispatch('click');
       expect(menuUi.requests).toContainEqual({
         path: '/diagnostics/authorize',
         body: { profile: 'control-state', reproductionMode: 'intermittent', affectedDevices: 'all' },
@@ -1415,7 +1395,9 @@ describe('packed plugin', () => {
         },
       });
       await menuUi.diagnosticsReproduction.dispatch('click');
-      expect(menuUi).toMatchObject({
+      expect(menuUi, 'a recording under way is no longer a set of answers to change').toMatchObject({
+        diagnosticsChangeAnswers: { hidden: true },
+        diagnosticsPrivacy: { hidden: true },
         diagnosticsGuidanceBeforeSection: { hidden: true },
         diagnosticsGuidanceAction: {
           textContent: catalogs['i18n/en.json'].diagnosticsIntermittentWaitingGuidance,
@@ -1676,9 +1658,12 @@ describe('packed plugin', () => {
 
       await signingInUi.diagnosticsFrequencyNow.dispatch('click');
 
-      expect(signingInUi.diagnosticsGuidanceTitle.textContent).toBe(catalogs['i18n/en.json'].diagnosticsProfileStartup);
+      expect(signingInUi.requests).toContainEqual({
+        path: '/diagnostics/authorize',
+        body: { profile: 'startup-authentication', reproductionMode: 'now' },
+      });
 
-      await signingInUi.diagnosticsReject.dispatch('click');
+      await signingInUi.diagnosticsChangeAnswers.dispatch('click');
 
       expect(signingInUi.diagnosticsQuestion.hidden, 'the presumed area is still open to being changed').toBe(false);
 
@@ -1692,7 +1677,6 @@ describe('packed plugin', () => {
         .find((tile) => (tile as { dataset: { diagnosticsTile: string } }).dataset.diagnosticsTile === 'dashboard-ui')!
         .dispatch('click');
       await dashboardBackgroundUi.diagnosticsFrequencyNow.dispatch('click');
-      await dashboardBackgroundUi.diagnosticsAuthorize.dispatch('click');
       await dashboardBackgroundUi.diagnosticsReproduction.dispatch('click');
       expect(dashboardBackgroundUi).toMatchObject({
         diagnosticsPanel: { hidden: true },

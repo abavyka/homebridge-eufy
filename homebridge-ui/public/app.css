@@ -274,7 +274,9 @@ h2 {
   padding: 8px 12px;
 }
 
-.diagnostics-actions {
+.diagnostics-actions:not([hidden]) {
+  display: flex;
+  gap: 8px;
   margin-top: 4px;
 }
 
@@ -292,23 +294,17 @@ h2 {
 
 .diagnostics-question,
 .diagnostics-direct,
-.diagnostics-frequency,
-.diagnostics-match {
+.diagnostics-frequency {
   display: grid;
   gap: 16px;
 }
 
 .diagnostics-question > strong,
-.diagnostics-frequency > strong,
-.diagnostics-match > strong {
+.diagnostics-frequency > strong {
   font-size: clamp(17px, 4vw, 21px);
   line-height: 1.35;
   letter-spacing: -0.01em;
   text-wrap: balance;
-}
-
-.diagnostics-match p {
-  margin-bottom: 0;
 }
 
 .diagnostics-choice-actions {
@@ -366,8 +362,8 @@ button.diagnostics-quiet-action {
   text-transform: uppercase;
 }
 
-.diagnostics-actions button {
-  width: 100%;
+.diagnostics-actions [data-diagnostics-reproduction] {
+  flex: 1 1 auto;
 }
 
 .diagnostics-result p {

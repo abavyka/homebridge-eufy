@@ -241,21 +241,6 @@
             data-i18n="diagnosticsFrequencyBack"
           ></button>
         </div>
-        <div class="diagnostics-match" data-diagnostics-match hidden>
-          <p class="eyebrow" data-i18n="diagnosticsBestMatch"></p>
-          <strong id="diagnostics-match-heading" tabindex="-1" data-diagnostics-guidance-title></strong>
-          <p data-diagnostics-mode-summary></p>
-          <div class="diagnostics-choice-actions" role="group" aria-labelledby="diagnostics-match-heading">
-            <button
-              type="button"
-              class="diagnostics-secondary-action"
-              data-diagnostics-reject
-              data-i18n="diagnosticsChangeAnswers"
-            ></button>
-            <button type="button" data-diagnostics-authorize data-i18n="diagnosticsContinue"></button>
-          </div>
-          <p class="diagnostics-privacy" data-i18n="diagnosticsPrivacy"></p>
-        </div>
       </div>
       <div class="diagnostics-guidance diagnostics-surface" data-diagnostics-guidance tabindex="-1" hidden>
         <strong data-diagnostics-phase-title></strong>
@@ -270,11 +255,18 @@
         <div class="diagnostics-actions" data-diagnostics-actions hidden>
           <button
             type="button"
+            class="diagnostics-secondary-action"
+            data-diagnostics-change-answers
+            data-i18n="diagnosticsChangeAnswers"
+          ></button>
+          <button
+            type="button"
             data-diagnostics-reproduction
             disabled
             data-i18n="diagnosticsStartRecording"
           ></button>
         </div>
+        <p class="diagnostics-privacy" data-diagnostics-privacy data-i18n="diagnosticsPrivacy"></p>
       </div>
       <dialog class="blocking-dialog diagnostics-result" data-diagnostics-result aria-labelledby="diagnostics-result-heading">
         <strong id="diagnostics-result-heading" tabindex="-1" data-diagnostics-result-heading data-i18n="diagnosticsEvidenceReady"></strong>
