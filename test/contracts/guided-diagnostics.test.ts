@@ -452,6 +452,60 @@ describe('guided diagnostics session', () => {
     }
   });
 
+  /** The area for a fault that fits no other choice selects every log class another area does, so a wrong pick loses none. */
+  it('selects every log class for an issue that fits no other area', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const diagnostics = new GuidedDiagnostics(root);
+    const profiles: DiagnosticsProfile[] = [
+      'startup-authentication',
+      'device-representation',
+      'control-state',
+      'live-media',
+      'hksv-recording',
+      'dashboard-ui',
+    ];
+
+    try {
+      const logs = new Set<string>();
+      for (const profile of profiles) {
+        for (const evidence of (await diagnostics.authorize(profile, 'now')).selectedEvidence) logs.add(evidence);
+      }
+      logs.delete('ui-log');
+      const other = await diagnostics.authorize('other', 'now');
+
+      expect([...other.selectedEvidence].sort()).toEqual([...logs].sort());
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  /** A cancelled capture leaves no session behind, so nothing is offered for it and its verbose scopes stop being kept. */
+  it('deletes a cancelled capture and stops keeping what it admitted', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const diagnostics = new GuidedDiagnostics(root);
+
+    try {
+      await diagnostics.authorize('live-media', 'now');
+      await diagnostics.startReproduction();
+
+      await expect(diagnostics.cancel()).resolves.toMatchObject({ status: 'inactive', partialExportAvailable: false });
+      expect(existsSync(join(root, 'diagnostics', 'session.json'))).toBe(false);
+      await expect(diagnostics.endReproduction()).rejects.toThrow('Diagnostics authorization is inactive or expired');
+
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root);
+      logger.debug?.(JSON.stringify({ scope: 'sdk', level: 'debug', subsystem: 'mqtt', event: 'connection-opened' }));
+      reportRuntimeNotice(logger, 'status-publication-failed');
+      await logger.flush?.();
+      const records = readFileSync(join(root, 'logs', 'homebridge-eufy.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(records.map(({ scope }) => scope)).toEqual(['runtime-notice']);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   /**
    * A session reports exactly the classes its archive will carry, and authorizing one leaves no
    * `diagnostics/evidence` tree behind for any support case.

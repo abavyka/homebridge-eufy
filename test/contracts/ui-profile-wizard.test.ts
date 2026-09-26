@@ -3,28 +3,10 @@ import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 
-interface WizardState {
-  mode: string;
-  profile?: string;
-  devices?: 'all' | readonly string[];
-  reproductionMode?: 'now' | 'intermittent';
-}
-
 interface DiagnosticsWizard {
-  affectable(
-    profile: string,
-    devices: ReadonlyArray<{ serial: string; controllable: boolean; representation: readonly string[] }>,
-  ): ReadonlyArray<{ serial: string }>;
-  backFromFrequency(state: WizardState): WizardState;
   backgroundActive(session: { profile?: string; status: string }): boolean;
-  chooseDevices(state: WizardState, devices: 'all' | readonly string[]): WizardState;
-  chooseReproductionMode(state: WizardState, mode: 'now' | 'intermittent'): WizardState;
-  deviceProfiles: readonly string[];
   profiles: readonly string[];
-  reject(state: WizardState): WizardState;
   screen(session: { partialExportAvailable?: boolean; status: string }): string;
-  select(state: WizardState, profile: string): WizardState;
-  start(): WizardState;
 }
 
 function loadWizard(): DiagnosticsWizard {
@@ -35,14 +17,9 @@ function loadWizard(): DiagnosticsWizard {
 }
 
 describe('diagnostics profile wizard', () => {
-  /**
-   * The opening screen offers every area at once, in the order they are shown, and picking one is the whole
-   * narrowing step. There is no sequence to walk and no position to remember.
-   */
-  it('offers every area at once and takes a pick as the whole choice', () => {
-    const wizard = loadWizard();
-
-    expect(wizard.profiles).toEqual([
+  /** The opening screen offers every area at once, in the order they are shown, and a pick is the only question. */
+  it('offers every area at once', () => {
+    expect(loadWizard().profiles).toEqual([
       'startup-authentication',
       'device-representation',
       'control-state',
@@ -51,92 +28,14 @@ describe('diagnostics profile wizard', () => {
       'dashboard-ui',
       'other',
     ]);
-    expect(wizard.start()).toMatchObject({ mode: 'tiles', profile: undefined });
-    expect(wizard.select(wizard.start(), 'live-media')).toMatchObject({ profile: 'live-media' });
   });
 
   /**
-   * An area that belongs to a device asks which ones before anything else, so the reporter states it once
-   * rather than being asked again in the issue. An area that belongs to the account or the interface does not
-   * ask, because there is nothing to name.
+   * Every area the opening screen offers has a tile in the markup, in the module's order, with a label and its
+   * one-line summary in both catalogues. A profile added to one and not the other would otherwise ship a tile with
+   * no label, or a label nothing reaches.
    */
-  it('asks which devices only where the area belongs to one', () => {
-    const wizard = loadWizard();
-
-    expect(wizard.deviceProfiles).toEqual(['device-representation', 'control-state', 'live-media', 'hksv-recording']);
-    expect(wizard.select(wizard.start(), 'live-media')).toMatchObject({ mode: 'devices', profile: 'live-media' });
-    expect(wizard.select(wizard.start(), 'startup-authentication')).toMatchObject({
-      mode: 'frequency',
-      profile: 'startup-authentication',
-    });
-    expect(wizard.select(wizard.start(), 'dashboard-ui')).toMatchObject({ mode: 'frequency' });
-    expect(wizard.select(wizard.start(), 'other')).toMatchObject({ mode: 'frequency' });
-  });
-
-  /**
-   * The devices offered as the answer are the ones the chosen area's fault could be about. A device that never
-   * streams cannot be the subject of a live media fault, and one nothing controls cannot be the subject of a
-   * control fault. A missing device is the exception: a device with no representation at all is exactly what
-   * that area is reported for, so nothing is filtered out of it.
-   */
-  it('offers only the devices the chosen area could be about', () => {
-    const wizard = loadWizard();
-    const devices = [
-      { serial: 'T8010P0000000001', controllable: true, representation: ['camera.streaming', 'motion.sensor'] },
-      { serial: 'T8030P0000000002', controllable: true, representation: ['arming.security-system', 'siren.test'] },
-      { serial: 'T8900P0000000003', controllable: false, representation: ['contact.sensor'] },
-      { serial: 'T8410P0000000004', controllable: false, representation: [] },
-    ];
-    const offered = (profile: string) => wizard.affectable(profile, devices).map(({ serial }) => serial);
-
-    expect(offered('live-media')).toEqual(['T8010P0000000001']);
-    expect(offered('hksv-recording')).toEqual(['T8010P0000000001']);
-    expect(offered('control-state')).toEqual(['T8010P0000000001', 'T8030P0000000002']);
-    expect(offered('device-representation')).toEqual(devices.map(({ serial }) => serial));
-  });
-
-  /**
-   * Naming the devices, or saying it is all of them, is what moves on to frequency. Both answers are recorded,
-   * because "all of them" is a statement about the fault and not an absence of one.
-   */
-  it('records either the named devices or that it is all of them', () => {
-    const wizard = loadWizard();
-    const asking = wizard.select(wizard.start(), 'control-state');
-
-    expect(wizard.chooseDevices(asking, 'all')).toMatchObject({ mode: 'frequency', devices: 'all' });
-    expect(wizard.chooseDevices(asking, ['T8000P0000000000'])).toMatchObject({
-      mode: 'frequency',
-      devices: ['T8000P0000000000'],
-    });
-  });
-
-  /**
-   * Frequency follows the pick, and both ways back from it return to the same opening screen, because there
-   * is only one.
-   */
-  it('asks for reproduction frequency after a pick, and returns to the tiles', () => {
-    const wizard = loadWizard();
-    const frequency = wizard.chooseDevices(wizard.select(wizard.start(), 'live-media'), 'all');
-    const intermittent = wizard.chooseReproductionMode(frequency, 'intermittent');
-
-    expect(intermittent, 'the last answer is the whole of it, with nothing left to confirm').toMatchObject({
-      profile: 'live-media',
-      reproductionMode: 'intermittent',
-    });
-    expect(wizard.reject(intermittent)).toMatchObject({ mode: 'tiles', profile: undefined });
-    expect(
-      wizard.backFromFrequency(frequency),
-      'back from frequency returns to the question just asked, not past it',
-    ).toMatchObject({ mode: 'devices', profile: 'live-media' });
-    expect(wizard.backFromFrequency(wizard.select(wizard.start(), 'dashboard-ui'))).toMatchObject({ mode: 'tiles' });
-  });
-
-  /**
-   * Every area the opening screen offers has a tile in the markup, in the module's order, and a phrase in both
-   * catalogues. A profile added to one and not the other would otherwise ship a tile with no label, or a label
-   * nothing reaches.
-   */
-  it('has a tile and a phrase in both languages for every area', () => {
+  it('has a tile with a label and a summary in both languages for every area', () => {
     const wizard = loadWizard();
     const markup = readFileSync(new URL('../../homebridge-ui/public/index.html', import.meta.url), 'utf8');
     const english = JSON.parse(
@@ -145,43 +44,40 @@ describe('diagnostics profile wizard', () => {
     const french = JSON.parse(
       readFileSync(new URL('../../homebridge-ui/public/i18n/fr.json', import.meta.url), 'utf8'),
     ) as Record<string, string>;
-    const tiles = [...markup.matchAll(/data-diagnostics-tile="([^"]+)"\s+data-i18n="([^"]+)"/g)];
+    const tiles = [
+      ...markup.matchAll(
+        /data-diagnostics-tile="([^"]+)">\s*<span data-i18n="([^"]+)"><\/span>\s*<small data-i18n="([^"]+)"><\/small>/g,
+      ),
+    ];
 
     expect(Object.keys(french).sort()).toEqual(Object.keys(english).sort());
     expect(tiles.map(([, profile]) => profile)).toEqual([...wizard.profiles]);
-    for (const [, profile, key] of tiles) {
-      expect(english[key], `${profile} in English`).toBeTruthy();
-      expect(french[key], `${profile} in French`).toBeTruthy();
+    for (const [, profile, ...keys] of tiles) {
+      for (const key of keys) {
+        expect(english[key], `${profile} in English`).toBeTruthy();
+        expect(french[key], `${profile} in French`).toBeTruthy();
+      }
     }
     expect(english.diagnosticsTilesHeading).toBe('What is going wrong?');
     expect(english.diagnosticsProfileDevices).toBe('Missing or incorrect device');
-    expect(english.diagnosticsQuestionReproduceNow).toBe('Can you reproduce the problem now?');
-    expect(french.diagnosticsQuestionReproduceNow).toBe('Pouvez-vous reproduire le problème maintenant ?');
 
     const normalFlowKeys = [
       'diagnosticsControlAction',
-      'diagnosticsControlBefore',
       'diagnosticsControlSummary',
       'diagnosticsDashboardAction',
-      'diagnosticsDashboardBefore',
       'diagnosticsDashboardSummary',
       'diagnosticsDevicesAction',
-      'diagnosticsDevicesBefore',
       'diagnosticsDevicesSummary',
       'diagnosticsEvidenceReady',
       'diagnosticsLiveAction',
-      'diagnosticsLiveBefore',
       'diagnosticsLiveSummary',
       'diagnosticsMissingEvidence',
       'diagnosticsOtherAction',
-      'diagnosticsOtherBefore',
       'diagnosticsOtherSummary',
       'diagnosticsPrivacy',
       'diagnosticsRecordingAction',
-      'diagnosticsRecordingBefore',
       'diagnosticsRecordingSummary',
       'diagnosticsStartupAction',
-      'diagnosticsStartupBefore',
       'diagnosticsStartupSummary',
       'diagnosticsSummary',
     ];
@@ -193,13 +89,15 @@ describe('diagnostics profile wizard', () => {
     );
   });
 
+  /** Only a capture under way leaves the areas; a session opened and never started is a question still to answer. */
   it('offers the archive of a finished session until the plugin ends it', () => {
     const wizard = loadWizard();
 
     expect(wizard.screen({ status: 'complete', partialExportAvailable: true })).toBe('review');
     expect(wizard.screen({ status: 'expired', partialExportAvailable: false })).toBe('choose');
     expect(wizard.screen({ status: 'inactive', partialExportAvailable: false })).toBe('choose');
-    expect(wizard.screen({ status: 'authorized' })).toBe('reproduce');
+    expect(wizard.screen({ status: 'authorized' })).toBe('choose');
+    expect(wizard.screen({ status: 'reproducing' })).toBe('reproduce');
   });
 
   it('shows the background action only for an active dashboard reproduction', () => {

@@ -52,19 +52,18 @@ describe('custom UI downloads', () => {
     expect(stylesheet).not.toContain('diagnostics-review-confirm');
   });
 
-  it('opens on the areas, then discloses one screen at a time', () => {
+  it('opens on the areas, and a pick is the only question', () => {
     const document = readFileSync(new URL('../../homebridge-ui/public/index.html', import.meta.url), 'utf8');
 
     expect(document).toContain('data-diagnostics-question');
     expect(document).toContain('class="diagnostics-tiles"');
     expect(document, 'a pick replaces a sequence of yes and no').not.toContain('data-diagnostics-answer="yes"');
     expect(document).not.toContain('data-diagnostics-direct-panel');
-    expect(document).toMatch(/data-diagnostics-frequency hidden/);
-    expect(document).toContain('data-diagnostics-frequency-answer="intermittent"');
-    expect(document).toContain('data-diagnostics-frequency-answer="now"');
-    expect(document, 'the last answer opens the session, with no summary to confirm').not.toContain(
-      'data-diagnostics-match',
+    expect(document, 'no device or frequency question follows the pick').not.toMatch(
+      /data-diagnostics-(?:devices|frequency)/,
     );
+    expect(document, 'the pick starts the capture, with no summary to confirm').not.toContain('data-diagnostics-match');
+    expect(document, 'a capture can be cancelled').toContain('data-diagnostics-cancel');
     expect(document).toMatch(/data-diagnostics-actions hidden/);
     expect(document, 'the archive is a dialog of its own, closed until a session completes').toMatch(
       /<dialog[^>]+data-diagnostics-result/,
@@ -75,12 +74,8 @@ describe('custom UI downloads', () => {
       /id="diagnostics-question-heading"\s+tabindex="-1"\s+data-diagnostics-question-text/,
     );
     expect(document).toContain('aria-labelledby="diagnostics-question-heading"');
-    expect(document).toContain('aria-labelledby="diagnostics-frequency-heading"');
     expect(document).not.toContain('diagnostics-steps');
     expect(document).not.toContain('data-diagnostics-case');
-    expect(document.indexOf('data-diagnostics-frequency-answer="intermittent"')).toBeLessThan(
-      document.indexOf('data-diagnostics-frequency-answer="now"'),
-    );
     expect(document).toContain('src="js/profile-wizard.js"');
   });
 });

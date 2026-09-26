@@ -196,77 +196,49 @@
             data-i18n="diagnosticsTilesHeading"
           ></strong>
           <div class="diagnostics-tiles" role="group" aria-labelledby="diagnostics-question-heading">
-            <button type="button" data-diagnostics-tile="startup-authentication" data-i18n="diagnosticsProfileStartup"></button>
-            <button type="button" data-diagnostics-tile="device-representation" data-i18n="diagnosticsProfileDevices"></button>
-            <button type="button" data-diagnostics-tile="control-state" data-i18n="diagnosticsProfileControl"></button>
-            <button type="button" data-diagnostics-tile="live-media" data-i18n="diagnosticsProfileLiveMedia"></button>
-            <button type="button" data-diagnostics-tile="hksv-recording" data-i18n="diagnosticsProfileRecording"></button>
-            <button type="button" data-diagnostics-tile="dashboard-ui" data-i18n="diagnosticsProfileDashboard"></button>
-            <button type="button" data-diagnostics-tile="other" data-i18n="diagnosticsProfileOther"></button>
+            <button type="button" data-diagnostics-tile="startup-authentication">
+              <span data-i18n="diagnosticsProfileStartup"></span>
+              <small data-i18n="diagnosticsStartupSummary"></small>
+            </button>
+            <button type="button" data-diagnostics-tile="device-representation">
+              <span data-i18n="diagnosticsProfileDevices"></span>
+              <small data-i18n="diagnosticsDevicesSummary"></small>
+            </button>
+            <button type="button" data-diagnostics-tile="control-state">
+              <span data-i18n="diagnosticsProfileControl"></span>
+              <small data-i18n="diagnosticsControlSummary"></small>
+            </button>
+            <button type="button" data-diagnostics-tile="live-media">
+              <span data-i18n="diagnosticsProfileLiveMedia"></span>
+              <small data-i18n="diagnosticsLiveSummary"></small>
+            </button>
+            <button type="button" data-diagnostics-tile="hksv-recording">
+              <span data-i18n="diagnosticsProfileRecording"></span>
+              <small data-i18n="diagnosticsRecordingSummary"></small>
+            </button>
+            <button type="button" data-diagnostics-tile="dashboard-ui">
+              <span data-i18n="diagnosticsProfileDashboard"></span>
+              <small data-i18n="diagnosticsDashboardSummary"></small>
+            </button>
+            <button type="button" data-diagnostics-tile="other">
+              <span data-i18n="diagnosticsProfileOther"></span>
+              <small data-i18n="diagnosticsOtherSummary"></small>
+            </button>
           </div>
         </div>
-        <div class="diagnostics-devices" data-diagnostics-devices hidden>
-          <strong id="diagnostics-devices-heading" tabindex="-1" data-i18n="diagnosticsDevicesHeading"></strong>
-          <p data-i18n="diagnosticsDevicesHint"></p>
-          <div class="diagnostics-device-list" data-diagnostics-device-list role="group" aria-labelledby="diagnostics-devices-heading"></div>
-          <div class="diagnostics-choice-actions">
-            <button
-              type="button"
-              class="diagnostics-secondary-action"
-              data-diagnostics-devices-every
-              data-i18n="diagnosticsDevicesEvery"
-            ></button>
-            <button type="button" data-diagnostics-devices-chosen disabled data-i18n="diagnosticsDevicesChosen"></button>
-          </div>
-        </div>
-        <div class="diagnostics-frequency" data-diagnostics-frequency hidden>
-          <strong
-            id="diagnostics-frequency-heading"
-            tabindex="-1"
-            data-i18n="diagnosticsQuestionReproduceNow"
-          ></strong>
-          <div class="diagnostics-choice-actions" role="group" aria-labelledby="diagnostics-frequency-heading">
-            <button
-              type="button"
-              class="diagnostics-secondary-action"
-              data-diagnostics-frequency-answer="intermittent"
-              data-i18n="diagnosticsNo"
-            ></button>
-            <button type="button" data-diagnostics-frequency-answer="now" data-i18n="diagnosticsYes"></button>
-          </div>
-          <button
-            type="button"
-            class="diagnostics-quiet-action"
-            data-diagnostics-frequency-back
-            data-i18n="diagnosticsFrequencyBack"
-          ></button>
-        </div>
+        <p class="diagnostics-note" data-i18n="diagnosticsPrivacy"></p>
       </div>
       <div class="diagnostics-guidance diagnostics-surface" data-diagnostics-guidance tabindex="-1" hidden>
         <strong data-diagnostics-phase-title></strong>
-        <div data-diagnostics-guidance-before-section>
-          <span class="guidance-label" data-i18n="diagnosticsBeforeLabel"></span>
-          <p data-diagnostics-guidance-before></p>
-        </div>
         <div>
           <span class="guidance-label" data-i18n="diagnosticsActionLabel"></span>
           <p data-diagnostics-guidance-action></p>
         </div>
         <div class="diagnostics-actions" data-diagnostics-actions hidden>
-          <button
-            type="button"
-            class="diagnostics-secondary-action"
-            data-diagnostics-change-answers
-            data-i18n="diagnosticsChangeAnswers"
-          ></button>
-          <button
-            type="button"
-            data-diagnostics-reproduction
-            disabled
-            data-i18n="diagnosticsStartRecording"
-          ></button>
+          <button type="button" data-diagnostics-reproduction disabled data-i18n="diagnosticsNowFinish"></button>
+          <button type="button" class="diagnostics-quiet-action" data-diagnostics-cancel data-i18n="diagnosticsCancel"></button>
         </div>
-        <p class="diagnostics-privacy" data-diagnostics-privacy data-i18n="diagnosticsPrivacy"></p>
+        <p class="diagnostics-note" data-i18n="diagnosticsCaptureKeepsRunning"></p>
       </div>
       <dialog class="blocking-dialog diagnostics-result" data-diagnostics-result aria-labelledby="diagnostics-result-heading">
         <strong id="diagnostics-result-heading" tabindex="-1" data-diagnostics-result-heading data-i18n="diagnosticsEvidenceReady"></strong>

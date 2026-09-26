@@ -40,20 +40,9 @@ const diagnosticsPanel = document.querySelector('[data-diagnostics]');
 const mastheadDiagnostics = document.querySelector('[data-masthead-diagnostics]');
 const diagnosticsClose = document.querySelector('[data-diagnostics-close]');
 const diagnosticsWizardPanel = document.querySelector('[data-diagnostics-wizard]');
-const diagnosticsQuestion = document.querySelector('[data-diagnostics-question]');
 const diagnosticsQuestionText = document.querySelector('[data-diagnostics-question-text]');
 const diagnosticsTiles = [...document.querySelectorAll('[data-diagnostics-tile]')];
-const diagnosticsDevices = document.querySelector('[data-diagnostics-devices]');
-const diagnosticsDeviceList = document.querySelector('[data-diagnostics-device-list]');
-const diagnosticsDevicesEvery = document.querySelector('[data-diagnostics-devices-every]');
-const diagnosticsDevicesChosen = document.querySelector('[data-diagnostics-devices-chosen]');
-const diagnosticsFrequency = document.querySelector('[data-diagnostics-frequency]');
-const diagnosticsFrequencyHeading = document.querySelector('#diagnostics-frequency-heading');
-const diagnosticsFrequencyNow = document.querySelector('[data-diagnostics-frequency-answer="now"]');
-const diagnosticsFrequencyIntermittent = document.querySelector('[data-diagnostics-frequency-answer="intermittent"]');
-const diagnosticsFrequencyBack = document.querySelector('[data-diagnostics-frequency-back]');
-const diagnosticsChangeAnswers = document.querySelector('[data-diagnostics-change-answers]');
-const diagnosticsPrivacy = document.querySelector('[data-diagnostics-privacy]');
+const diagnosticsCancel = document.querySelector('[data-diagnostics-cancel]');
 const diagnosticsReproduction = document.querySelector('[data-diagnostics-reproduction]');
 const diagnosticsStatus = document.querySelector('[data-diagnostics-status]');
 const diagnosticsIssue = document.querySelector('[data-diagnostics-issue]');
@@ -62,8 +51,6 @@ const diagnosticsResult = document.querySelector('[data-diagnostics-result]');
 const diagnosticsActions = document.querySelector('[data-diagnostics-actions]');
 const diagnosticsGuidance = document.querySelector('[data-diagnostics-guidance]');
 const diagnosticsPhaseTitle = document.querySelector('[data-diagnostics-phase-title]');
-const diagnosticsGuidanceBeforeSection = document.querySelector('[data-diagnostics-guidance-before-section]');
-const diagnosticsGuidanceBefore = document.querySelector('[data-diagnostics-guidance-before]');
 const diagnosticsGuidanceAction = document.querySelector('[data-diagnostics-guidance-action]');
 const diagnosticsHandoff = document.querySelector('[data-diagnostics-handoff]');
 const diagnosticsHandoffNote = document.querySelector('[data-diagnostics-handoff-note]');
@@ -105,14 +92,11 @@ let diagnosticsReviewedCaseId = '';
 /** The one fetch in flight, so a burst of renders does not assemble the archive several times over. */
 let diagnosticsReviewRequest;
 let diagnosticsReviewId = '';
-/** Whether the reporter went back to the questions from a session that has not started recording. */
-let diagnosticsChangingAnswers = false;
 let panelReturn;
 let dashboardPanelTrigger;
 const dashboardView = window.HomebridgeEufyDashboard;
 const legacySettingsView = window.HomebridgeEufyLegacySettings;
 const diagnosticsWizard = window.HomebridgeEufyDiagnosticsWizard;
-let diagnosticsWizardState = diagnosticsWizard.start();
 const dashboardElements = {
   dashboard,
   title: dashboardTitle,
@@ -218,131 +202,19 @@ function setBusy(busy) {
 }
 
 const diagnosticsProfiles = {
-  'startup-authentication': {
-    title: 'diagnosticsProfileStartup',
-    summary: 'diagnosticsStartupSummary',
-    before: 'diagnosticsStartupBefore',
-    action: 'diagnosticsStartupAction',
-  },
-  'device-representation': {
-    title: 'diagnosticsProfileDevices',
-    summary: 'diagnosticsDevicesSummary',
-    before: 'diagnosticsDevicesBefore',
-    action: 'diagnosticsDevicesAction',
-  },
-  'control-state': {
-    title: 'diagnosticsProfileControl',
-    summary: 'diagnosticsControlSummary',
-    before: 'diagnosticsControlBefore',
-    action: 'diagnosticsControlAction',
-  },
-  'live-media': {
-    title: 'diagnosticsProfileLiveMedia',
-    summary: 'diagnosticsLiveSummary',
-    before: 'diagnosticsLiveBefore',
-    action: 'diagnosticsLiveAction',
-  },
-  'hksv-recording': {
-    title: 'diagnosticsProfileRecording',
-    summary: 'diagnosticsRecordingSummary',
-    before: 'diagnosticsRecordingBefore',
-    action: 'diagnosticsRecordingAction',
-  },
-  'dashboard-ui': {
-    title: 'diagnosticsProfileDashboard',
-    summary: 'diagnosticsDashboardSummary',
-    before: 'diagnosticsDashboardBefore',
-    action: 'diagnosticsDashboardAction',
-  },
-  other: {
-    title: 'diagnosticsProfileOther',
-    summary: 'diagnosticsOtherSummary',
-    before: 'diagnosticsOtherBefore',
-    action: 'diagnosticsOtherAction',
-  },
+  'startup-authentication': { title: 'diagnosticsProfileStartup', action: 'diagnosticsStartupAction' },
+  'device-representation': { title: 'diagnosticsProfileDevices', action: 'diagnosticsDevicesAction' },
+  'control-state': { title: 'diagnosticsProfileControl', action: 'diagnosticsControlAction' },
+  'live-media': { title: 'diagnosticsProfileLiveMedia', action: 'diagnosticsLiveAction' },
+  'hksv-recording': { title: 'diagnosticsProfileRecording', action: 'diagnosticsRecordingAction' },
+  'dashboard-ui': { title: 'diagnosticsProfileDashboard', action: 'diagnosticsDashboardAction' },
+  other: { title: 'diagnosticsProfileOther', action: 'diagnosticsOtherAction' },
 };
 
 function renderDiagnosticsGuidance(profile) {
   const guidance = diagnosticsProfiles[profile] ?? diagnosticsProfiles.other;
   diagnosticsPhaseTitle.textContent = messages[guidance.title] ?? '';
-  diagnosticsGuidanceBefore.textContent = messages[guidance.before] ?? '';
   diagnosticsGuidanceAction.textContent = messages[guidance.action] ?? '';
-}
-
-/**
- * The devices the reporter may name, one tile each.
- *
- * A tile carries the device's own name above its retained image where it has one, and the icon the devices
- * view uses for a device where it does not. The image is capped at half the tile: it is there to be recognised
- * at a glance, and a picture that fills the tile leaves the name it belongs to competing with it.
- *
- * Only the devices the chosen area's fault could be about are offered, so the answer cannot name a device that
- * never had the thing being reported.
- *
- * The list is asked for when it is empty rather than relying on the devices view having been opened first, and
- * a request that goes unanswered leaves the step able to say every device, which is a complete answer.
- */
-async function renderDiagnosticsDeviceList() {
-  if (dashboardDevices.length === 0) {
-    try {
-      const snapshot = await requestWithinDeadline('/dashboard', { representationPreferences: {} }, 12000);
-      dashboardDevices = snapshot.devices ?? [];
-    } catch {
-      dashboardDevices = [];
-    }
-  }
-  diagnosticsDeviceList.replaceChildren();
-  for (const device of diagnosticsWizard.affectable(diagnosticsWizardState.profile, dashboardDevices)) {
-    const tile = document.createElement('button');
-    tile.type = 'button';
-    tile.dataset.serial = device.serial;
-    tile.setAttribute('aria-pressed', 'false');
-    const art = document.createElement('img');
-    art.alt = '';
-    if (device.artwork) {
-      art.className = 'device-photo';
-      art.loading = 'lazy';
-      art.src = device.artwork;
-    } else {
-      art.src = 'assets/icons/inventory.svg';
-    }
-    const name = document.createElement('span');
-    name.textContent = device.name;
-    tile.append(art, name);
-    tile.addEventListener('click', () => {
-      tile.setAttribute('aria-pressed', tile.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
-      renderDiagnosticsDeviceChoice();
-    });
-    diagnosticsDeviceList.append(tile);
-  }
-  renderDiagnosticsDeviceChoice();
-}
-
-/**
- * The two controls that follow the pressed tiles: whether continuing is possible, and what the escape does.
- *
- * With every tile pressed there is nothing left for a select-all to select, so the same control clears instead —
- * otherwise the only way back from a full grid is pressing each tile again.
- */
-function renderDiagnosticsDeviceChoice() {
-  const tiles = diagnosticsDeviceList.querySelectorAll('[data-serial]').length;
-  const chosen = chosenDiagnosticsDevices().length;
-  diagnosticsDevicesChosen.disabled = chosen === 0;
-  diagnosticsDevicesEvery.textContent =
-    messages[chosen > 0 && chosen === tiles ? 'diagnosticsDevicesNone' : 'diagnosticsDevicesEvery'] ?? '';
-}
-
-/** The serials pressed in the device step, in the order the grid drew them. */
-function chosenDiagnosticsDevices() {
-  return [...diagnosticsDeviceList.querySelectorAll('[data-serial]')]
-    .filter((tile) => tile.getAttribute('aria-pressed') === 'true')
-    .map((tile) => tile.dataset.serial);
-}
-
-function renderDiagnosticsWizard() {
-  diagnosticsQuestion.hidden = diagnosticsWizardState.mode !== 'tiles';
-  diagnosticsDevices.hidden = diagnosticsWizardState.mode !== 'devices';
-  diagnosticsFrequency.hidden = diagnosticsWizardState.mode !== 'frequency';
 }
 
 /**
@@ -363,7 +235,6 @@ function setIssueStepReachable(url) {
  */
 function endDiagnosticsCase() {
   diagnosticsArchiveDownloaded = false;
-  diagnosticsWizardState = diagnosticsWizard.start();
   renderDiagnostics({ status: 'inactive', selectedEvidence: [], missingEvidence: [], partialExportAvailable: false });
   diagnosticsQuestionText.focus?.();
 }
@@ -371,10 +242,9 @@ function endDiagnosticsCase() {
 function renderDiagnostics(state) {
   if (state.supportCaseId !== diagnosticsState.supportCaseId) diagnosticsArchiveDownloaded = false;
   diagnosticsState = state;
-  const screen = diagnosticsWizard.screen(state, diagnosticsChangingAnswers);
+  const screen = diagnosticsWizard.screen(state);
   const choosing = screen === 'choose';
   const reviewing = screen === 'review';
-  const reproductionMode = state.reproductionMode ?? 'now';
   const collecting = isDashboardUiReproducing(state);
   for (const entry of [mastheadDiagnostics, menuDiagnostics]) {
     if (collecting) entry.dataset.collecting = 'true';
@@ -386,19 +256,8 @@ function renderDiagnostics(state) {
   }
   diagnosticsWizardPanel.hidden = !choosing;
   diagnosticsGuidance.hidden = screen !== 'reproduce';
-  diagnosticsGuidanceBeforeSection.hidden = state.status === 'reproducing';
   diagnosticsActions.hidden = screen !== 'reproduce';
-  diagnosticsChangeAnswers.hidden = state.status !== 'authorized';
-  diagnosticsPrivacy.hidden = screen !== 'reproduce' || state.status !== 'authorized';
-  diagnosticsReproduction.disabled = !['authorized', 'reproducing'].includes(state.status);
-  diagnosticsReproduction.textContent =
-    reproductionMode === 'intermittent'
-      ? state.status === 'reproducing'
-        ? messages.diagnosticsIntermittentIssueHappened
-        : messages.diagnosticsIntermittentStartWaiting
-      : state.status === 'reproducing'
-        ? messages.diagnosticsNowFinish
-        : messages.diagnosticsStartRecording;
+  diagnosticsReproduction.disabled = state.status !== 'reproducing';
   setIssueStepReachable(diagnosticsArchiveDownloaded ? (state.issueUrl ?? '') : '');
   const offering = (reviewing || diagnosticsArchiveDownloaded) && !diagnosticsPanel.hidden;
   if (offering && !diagnosticsResult.open) diagnosticsResult.showModal?.();
@@ -416,34 +275,19 @@ function renderDiagnostics(state) {
     diagnosticsReviewId = '';
     if (reviewing && !diagnosticsArchiveDownloaded) void ensureArchiveReview(state.supportCaseId ?? '');
   }
-  if (screen === 'reproduce') {
-    renderDiagnosticsGuidance(state.profile);
-    if (reproductionMode === 'intermittent') {
-      diagnosticsGuidanceBeforeSection.hidden = true;
-      diagnosticsGuidanceAction.textContent =
-        messages[
-          state.status === 'reproducing'
-            ? 'diagnosticsIntermittentWaitingGuidance'
-            : 'diagnosticsIntermittentReadyGuidance'
-        ] ?? '';
-    }
-  }
-  if (choosing) renderDiagnosticsWizard();
+  if (screen === 'reproduce') renderDiagnosticsGuidance(state.profile);
   const statusKey = reviewing
     ? state.missingEvidence?.length
       ? 'diagnosticsMissingEvidence'
       : 'diagnosticsComplete'
     : {
         inactive: 'diagnosticsInactive',
-        authorized:
-          reproductionMode === 'intermittent' ? 'diagnosticsIntermittentAuthorized' : 'diagnosticsAuthorized',
-        reproducing:
-          reproductionMode === 'intermittent' ? 'diagnosticsIntermittentReproducing' : 'diagnosticsReproducing',
+        reproducing: 'diagnosticsReproducing',
         complete: state.missingEvidence?.length ? 'diagnosticsMissingEvidence' : 'diagnosticsComplete',
         expired: 'diagnosticsExpired',
       }[state.status];
   diagnosticsStatus.textContent = (
-    choosing && state.status === 'inactive' ? '' : (messages[statusKey] ?? '')
+    choosing && state.status !== 'expired' ? '' : (messages[statusKey] ?? '')
   ).replace('{evidence}', state.missingEvidence?.join(', ') ?? '');
 }
 
@@ -514,90 +358,44 @@ async function downloadDiagnosticsArchive() {
 
 diagnosticsExport.addEventListener('click', downloadDiagnosticsArchive);
 
-/**
- * Opens a session for the answers given: the last answer is what starts it, with nothing left to confirm, since
- * the reproduction screen that follows is where the reporter decides to record.
- */
-async function authorizeDiagnostics() {
-  const answers = [diagnosticsFrequencyNow, diagnosticsFrequencyIntermittent];
-  for (const answer of answers) answer.disabled = true;
-  const previousStatus = diagnosticsState.status;
+/** Draws the session as the plugin holds it after a request failed, and says so unless it reached `expected`. */
+async function redrawDiagnosticsAfterFailure(expected) {
   try {
-    const authorized = await requestWithinDeadline(
-      '/diagnostics/authorize',
-      {
-        profile: diagnosticsWizardState.profile,
-        reproductionMode: diagnosticsWizardState.reproductionMode,
-        ...(diagnosticsWizardState.devices === undefined ? {} : { affectedDevices: diagnosticsWizardState.devices }),
-      },
-      12000,
-    );
-    diagnosticsChangingAnswers = false;
-    renderDiagnostics(authorized);
-    if (diagnosticsState.status === 'authorized') diagnosticsGuidance.focus?.();
+    const refreshed = await requestWithinDeadline('/diagnostics/status', undefined, 12000);
+    renderDiagnostics(refreshed);
+    if (refreshed.status !== expected) diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
+    if (refreshed.partialExportAvailable) diagnosticsResultHeading.focus?.();
   } catch {
-    try {
-      const refreshed = await requestWithinDeadline('/diagnostics/status', undefined, 12000);
-      if (refreshed.status !== previousStatus) diagnosticsChangingAnswers = false;
-      renderDiagnostics(refreshed);
-      if (refreshed.status === previousStatus) diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
-      else if (refreshed.status === 'authorized') diagnosticsGuidance.focus?.();
-    } catch {
-      diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
+    diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
+  }
+}
+
+/**
+ * Captures the area picked. The area is the only answer a capture needs, so the pick opens the session and starts
+ * it in one go.
+ */
+async function startDiagnosticsCapture(profile) {
+  for (const tile of diagnosticsTiles) tile.disabled = true;
+  try {
+    await requestWithinDeadline('/diagnostics/authorize', { profile }, 12000);
+    const state = await requestWithinDeadline('/diagnostics/reproduction/start', undefined, 12000);
+    renderDiagnostics(state);
+    if (isDashboardUiReproducing(state)) {
+      await recordActiveUiEvent('background-started').catch(() => undefined);
+      closeDashboardPanel();
+      return;
     }
+    diagnosticsGuidance.focus?.();
+  } catch {
+    await redrawDiagnosticsAfterFailure('reproducing');
   } finally {
-    for (const answer of answers) answer.disabled = false;
+    for (const tile of diagnosticsTiles) tile.disabled = false;
   }
 }
 
 for (const tile of diagnosticsTiles) {
-  tile.addEventListener('click', async () => {
-    diagnosticsWizardState = diagnosticsWizard.select(diagnosticsWizardState, tile.dataset.diagnosticsTile);
-    renderDiagnosticsWizard();
-    if (diagnosticsWizardState.mode === 'devices') await renderDiagnosticsDeviceList();
-    else diagnosticsFrequencyHeading.focus?.();
-  });
+  tile.addEventListener('click', () => startDiagnosticsCapture(tile.dataset.diagnosticsTile));
 }
-
-diagnosticsDevicesEvery.addEventListener('click', () => {
-  const tiles = [...diagnosticsDeviceList.querySelectorAll('[data-serial]')];
-  if (tiles.length === 0) {
-    diagnosticsWizardState = diagnosticsWizard.chooseDevices(diagnosticsWizardState, 'all');
-    renderDiagnosticsWizard();
-    diagnosticsFrequencyHeading.focus?.();
-    return;
-  }
-  const clearing = chosenDiagnosticsDevices().length === tiles.length;
-  for (const tile of tiles) tile.setAttribute('aria-pressed', clearing ? 'false' : 'true');
-  renderDiagnosticsDeviceChoice();
-});
-
-diagnosticsDevicesChosen.addEventListener('click', () => {
-  diagnosticsWizardState = diagnosticsWizard.chooseDevices(diagnosticsWizardState, chosenDiagnosticsDevices());
-  renderDiagnosticsWizard();
-  diagnosticsFrequencyHeading.focus?.();
-});
-
-function chooseDiagnosticsReproductionMode(reproductionMode) {
-  diagnosticsWizardState = diagnosticsWizard.chooseReproductionMode(diagnosticsWizardState, reproductionMode);
-  return authorizeDiagnostics();
-}
-
-diagnosticsFrequencyNow.addEventListener('click', () => chooseDiagnosticsReproductionMode('now'));
-diagnosticsFrequencyIntermittent.addEventListener('click', () => chooseDiagnosticsReproductionMode('intermittent'));
-
-diagnosticsFrequencyBack.addEventListener('click', () => {
-  diagnosticsWizardState = diagnosticsWizard.backFromFrequency(diagnosticsWizardState);
-  renderDiagnosticsWizard();
-  diagnosticsQuestionText.focus?.();
-});
-
-diagnosticsChangeAnswers.addEventListener('click', () => {
-  diagnosticsChangingAnswers = true;
-  diagnosticsWizardState = diagnosticsWizard.reject(diagnosticsWizardState);
-  renderDiagnostics(diagnosticsState);
-  diagnosticsQuestionText.focus?.();
-});
 
 diagnosticsStartAnother.addEventListener('click', endDiagnosticsCase);
 /** Escape leaves the archive dialog only once its file is downloaded, and leaving it finishes the session. */
@@ -608,37 +406,34 @@ diagnosticsResult.addEventListener('cancel', (event) => {
 
 diagnosticsReproduction.addEventListener('click', async () => {
   diagnosticsReproduction.disabled = true;
-  const previousStatus = diagnosticsState.status;
-  const path =
-    diagnosticsState.status === 'reproducing' ? '/diagnostics/reproduction/end' : '/diagnostics/reproduction/start';
   try {
-    let state = await requestWithinDeadline(path, undefined, 12000);
+    let state = await requestWithinDeadline('/diagnostics/reproduction/end', undefined, 12000);
     if (state.status === 'complete' && state.missingEvidence?.length) {
       await new Promise((resolve) => setTimeout(resolve, 250));
       state = await requestWithinDeadline('/diagnostics/status', undefined, 12000);
     }
     renderDiagnostics(state);
-    if (previousStatus === 'authorized' && isDashboardUiReproducing(state)) {
-      await recordActiveUiEvent('background-started').catch(() => undefined);
-      closeDashboardPanel();
-      return;
-    }
     if (state.partialExportAvailable) {
       diagnosticsResultHeading.focus?.();
       await downloadDiagnosticsArchive();
     }
   } catch {
-    try {
-      const refreshed = await requestWithinDeadline('/diagnostics/status', undefined, 12000);
-      renderDiagnostics(refreshed);
-      if (refreshed.status === previousStatus) diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
-      if (refreshed.status === 'complete' || refreshed.partialExportAvailable) diagnosticsResultHeading.focus?.();
-      else if (refreshed.status === 'authorized' || refreshed.status === 'reproducing') diagnosticsGuidance.focus?.();
-    } catch {
-      diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
-    }
+    await redrawDiagnosticsAfterFailure('complete');
   } finally {
-    diagnosticsReproduction.disabled = !['authorized', 'reproducing'].includes(diagnosticsState.status);
+    diagnosticsReproduction.disabled = diagnosticsState.status !== 'reproducing';
+  }
+});
+
+/** Cancelling a capture deletes its session without a file, and puts the areas back on the panel. */
+diagnosticsCancel.addEventListener('click', async () => {
+  diagnosticsCancel.disabled = true;
+  try {
+    renderDiagnostics(await requestWithinDeadline('/diagnostics/cancel', undefined, 12000));
+    diagnosticsQuestionText.focus?.();
+  } catch {
+    await redrawDiagnosticsAfterFailure('inactive');
+  } finally {
+    diagnosticsCancel.disabled = false;
   }
 });
 
@@ -702,21 +497,20 @@ dashboardDiagnose.addEventListener('click', () => menuDiagnostics.click());
 
 menuDiagnostics.addEventListener('click', async () => {
   /*
-   * Opened from the sign-in screen, the area is not in question: what is going wrong is getting signed in. The
-   * answer is presumed rather than fixed, so the frequency step's way back still reaches the other six.
+   * Opened from the sign-in screen, the area is not in question: what is going wrong is getting signed in, so a
+   * panel with nothing under way captures that at once. Cancel still reaches the other six.
    */
   const signingIn = !setupContent.hidden;
   openDashboardPanel(diagnosticsPanel, menuDiagnostics);
-  if (signingIn) {
-    diagnosticsWizardState = diagnosticsWizard.select(diagnosticsWizard.start(), 'startup-authentication');
-  }
-  // Drawn on opening, because the wizard's first question is only ever put on the page by this call.
-  renderDiagnosticsWizard();
   try {
     renderDiagnostics(await requestWithinDeadline('/diagnostics/status', undefined, 12000));
   } catch {
     diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
     recordActiveUiEventBestEffort('request-failed');
+    return;
+  }
+  if (signingIn && diagnosticsWizard.screen(diagnosticsState) === 'choose') {
+    await startDiagnosticsCapture('startup-authentication');
   }
 });
 menuAdvanced.addEventListener('click', async () => {
@@ -744,7 +538,6 @@ menuAdvanced.addEventListener('click', async () => {
   }
 });
 diagnosticsClose.addEventListener('click', () => {
-  diagnosticsChangingAnswers = false;
   closeDashboardPanel();
   renderDiagnostics(diagnosticsState);
 });

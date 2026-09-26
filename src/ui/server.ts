@@ -311,6 +311,7 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     });
     this.onRequest('/diagnostics/reproduction/start', () => this.diagnostics.startReproduction());
     this.onRequest('/diagnostics/reproduction/end', () => this.diagnostics.endReproduction());
+    this.onRequest('/diagnostics/cancel', () => this.diagnostics.cancel());
     this.onRequest('/diagnostics/ui-event', (payload) =>
       this.diagnostics.recordUiEvent(parseDiagnosticsUiEvent(payload)),
     );

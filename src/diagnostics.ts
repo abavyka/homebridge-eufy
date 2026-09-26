@@ -488,7 +488,7 @@ const DIAGNOSTICS_PROFILES: Readonly<Record<DiagnosticsProfile, readonly Diagnos
   'live-media': ['plugin-log', 'sdk-log', 'homekit-log', 'ffmpeg-log'],
   'hksv-recording': ['plugin-log', 'sdk-log', 'ffmpeg-log'],
   'dashboard-ui': ['plugin-log', 'ui-log'],
-  other: ['plugin-log', 'sdk-log', 'homekit-log'],
+  other: ['plugin-log', 'sdk-log', 'homekit-log', 'ffmpeg-log'],
 };
 
 /** Narrows external profile input against the diagnostics-owned profile registry. */
@@ -867,6 +867,13 @@ export class GuidedDiagnostics {
     }
     await this.ensureMarker(session, 'reproduction-started', session.reproductionStartedAt);
     return this.project(session);
+  }
+
+  /** Deletes the persisted session without an archive, which also ends the verbose retention it authorized. */
+  async cancel(): Promise<GuidedDiagnosticsStatus> {
+    this.pendingSupportArchive = undefined;
+    await rm(diagnosticsSessionPath(this.storageRoot), { force: true });
+    return this.status();
   }
 
   async endReproduction(): Promise<GuidedDiagnosticsStatus> {

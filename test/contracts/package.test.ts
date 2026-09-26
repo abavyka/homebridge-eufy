@@ -134,7 +134,6 @@ async function renderUi(
   const diagnosticsClose = interactiveElement({ focus() {} });
   const diagnosticsPanel = { hidden: true, scrollIntoView() {}, querySelector: () => diagnosticsClose };
   const diagnosticsWizardPanel = { hidden: false };
-  const diagnosticsQuestion = { hidden: false };
   const diagnosticsTiles = [
     'startup-authentication',
     'device-representation',
@@ -144,21 +143,6 @@ async function renderUi(
     'dashboard-ui',
     'other',
   ].map((profile) => interactiveElement({ dataset: { diagnosticsTile: profile } }));
-  const diagnosticsDevices = { hidden: true };
-  const diagnosticsDeviceList = {
-    children: [] as Array<{ attributes: Record<string, string>; dataset: Record<string, string> }>,
-    replaceChildren(...children: unknown[]) {
-      this.children = children as typeof this.children;
-    },
-    append(...children: unknown[]) {
-      this.children.push(...(children as typeof this.children));
-    },
-    querySelectorAll(selector: string) {
-      return selector === '[data-serial]' ? this.children.filter((child) => child.dataset?.serial) : [];
-    },
-  };
-  const diagnosticsDevicesEvery = interactiveElement({ textContent: '' });
-  const diagnosticsDevicesChosen = interactiveElement({ disabled: true });
   const diagnosticsQuestionText = {
     focused: false,
     textContent: '',
@@ -172,18 +156,7 @@ async function renderUi(
   const diagnosticsDirectPanel = { hidden: true };
   const diagnosticsDirectChoose = interactiveElement({});
   const diagnosticsDirectBack = interactiveElement({});
-  const diagnosticsFrequency = { hidden: true };
-  const diagnosticsFrequencyHeading = {
-    focused: false,
-    focus() {
-      this.focused = true;
-    },
-  };
-  const diagnosticsFrequencyNow = interactiveElement({});
-  const diagnosticsFrequencyIntermittent = interactiveElement({});
-  const diagnosticsFrequencyBack = interactiveElement({});
-  const diagnosticsChangeAnswers = interactiveElement({ hidden: false });
-  const diagnosticsPrivacy = { hidden: true };
+  const diagnosticsCancel = interactiveElement({ disabled: false });
   const diagnosticsProfile = interactiveElement({ disabled: false, value: 'startup-authentication', focus() {} });
   const diagnosticsReproduction = interactiveElement({ disabled: true, textContent: '' });
   const diagnosticsStatus = { textContent: '' };
@@ -215,8 +188,6 @@ async function renderUi(
     },
   };
   const diagnosticsPhaseTitle = { textContent: '' };
-  const diagnosticsGuidanceBeforeSection = { hidden: false };
-  const diagnosticsGuidanceBefore = { textContent: '' };
   const diagnosticsGuidanceAction = { textContent: '' };
   const diagnosticsHandoff = { hidden: true };
   const diagnosticsHandoffNote = { hidden: true, textContent: '' };
@@ -358,7 +329,6 @@ async function renderUi(
           '[data-diagnostics]': diagnosticsPanel,
           '[data-diagnostics-close]': diagnosticsClose,
           '[data-diagnostics-wizard]': diagnosticsWizardPanel,
-          '[data-diagnostics-question]': diagnosticsQuestion,
           '[data-diagnostics-question-text]': diagnosticsQuestionText,
           '[data-diagnostics-answer="yes"]': diagnosticsYes,
           '[data-diagnostics-answer="no"]': diagnosticsNo,
@@ -366,28 +336,16 @@ async function renderUi(
           '[data-diagnostics-direct-panel]': diagnosticsDirectPanel,
           '[data-diagnostics-direct-choose]': diagnosticsDirectChoose,
           '[data-diagnostics-direct-back]': diagnosticsDirectBack,
-          '[data-diagnostics-frequency]': diagnosticsFrequency,
-          '#diagnostics-frequency-heading': diagnosticsFrequencyHeading,
-          '[data-diagnostics-frequency-answer="now"]': diagnosticsFrequencyNow,
-          '[data-diagnostics-frequency-answer="intermittent"]': diagnosticsFrequencyIntermittent,
-          '[data-diagnostics-frequency-back]': diagnosticsFrequencyBack,
-          '[data-diagnostics-change-answers]': diagnosticsChangeAnswers,
-          '[data-diagnostics-privacy]': diagnosticsPrivacy,
+          '[data-diagnostics-cancel]': diagnosticsCancel,
           '[data-diagnostics-profile]': diagnosticsProfile,
           '[data-diagnostics-reproduction]': diagnosticsReproduction,
           '[data-diagnostics-status]': diagnosticsStatus,
-          '[data-diagnostics-devices]': diagnosticsDevices,
-          '[data-diagnostics-device-list]': diagnosticsDeviceList,
-          '[data-diagnostics-devices-every]': diagnosticsDevicesEvery,
-          '[data-diagnostics-devices-chosen]': diagnosticsDevicesChosen,
           '[data-diagnostics-issue]': diagnosticsIssue,
           '[data-diagnostics-existing-issue]': diagnosticsExistingIssue,
           '[data-diagnostics-result]': diagnosticsResult,
           '[data-diagnostics-actions]': diagnosticsActions,
           '[data-diagnostics-guidance]': diagnosticsGuidance,
           '[data-diagnostics-phase-title]': diagnosticsPhaseTitle,
-          '[data-diagnostics-guidance-before-section]': diagnosticsGuidanceBeforeSection,
-          '[data-diagnostics-guidance-before]': diagnosticsGuidanceBefore,
           '[data-diagnostics-guidance-action]': diagnosticsGuidanceAction,
           '[data-diagnostics-handoff]': diagnosticsHandoff,
           '[data-diagnostics-handoff-note]': diagnosticsHandoffNote,
@@ -560,6 +518,10 @@ async function renderUi(
           };
         }
         if (path === '/diagnostics/ui-event') return undefined;
+        if (path === '/diagnostics/cancel') {
+          diagnosticsSnapshot = { status: 'inactive', missingEvidence: [], partialExportAvailable: false };
+          return diagnosticsSnapshot;
+        }
         if (path === '/diagnostics/archive/export') {
           // The plugin ends the session with the archive it hands over.
           diagnosticsSnapshot = { status: 'inactive', missingEvidence: [], partialExportAvailable: false };
@@ -623,12 +585,7 @@ async function renderUi(
     diagnosticsPanel,
     diagnosticsClose,
     diagnosticsWizardPanel,
-    diagnosticsQuestion,
     diagnosticsTiles,
-    diagnosticsDevices,
-    diagnosticsDeviceList,
-    diagnosticsDevicesEvery,
-    diagnosticsDevicesChosen,
     diagnosticsQuestionText,
     diagnosticsYes,
     diagnosticsNo,
@@ -636,13 +593,7 @@ async function renderUi(
     diagnosticsDirectPanel,
     diagnosticsDirectChoose,
     diagnosticsDirectBack,
-    diagnosticsFrequency,
-    diagnosticsFrequencyHeading,
-    diagnosticsFrequencyNow,
-    diagnosticsFrequencyIntermittent,
-    diagnosticsFrequencyBack,
-    diagnosticsChangeAnswers,
-    diagnosticsPrivacy,
+    diagnosticsCancel,
     diagnosticsProfile,
     diagnosticsReproduction,
     diagnosticsStatus,
@@ -652,8 +603,6 @@ async function renderUi(
     diagnosticsActions,
     diagnosticsGuidance,
     diagnosticsPhaseTitle,
-    diagnosticsGuidanceBeforeSection,
-    diagnosticsGuidanceBefore,
     diagnosticsGuidanceAction,
     diagnosticsHandoff,
     diagnosticsHandoffNote,
@@ -1006,32 +955,31 @@ describe('packed plugin', () => {
           'devicesEyebrow',
           'diagnosticsActionLabel',
           'diagnosticsArchiveExport',
-          'diagnosticsBeforeLabel',
           'diagnosticsEvidenceReady',
           'diagnosticsExistingIssue',
           'diagnosticsEyebrow',
           'diagnosticsOpenIssue',
-          'diagnosticsNo',
           'diagnosticsProfileControl',
           'diagnosticsProfileDashboard',
           'diagnosticsProfileDevices',
           'diagnosticsProfileLiveMedia',
           'diagnosticsProfileOther',
           'diagnosticsProfileRecording',
-          'diagnosticsDevicesEvery',
-          'diagnosticsDevicesChosen',
-          'diagnosticsDevicesHeading',
-          'diagnosticsDevicesHint',
           'diagnosticsTilesHeading',
           'diagnosticsProfileStartup',
           'diagnosticsPrivacy',
-          'diagnosticsFrequencyBack',
-          'diagnosticsQuestionReproduceNow',
-          'diagnosticsStartRecording',
-          'diagnosticsChangeAnswers',
+          'diagnosticsNowFinish',
+          'diagnosticsCancel',
+          'diagnosticsCaptureKeepsRunning',
+          'diagnosticsStartupSummary',
+          'diagnosticsDevicesSummary',
+          'diagnosticsControlSummary',
+          'diagnosticsLiveSummary',
+          'diagnosticsRecordingSummary',
+          'diagnosticsDashboardSummary',
+          'diagnosticsOtherSummary',
           'diagnosticsStartAnother',
           'diagnosticsTitle',
-          'diagnosticsYes',
           'oneAccountSession',
           'pageTitle',
           'passwordLabel',
@@ -1119,50 +1067,27 @@ describe('packed plugin', () => {
         'diagnosticDescription',
         'diagnosticNoAction',
         'diagnosticOnly',
-        'diagnosticsAuthorized',
         'diagnosticsAuthorize',
         'diagnosticsArchiveDownloaded',
         'diagnosticsArchiveHandoff',
         'diagnosticsCollectingFinishHere',
         'diagnosticsComplete',
         'diagnosticsControlAction',
-        'diagnosticsControlBefore',
-        'diagnosticsControlSummary',
         'diagnosticsDashboardAction',
-        'diagnosticsDashboardBefore',
-        'diagnosticsDashboardSummary',
         'diagnosticsDevicesAction',
-        'diagnosticsDevicesBefore',
-        'diagnosticsDevicesNone',
-        'diagnosticsDevicesSummary',
         'diagnosticsEndReproduction',
         'diagnosticsExpired',
         'diagnosticsFailed',
         'diagnosticsInactive',
-        'diagnosticsIntermittentAuthorized',
-        'diagnosticsIntermittentIssueHappened',
-        'diagnosticsIntermittentReadyGuidance',
-        'diagnosticsIntermittentReproducing',
-        'diagnosticsIntermittentStartWaiting',
-        'diagnosticsIntermittentWaitingGuidance',
         'diagnosticsLiveAction',
-        'diagnosticsLiveBefore',
-        'diagnosticsLiveSummary',
         'diagnosticsMissingEvidence',
-        'diagnosticsNowFinish',
         'diagnosticsOtherAction',
-        'diagnosticsOtherBefore',
-        'diagnosticsOtherSummary',
         'diagnosticsProfileChanged',
         'diagnosticsReauthorize',
         'diagnosticsRecordingAction',
-        'diagnosticsRecordingBefore',
-        'diagnosticsRecordingSummary',
         'diagnosticsReproducing',
         'diagnosticsStartReproduction',
         'diagnosticsStartupAction',
-        'diagnosticsStartupBefore',
-        'diagnosticsStartupSummary',
         'diagnosticsSummary',
         'deviceBattery',
         'deviceStatusHidden',
@@ -1348,72 +1273,42 @@ describe('packed plugin', () => {
         diagnosticsPanel: { hidden: false },
         diagnosticsIssue: { hidden: true },
         diagnosticsResult: { open: false },
-        diagnosticsQuestion: { hidden: false },
-        diagnosticsFrequency: { hidden: true },
+        diagnosticsWizardPanel: { hidden: false },
         diagnosticsActions: { hidden: true },
       });
       const controlTile = menuUi.diagnosticsTiles.find(
         (tile) => (tile as { dataset: { diagnosticsTile: string } }).dataset.diagnosticsTile === 'control-state',
       )!;
       await controlTile.dispatch('click');
-      expect(menuUi, 'an area that belongs to a device asks which ones').toMatchObject({
-        diagnosticsQuestion: { hidden: true },
-        diagnosticsDevices: { hidden: false },
-        diagnosticsFrequency: { hidden: true },
-        diagnosticsDevicesChosen: { disabled: true },
-      });
-      await menuUi.diagnosticsDevicesEvery.dispatch('click');
-      expect(menuUi, 'saying all of them is a complete answer').toMatchObject({
-        diagnosticsDevices: { hidden: true },
-        diagnosticsFrequency: { hidden: false },
-        diagnosticsFrequencyHeading: { focused: true },
-      });
-      await menuUi.diagnosticsFrequencyIntermittent.dispatch('click');
-      expect(menuUi, 'the last answer opens the session, with no summary to confirm').toMatchObject({
-        diagnosticsWizardPanel: { hidden: true },
-        diagnosticsActions: { hidden: false },
-        diagnosticsChangeAnswers: { hidden: false },
-        diagnosticsPrivacy: { hidden: false },
-      });
-      await menuUi.diagnosticsChangeAnswers.dispatch('click');
-      expect(menuUi, 'changing the answers returns to the one opening screen').toMatchObject({
-        diagnosticsWizardPanel: { hidden: false },
-        diagnosticsQuestion: { hidden: false },
-        diagnosticsQuestionText: { focused: true },
-        diagnosticsActions: { hidden: true },
-      });
-      await controlTile.dispatch('click');
-      await menuUi.diagnosticsDevicesEvery.dispatch('click');
-      await menuUi.diagnosticsFrequencyIntermittent.dispatch('click');
-      expect(menuUi.requests).toContainEqual({
-        path: '/diagnostics/authorize',
-        body: { profile: 'control-state', reproductionMode: 'intermittent', affectedDevices: 'all' },
-      });
-      expect(menuUi).toMatchObject({
+      expect(
+        menuUi.requests.filter(({ path }) => path.startsWith('/diagnostics/') && path !== '/diagnostics/ui-event'),
+        'one pick opens the session and starts the capture, asking nothing else',
+      ).toEqual([
+        { path: '/diagnostics/authorize', body: { profile: 'control-state' } },
+        { path: '/diagnostics/reproduction/start', body: undefined },
+      ]);
+      expect(menuUi, 'the capture screen follows the pick').toMatchObject({
         diagnosticsWizardPanel: { hidden: true },
         diagnosticsGuidance: { focused: true, hidden: false },
-        diagnosticsGuidanceBeforeSection: { hidden: true },
-        diagnosticsGuidanceAction: {
-          textContent: catalogs['i18n/en.json'].diagnosticsIntermittentReadyGuidance,
-        },
+        diagnosticsPhaseTitle: { textContent: catalogs['i18n/en.json'].diagnosticsProfileControl },
+        diagnosticsGuidanceAction: { textContent: catalogs['i18n/en.json'].diagnosticsControlAction },
         diagnosticsActions: { hidden: false },
-        diagnosticsReproduction: {
-          textContent: catalogs['i18n/en.json'].diagnosticsIntermittentStartWaiting,
-        },
+        diagnosticsReproduction: { disabled: false },
       });
-      await menuUi.diagnosticsReproduction.dispatch('click');
-      expect(menuUi, 'a recording under way is no longer a set of answers to change').toMatchObject({
-        diagnosticsChangeAnswers: { hidden: true },
-        diagnosticsPrivacy: { hidden: true },
-        diagnosticsGuidanceBeforeSection: { hidden: true },
-        diagnosticsGuidanceAction: {
-          textContent: catalogs['i18n/en.json'].diagnosticsIntermittentWaitingGuidance,
-        },
-        diagnosticsReproduction: {
-          textContent: catalogs['i18n/en.json'].diagnosticsIntermittentIssueHappened,
-        },
+      await menuUi.diagnosticsCancel.dispatch('click');
+      expect(menuUi.requests.at(-1), 'cancel asks the plugin to delete the session').toEqual({
+        path: '/diagnostics/cancel',
+        body: undefined,
       });
+      expect(menuUi, 'and puts the areas back').toMatchObject({
+        diagnosticsWizardPanel: { hidden: false },
+        diagnosticsQuestionText: { focused: true },
+        diagnosticsGuidance: { hidden: true },
+        diagnosticsResult: { open: false },
+      });
+      await controlTile.dispatch('click');
       await menuUi.diagnosticsReproduction.dispatch('click');
+      expect(menuUi.requests).toContainEqual({ path: '/diagnostics/reproduction/end', body: undefined });
       expect(menuUi).toMatchObject({
         diagnosticsResult: { open: true },
         diagnosticsWizardPanel: { hidden: true },
@@ -1477,12 +1372,10 @@ describe('packed plugin', () => {
           partialExportAvailable: false,
         },
       );
-      expect(nowDiagnosticsUi).toMatchObject({
-        diagnosticsGuidance: { hidden: false },
-        diagnosticsGuidanceBeforeSection: { hidden: false },
-        diagnosticsGuidanceBefore: { textContent: catalogs['i18n/en.json'].diagnosticsControlBefore },
-        diagnosticsGuidanceAction: { textContent: catalogs['i18n/en.json'].diagnosticsControlAction },
-        diagnosticsReproduction: { textContent: catalogs['i18n/en.json'].diagnosticsStartRecording },
+      expect(nowDiagnosticsUi, 'a session opened and never started is still a question to answer').toMatchObject({
+        diagnosticsWizardPanel: { hidden: false },
+        diagnosticsGuidance: { hidden: true },
+        diagnosticsStatus: { textContent: '' },
       });
 
       const waitingDiagnosticsUi = await renderUi(
@@ -1501,100 +1394,15 @@ describe('packed plugin', () => {
           partialExportAvailable: false,
         },
       );
-      expect(waitingDiagnosticsUi).toMatchObject({
+      expect(waitingDiagnosticsUi, 'a capture persisted as intermittent is finished like any other').toMatchObject({
         diagnosticsGuidance: { hidden: false },
-        diagnosticsGuidanceBeforeSection: { hidden: true },
-        diagnosticsGuidanceAction: {
-          textContent: catalogs['i18n/en.json'].diagnosticsIntermittentWaitingGuidance,
-        },
-        diagnosticsReproduction: {
-          textContent: catalogs['i18n/en.json'].diagnosticsIntermittentIssueHappened,
-        },
+        diagnosticsGuidanceAction: { textContent: catalogs['i18n/en.json'].diagnosticsLiveAction },
+        diagnosticsReproduction: { disabled: false },
       });
 
       /**
-       * The devices offered as the answer are the ones the chosen area's fault could be about, and the escape
-       * beside them selects or clears whichever is left to do.
-       */
-      const liveMediaUi = await renderUi(
-        script,
-        [{ platform: 'HomebridgeEufy', username: 'guest@example.invalid' }],
-        catalogs,
-        'en',
-        [],
-        undefined,
-        {
-          state: 'ready',
-          devices: [
-            {
-              serial: 'synthetic-camera',
-              name: 'Entry camera',
-              modelName: 'Synthetic camera',
-              category: 'security',
-              deviceClass: 'camera',
-              recognized: true,
-              represented: true,
-              controllable: true,
-              diagnosticOnly: false,
-              preferences: ['represented'],
-              representation: ['camera.streaming', 'motion.sensor'],
-            },
-            {
-              serial: 'synthetic-station',
-              name: 'Hallway base',
-              modelName: 'Synthetic station',
-              category: 'security',
-              deviceClass: 'homebase',
-              recognized: true,
-              represented: true,
-              controllable: true,
-              diagnosticOnly: false,
-              preferences: ['represented'],
-              representation: ['arming.security-system', 'siren.test'],
-            },
-          ],
-        },
-      );
-      await liveMediaUi.menuDiagnostics.dispatch('click');
-      await liveMediaUi.diagnosticsTiles
-        .find((tile) => (tile as { dataset: { diagnosticsTile: string } }).dataset.diagnosticsTile === 'live-media')!
-        .dispatch('click');
-      const offered = () => liveMediaUi.diagnosticsDeviceList.children.map((tile) => tile.dataset.serial);
-      const pressed = () =>
-        liveMediaUi.diagnosticsDeviceList.children
-          .filter((tile) => tile.attributes['aria-pressed'] === 'true')
-          .map((tile) => tile.dataset.serial);
-
-      expect(offered(), 'a station never had a stream, so it is not an answer to a live media fault').toEqual([
-        'synthetic-camera',
-      ]);
-      expect(liveMediaUi).toMatchObject({
-        diagnosticsDevices: { hidden: false },
-        diagnosticsDevicesChosen: { disabled: true },
-        diagnosticsDevicesEvery: { textContent: catalogs['i18n/en.json'].diagnosticsDevicesEvery },
-      });
-
-      await liveMediaUi.diagnosticsDevicesEvery.dispatch('click');
-
-      expect(pressed()).toEqual(['synthetic-camera']);
-      expect(liveMediaUi, 'with every tile pressed the escape is the way back out of that').toMatchObject({
-        diagnosticsDevices: { hidden: false },
-        diagnosticsDevicesChosen: { disabled: false },
-        diagnosticsDevicesEvery: { textContent: catalogs['i18n/en.json'].diagnosticsDevicesNone },
-      });
-
-      await liveMediaUi.diagnosticsDevicesEvery.dispatch('click');
-
-      expect(pressed()).toEqual([]);
-      expect(liveMediaUi).toMatchObject({
-        diagnosticsDevicesChosen: { disabled: true },
-        diagnosticsDevicesEvery: { textContent: catalogs['i18n/en.json'].diagnosticsDevicesEvery },
-      });
-
-      /**
-       * Opened while the sign-in screen is up, the wizard presumes the area rather than asking, and lands on
-       * the one question that still has an answer. The presumption is not a lock: the way back off frequency
-       * reaches the opening screen like any other.
+       * Opened while the sign-in screen is up, the panel presumes the area rather than asking, and captures it at
+       * once. The presumption is not a lock: cancelling reaches the opening screen like any other.
        */
       const signingInUi = await renderUi(
         script,
@@ -1657,22 +1465,19 @@ describe('packed plugin', () => {
 
       await signingInUi.menuDiagnostics.dispatch('click');
 
-      expect(signingInUi).toMatchObject({
-        diagnosticsQuestion: { hidden: true },
-        diagnosticsDevices: { hidden: true },
-        diagnosticsFrequency: { hidden: false },
-      });
-
-      await signingInUi.diagnosticsFrequencyNow.dispatch('click');
-
       expect(signingInUi.requests).toContainEqual({
         path: '/diagnostics/authorize',
-        body: { profile: 'startup-authentication', reproductionMode: 'now' },
+        body: { profile: 'startup-authentication' },
+      });
+      expect(signingInUi).toMatchObject({
+        diagnosticsWizardPanel: { hidden: true },
+        diagnosticsPhaseTitle: { textContent: catalogs['i18n/en.json'].diagnosticsProfileStartup },
+        diagnosticsActions: { hidden: false },
       });
 
-      await signingInUi.diagnosticsChangeAnswers.dispatch('click');
+      await signingInUi.diagnosticsCancel.dispatch('click');
 
-      expect(signingInUi.diagnosticsQuestion.hidden, 'the presumed area is still open to being changed').toBe(false);
+      expect(signingInUi.diagnosticsWizardPanel.hidden, 'the presumed area is still open to being changed').toBe(false);
 
       const dashboardBackgroundUi = await renderUi(
         script,
@@ -1683,8 +1488,6 @@ describe('packed plugin', () => {
       await dashboardBackgroundUi.diagnosticsTiles
         .find((tile) => (tile as { dataset: { diagnosticsTile: string } }).dataset.diagnosticsTile === 'dashboard-ui')!
         .dispatch('click');
-      await dashboardBackgroundUi.diagnosticsFrequencyNow.dispatch('click');
-      await dashboardBackgroundUi.diagnosticsReproduction.dispatch('click');
       expect(dashboardBackgroundUi).toMatchObject({
         diagnosticsPanel: { hidden: true },
         diagnosticsGuidance: { hidden: false },
@@ -1745,10 +1548,7 @@ describe('packed plugin', () => {
       expect(reloadedDashboardBackgroundUi).toMatchObject({
         diagnosticsPanel: { hidden: false },
         diagnosticsActions: { hidden: false },
-        diagnosticsReproduction: {
-          disabled: false,
-          textContent: catalogs['i18n/en.json'].diagnosticsIntermittentIssueHappened,
-        },
+        diagnosticsReproduction: { disabled: false },
       });
       await reloadedDashboardBackgroundUi.diagnosticsReproduction.dispatch('click');
       expect(reloadedDashboardBackgroundUi).toMatchObject({
@@ -1846,7 +1646,6 @@ describe('packed plugin', () => {
       expect(completedDiagnosticsUi, 'leaving the dialog finishes the session').toMatchObject({
         diagnosticsResult: { open: false },
         diagnosticsWizardPanel: { hidden: false },
-        diagnosticsQuestion: { hidden: false },
         diagnosticsQuestionText: { focused: true },
       });
       await completedDiagnosticsUi.diagnosticsClose.dispatch('click');
