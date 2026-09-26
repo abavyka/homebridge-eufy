@@ -423,6 +423,10 @@ button.diagnostics-quiet-action {
   color: var(--ink);
 }
 
+.diagnostics-result [data-diagnostics-result-status]:empty {
+  display: none;
+}
+
 .diagnostics-result [data-diagnostics-start-another] {
   justify-self: center;
 }
