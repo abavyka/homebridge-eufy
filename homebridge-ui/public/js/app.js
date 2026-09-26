@@ -598,10 +598,16 @@ diagnosticsReject.addEventListener('click', () => {
 });
 
 diagnosticsStartAnother.addEventListener('click', endDiagnosticsCase);
-diagnosticsExistingIssue.addEventListener('click', endDiagnosticsCase);
-diagnosticsIssue.addEventListener('click', () => {
-  if (diagnosticsArchiveDownloaded) endDiagnosticsCase();
-});
+/**
+ * A link is followed only after its click handlers return, and ending the session clears its address, so the
+ * session ends on the next turn rather than sending the reporter back to this page.
+ */
+function endDiagnosticsCaseAfterFollowing() {
+  setTimeout(endDiagnosticsCase);
+}
+
+diagnosticsExistingIssue.addEventListener('click', endDiagnosticsCaseAfterFollowing);
+diagnosticsIssue.addEventListener('click', endDiagnosticsCaseAfterFollowing);
 /** Escape leaves the archive dialog only once its file is downloaded, and leaving it finishes the session. */
 diagnosticsResult.addEventListener('cancel', (event) => {
   event.preventDefault();

@@ -1841,6 +1841,11 @@ describe('packed plugin', () => {
         },
       });
       await completedDiagnosticsUi.diagnosticsExistingIssue.dispatch('click');
+      expect(
+        completedDiagnosticsUi.diagnosticsExistingIssue.href,
+        'the link still leads to GitHub when the browser follows it',
+      ).toBe('https://example.invalid/owner/repo/issues?q=is%3Aissue+is%3Aopen+author%3A%40me');
+      await new Promise((resolve) => setTimeout(resolve));
       expect(completedDiagnosticsUi, 'handing the file over finishes the session').toMatchObject({
         diagnosticsResult: { open: false },
         diagnosticsWizardPanel: { hidden: false },
