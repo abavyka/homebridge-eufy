@@ -2445,6 +2445,11 @@ describe('packed plugin', () => {
         expect(lateUi.diagnosticsStatus.textContent).toBe(catalogs['i18n/en.json'].diagnosticsFailed);
         await vi.advanceTimersByTimeAsync(8_000);
         expect(lateUi.diagnosticsStatus.textContent, 'the late session is drawn, and the failure goes').toBe('');
+        expect(
+          lateUi.requests,
+          'a capture the page never started is cancelled rather than left logging',
+        ).toContainEqual({ path: '/diagnostics/cancel', body: undefined });
+        expect(lateUi.diagnosticsWizardPanel.hidden, 'and the reporter is back at the question').toBe(false);
       } finally {
         vi.useRealTimers();
       }

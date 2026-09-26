@@ -399,14 +399,22 @@ diagnosticsDownloadAgain.addEventListener('click', downloadDiagnosticsArchive);
  * the session again.
  */
 async function redrawDiagnosticsAfterFailure(expected, error) {
-  const refreshed = await requestWithinDeadline('/diagnostics/status', undefined, 12000).catch(() => undefined);
-  if (refreshed) renderDiagnostics(refreshed);
+  const refreshed = await settleDiagnostics().catch(() => undefined);
   if (refreshed?.status !== expected) {
     (diagnosticsResult.open ? diagnosticsResultStatus : diagnosticsStatus).textContent = messages.diagnosticsFailed ?? '';
   }
-  error?.late
-    ?.then(async () => renderDiagnostics(await requestWithinDeadline('/diagnostics/status', undefined, 12000)))
-    .catch(() => undefined);
+  error?.late?.then(settleDiagnostics).catch(() => undefined);
+}
+
+/**
+ * Draws the session the plugin holds. One opened but never started is what a failed or late pick leaves behind;
+ * nothing on screen stands for it and it keeps detailed logging on, so it is cancelled rather than drawn.
+ */
+async function settleDiagnostics() {
+  let state = await requestWithinDeadline('/diagnostics/status', undefined, 12000);
+  if (state.status === 'authorized') state = await requestWithinDeadline('/diagnostics/cancel', undefined, 12000);
+  renderDiagnostics(state);
+  return state;
 }
 
 /**
