@@ -62,7 +62,6 @@
         <p class="eyebrow" data-i18n="devicesEyebrow"></p>
         <h2 id="dashboard-title" data-dashboard-title></h2>
       </div>
-      <button type="button" class="dashboard-diagnose" data-dashboard-diagnose hidden data-i18n="dashboardDiagnose"></button>
       <div class="dashboard-actions" role="group" data-i18n-aria-label="dashboardActionsLabel">
         <button type="button" class="dashboard-action" data-dashboard-authenticate data-i18n-aria-label="menuRelogin">
           <img src="assets/icons/settings_backup_restore.svg" alt="" />
@@ -327,6 +326,26 @@
     <h2 id="reauth-title" data-i18n="reauthTitle"></h2>
     <p id="reauth-summary" data-i18n="reauthSummary"></p>
     <button type="button" data-reauth-action data-i18n="reauthAction"></button>
+  </dialog>
+
+  <dialog
+    class="blocking-dialog"
+    closedby="any"
+    data-attention-dialog
+    aria-labelledby="attention-title"
+    aria-describedby="attention-summary"
+  >
+    <h2 id="attention-title" data-attention-title></h2>
+    <p id="attention-summary" data-attention-summary></p>
+    <div class="diagnostics-choice-actions">
+      <button
+        type="button"
+        class="diagnostics-secondary-action"
+        data-attention-choose
+        data-i18n="attentionChooseAnother"
+      ></button>
+      <button type="button" data-attention-diagnose data-i18n="attentionDiagnose"></button>
+    </div>
   </dialog>
 </main>
 

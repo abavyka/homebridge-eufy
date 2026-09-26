@@ -653,33 +653,28 @@ button.diagnostics-quiet-action {
   background: color-mix(in srgb, var(--accent) 16%, var(--panel));
 }
 
+/* A problem the dashboard shows: an alert ring, and a dot so the state does not rest on colour alone. */
+.dashboard-action[data-attention] {
+  border-color: var(--alert);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--alert) 24%, transparent);
+}
+
+.dashboard-action[data-attention]::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--alert);
+}
+
 .dashboard-action:hover::after,
 .dashboard-action:focus-visible::after {
   opacity: 1;
   transform: translateY(0);
-}
-
-/*
- * The way into a diagnostic run, standing where a status pill used to. A pill saying "Connected" was decoration on
- * the healthy path and a dead end on every other; this appears only where a run would explain something.
- */
-.dashboard-diagnose {
-  flex: 0 0 auto;
-  /* Buttons are full width by default here, and this one sits inline beside the title. */
-  width: auto;
-  border: 1px solid var(--alert);
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--alert) 16%, var(--panel));
-  color: var(--ink);
-  padding: 6px 12px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.dashboard-diagnose:hover {
-  background: color-mix(in srgb, var(--alert) 26%, var(--panel));
 }
 
 .blocking-dialog {

@@ -101,7 +101,6 @@ async function renderUi(
   const dashboard = { hidden: true, dataset: {} as Record<string, string> };
   const dashboardState = { hidden: false };
   const dashboardTitle = { textContent: '' };
-  const dashboardDiagnose = interactiveElement({ hidden: true });
   const dashboardSummary = { hidden: false, textContent: '' };
   const dashboardAuthenticate = interactiveElement({ hidden: true });
   /** The blocking sign-in dialog. `showModal` and `close` flip `open` the way a browser's dialog does. */
@@ -115,6 +114,20 @@ async function renderUi(
     },
   });
   const reauthAction = interactiveElement({});
+  /** The dialog naming the problem the dashboard shows. `showModal` and `close` flip `open` as a browser's does. */
+  const attentionDialog = interactiveElement({
+    open: false,
+    showModal() {
+      this.open = true;
+    },
+    close() {
+      this.open = false;
+    },
+  });
+  const attentionTitle = { textContent: '' };
+  const attentionSummary = { textContent: '' };
+  const attentionDiagnose = interactiveElement({});
+  const attentionChoose = interactiveElement({});
   /**
    * The container the dashboard draws device tiles into.
    *
@@ -312,11 +325,15 @@ async function renderUi(
           '[data-dashboard]': dashboard,
           '[data-dashboard-state]': dashboardState,
           '[data-dashboard-title]': dashboardTitle,
-          '[data-dashboard-diagnose]': dashboardDiagnose,
           '[data-dashboard-summary]': dashboardSummary,
           '[data-dashboard-authenticate]': dashboardAuthenticate,
           '[data-reauth-dialog]': reauthDialog,
           '[data-reauth-action]': reauthAction,
+          '[data-attention-dialog]': attentionDialog,
+          '[data-attention-title]': attentionTitle,
+          '[data-attention-summary]': attentionSummary,
+          '[data-attention-diagnose]': attentionDiagnose,
+          '[data-attention-choose]': attentionChoose,
           '[data-device-groups]': deviceGroups,
           '[data-page-title]': pageTitle,
           '[data-legacy-notice]': legacyNotice,
@@ -563,11 +580,15 @@ async function renderUi(
     password,
     dashboard,
     dashboardState,
-    dashboardDiagnose,
     dashboardSummary,
     dashboardAuthenticate,
     reauthDialog,
     reauthAction,
+    attentionDialog,
+    attentionTitle,
+    attentionSummary,
+    attentionDiagnose,
+    attentionChoose,
     dashboardTitle,
     deviceGroups,
     devicePanel,
@@ -995,7 +1016,8 @@ describe('packed plugin', () => {
           'stepAuthenticate',
           'stepDevices',
           'stepDiscover',
-          'dashboardDiagnose',
+          'attentionChooseAnother',
+          'attentionDiagnose',
           'trustedDeviceLabel',
           'updatePendingAction',
           'updatePendingTitle',
@@ -1025,6 +1047,8 @@ describe('packed plugin', () => {
         'authSaveFailed',
         'authSuccess',
         'authTimedOut',
+        'attentionUnreachableSummary',
+        'attentionUnreachableTitle',
         'countryInvalid',
         'advancedSaveFailed',
         'advancedPollingInvalid',
@@ -1070,6 +1094,7 @@ describe('packed plugin', () => {
         'diagnosticsAuthorize',
         'diagnosticsArchiveDownloaded',
         'diagnosticsArchiveHandoff',
+        'diagnosticsAttention',
         'diagnosticsCollectingFinishHere',
         'diagnosticsComplete',
         'diagnosticsControlAction',
@@ -1877,7 +1902,6 @@ describe('packed plugin', () => {
       );
       expect(dashboardUi).toMatchObject({
         dashboard: { hidden: false, dataset: { state: 'degraded' } },
-        dashboardDiagnose: { hidden: true },
         setupContent: { hidden: true },
       });
       expect(dashboardUi.deviceGroups.innerHTML).toContain('Front contact');
@@ -2092,9 +2116,96 @@ describe('packed plugin', () => {
           dashboard: { dataset: { state } },
           dashboardTitle: { textContent: catalogs['i18n/en.json'][`dashboard${suffix}Title`] },
           dashboardSummary: { textContent: catalogs['i18n/en.json'][`dashboard${suffix}Summary`] },
-          dashboardDiagnose: { hidden: true },
         });
+        expect(stateUi.menuDiagnostics.dataset.attention, `${state} does not point at diagnostics`).toBeUndefined();
       }
+
+      /**
+       * A state a run explains, and a device nothing can reach, light the dashboard's diagnostics action. Pressing it
+       * names the problem and its remedy, and diagnosing it opens the wizard past the answers the problem gives.
+       */
+      const unreachableDevice = {
+        serial: 'synthetic-unreachable',
+        name: 'Porch camera',
+        modelName: 'Synthetic camera',
+        category: 'security',
+        deviceClass: 'camera',
+        recognized: true,
+        represented: true,
+        controllable: false,
+        diagnosticOnly: false,
+        preferences: [],
+        availability: 'unavailable',
+      };
+      for (const [snapshot, title, summary, profile] of [
+        [
+          { state: 'stale', devices: [] },
+          catalogs['i18n/en.json'].dashboardStaleTitle,
+          catalogs['i18n/en.json'].dashboardStaleSummary,
+          'startup-authentication',
+        ],
+        [
+          { state: 'missing', devices: [] },
+          catalogs['i18n/en.json'].dashboardMissingTitle,
+          catalogs['i18n/en.json'].dashboardMissingSummary,
+          'startup-authentication',
+        ],
+        [
+          { state: 'ready', devices: [unreachableDevice] },
+          catalogs['i18n/en.json'].attentionUnreachableTitle.replace('{device}', 'Porch camera'),
+          catalogs['i18n/en.json'].attentionUnreachableSummary,
+          'device-representation',
+        ],
+      ] as const) {
+        const attentionUi = await renderUi(
+          script,
+          [{ platform: 'HomebridgeEufy', username: 'guest@example.invalid' }],
+          catalogs,
+          'en',
+          [],
+          undefined,
+          snapshot,
+        );
+        expect(attentionUi.menuDiagnostics).toMatchObject({
+          dataset: { attention: 'true' },
+          attributes: { 'aria-label': catalogs['i18n/en.json'].diagnosticsAttention },
+        });
+        expect(attentionUi.mastheadDiagnostics.dataset.attention, 'the masthead action is unchanged').toBeUndefined();
+        await attentionUi.menuDiagnostics.dispatch('click');
+        expect(attentionUi).toMatchObject({
+          attentionDialog: { open: true },
+          attentionTitle: { textContent: title },
+          attentionSummary: { textContent: summary },
+          diagnosticsPanel: { hidden: true },
+        });
+        await attentionUi.attentionDiagnose.dispatch('click');
+        expect(attentionUi, 'diagnosing the problem shown captures its area at once').toMatchObject({
+          attentionDialog: { open: false },
+          diagnosticsPanel: { hidden: false },
+          diagnosticsWizardPanel: { hidden: true },
+          diagnosticsActions: { hidden: false },
+        });
+        expect(attentionUi.requests).toContainEqual({ path: '/diagnostics/authorize', body: { profile } });
+        expect(attentionUi.requests).toContainEqual({ path: '/diagnostics/reproduction/start', body: undefined });
+      }
+
+      const chooseAnotherUi = await renderUi(
+        script,
+        [{ platform: 'HomebridgeEufy', username: 'guest@example.invalid' }],
+        catalogs,
+        'en',
+        [],
+        undefined,
+        { state: 'stale', devices: [] },
+      );
+      await chooseAnotherUi.menuDiagnostics.dispatch('click');
+      await chooseAnotherUi.attentionChoose.dispatch('click');
+      expect(chooseAnotherUi, 'another problem starts at the first question').toMatchObject({
+        attentionDialog: { open: false },
+        diagnosticsPanel: { hidden: false },
+        diagnosticsWizardPanel: { hidden: false },
+      });
+      expect(chooseAnotherUi.requests.map(({ path }) => path)).not.toContain('/diagnostics/authorize');
 
       /**
        * An unsuccessful sign-in names its own cause and the action for it, rather than one message for every cause.

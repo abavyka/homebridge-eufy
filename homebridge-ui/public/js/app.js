@@ -24,6 +24,11 @@ const dashboardSummary = document.querySelector('[data-dashboard-summary]');
 const dashboardAuthenticate = document.querySelector('[data-dashboard-authenticate]');
 const reauthDialog = document.querySelector('[data-reauth-dialog]');
 const reauthAction = document.querySelector('[data-reauth-action]');
+const attentionDialog = document.querySelector('[data-attention-dialog]');
+const attentionTitle = document.querySelector('[data-attention-title]');
+const attentionSummary = document.querySelector('[data-attention-summary]');
+const attentionDiagnose = document.querySelector('[data-attention-diagnose]');
+const attentionChoose = document.querySelector('[data-attention-choose]');
 const deviceGroups = document.querySelector('[data-device-groups]');
 const updatePending = document.querySelector('[data-update-pending]');
 const updatePendingSummary = document.querySelector('[data-update-pending-summary]');
@@ -59,7 +64,6 @@ const diagnosticsExport = document.querySelector('[data-diagnostics-export]');
 const diagnosticsResultHeading = document.querySelector('[data-diagnostics-result-heading]');
 const diagnosticsStartAnother = document.querySelector('[data-diagnostics-start-another]');
 const advancedPanel = document.querySelector('[data-advanced-settings]');
-const dashboardDiagnose = document.querySelector('[data-dashboard-diagnose]');
 const devicePanel = document.querySelector('[data-device-settings]');
 const deviceClose = document.querySelector('[data-device-close]');
 const deviceSettingsTitle = document.querySelector('[data-device-settings-title]');
@@ -93,6 +97,8 @@ let diagnosticsReviewedCaseId = '';
 let diagnosticsReviewRequest;
 let diagnosticsReviewId = '';
 let panelReturn;
+/** The problem the dashboard last drew, which the dashboard's diagnostics action points at while there is one. */
+let dashboardAttention;
 let dashboardPanelTrigger;
 const dashboardView = window.HomebridgeEufyDashboard;
 const legacySettingsView = window.HomebridgeEufyLegacySettings;
@@ -100,7 +106,6 @@ const diagnosticsWizard = window.HomebridgeEufyDiagnosticsWizard;
 const dashboardElements = {
   dashboard,
   title: dashboardTitle,
-  diagnose: dashboardDiagnose,
   summary: dashboardSummary,
   authenticate: dashboardAuthenticate,
   groups: deviceGroups,
@@ -245,15 +250,7 @@ function renderDiagnostics(state) {
   const screen = diagnosticsWizard.screen(state);
   const choosing = screen === 'choose';
   const reviewing = screen === 'review';
-  const collecting = isDashboardUiReproducing(state);
-  for (const entry of [mastheadDiagnostics, menuDiagnostics]) {
-    if (collecting) entry.dataset.collecting = 'true';
-    else delete entry.dataset.collecting;
-    entry.setAttribute(
-      'aria-label',
-      messages[collecting ? 'diagnosticsCollectingFinishHere' : 'menuDiagnostics'] ?? '',
-    );
-  }
+  renderDiagnosticsEntries();
   diagnosticsWizardPanel.hidden = !choosing;
   diagnosticsGuidance.hidden = screen !== 'reproduce';
   diagnosticsActions.hidden = screen !== 'reproduce';
@@ -289,6 +286,26 @@ function renderDiagnostics(state) {
   diagnosticsStatus.textContent = (
     choosing && state.status !== 'expired' ? '' : (messages[statusKey] ?? '')
   ).replace('{evidence}', state.missingEvidence?.join(', ') ?? '');
+}
+
+/**
+ * Marks both diagnostics actions while a background collection runs, and otherwise the dashboard's own while it
+ * shows a problem.
+ */
+function renderDiagnosticsEntries() {
+  const collecting = isDashboardUiReproducing();
+  for (const entry of [mastheadDiagnostics, menuDiagnostics]) {
+    const attending = !collecting && entry === menuDiagnostics && dashboardAttention !== undefined;
+    if (collecting) entry.dataset.collecting = 'true';
+    else delete entry.dataset.collecting;
+    if (attending) entry.dataset.attention = 'true';
+    else delete entry.dataset.attention;
+    entry.setAttribute(
+      'aria-label',
+      messages[collecting ? 'diagnosticsCollectingFinishHere' : attending ? 'diagnosticsAttention' : 'menuDiagnostics'] ??
+        '',
+    );
+  }
 }
 
 /**
@@ -490,17 +507,11 @@ function closeDashboardPanel() {
   }
 }
 
-mastheadDiagnostics.addEventListener('click', () => menuDiagnostics.click());
-
-// The dashboard's own offer of a run goes the same way the menu does, so there is one path into the wizard.
-dashboardDiagnose.addEventListener('click', () => menuDiagnostics.click());
-
-menuDiagnostics.addEventListener('click', async () => {
-  /*
-   * Opened from the sign-in screen, the area is not in question: what is going wrong is getting signed in, so a
-   * panel with nothing under way captures that at once. Cancel still reaches the other six.
-   */
-  const signingIn = !setupContent.hidden;
+/**
+ * Opens the diagnostics panel. A preset is an area already known, from the sign-in screen or from a problem the
+ * dashboard shows, so a panel with nothing under way captures it at once. Cancel still reaches the other areas.
+ */
+async function openDiagnostics(preset = setupContent.hidden ? undefined : { profile: 'startup-authentication' }) {
   openDashboardPanel(diagnosticsPanel, menuDiagnostics);
   try {
     renderDiagnostics(await requestWithinDeadline('/diagnostics/status', undefined, 12000));
@@ -509,9 +520,29 @@ menuDiagnostics.addEventListener('click', async () => {
     recordActiveUiEventBestEffort('request-failed');
     return;
   }
-  if (signingIn && diagnosticsWizard.screen(diagnosticsState) === 'choose') {
-    await startDiagnosticsCapture('startup-authentication');
+  if (preset && diagnosticsWizard.screen(diagnosticsState) === 'choose') {
+    await startDiagnosticsCapture(preset.profile);
   }
+}
+
+mastheadDiagnostics.addEventListener('click', () => openDiagnostics());
+
+/** While the dashboard shows a problem and no session is under way, the action names it before opening the wizard. */
+menuDiagnostics.addEventListener('click', () => {
+  if (!menuDiagnostics.dataset.attention || diagnosticsWizard.screen(diagnosticsState) !== 'choose') {
+    return openDiagnostics();
+  }
+  attentionTitle.textContent = dashboardAttention.title;
+  attentionSummary.textContent = dashboardAttention.summary;
+  attentionDialog.showModal?.();
+});
+attentionDiagnose.addEventListener('click', () => {
+  attentionDialog.close?.();
+  return openDiagnostics(dashboardAttention);
+});
+attentionChoose.addEventListener('click', () => {
+  attentionDialog.close?.();
+  return openDiagnostics();
 });
 menuAdvanced.addEventListener('click', async () => {
   const config = configuredBlock() ?? {};
@@ -796,7 +827,7 @@ async function showDashboard() {
     // Kept beside the render that drew them, so opening a tile finds the device that tile stands for.
     dashboardDevices = snapshot.devices ?? [];
     dashboardConditions = snapshot.conditions ?? [];
-    dashboardView.render(snapshot, configuredBlock() ?? {}, messages, dashboardElements);
+    dashboardAttention = dashboardView.render(snapshot, configuredBlock() ?? {}, messages, dashboardElements);
     if (snapshot.state === 'authentication-required' && snapshot.devices?.length > 0 && !reauthDialog.open) {
       reauthDialog.showModal?.();
     }
@@ -805,9 +836,15 @@ async function showDashboard() {
       .applyDeviceImages(dashboardElements, (serial) => requestWithinDeadline('/device/image', { serial }, 12000))
       .catch(() => undefined);
   } catch {
-    dashboardView.render({ state: 'unreachable', devices: [] }, configuredBlock() ?? {}, messages, dashboardElements);
+    dashboardAttention = dashboardView.render(
+      { state: 'unreachable', devices: [] },
+      configuredBlock() ?? {},
+      messages,
+      dashboardElements,
+    );
     recordActiveUiEventBestEffort('request-failed');
   }
+  renderDiagnosticsEntries();
   recordActiveUiEventBestEffort('dashboard-opened');
 }
 

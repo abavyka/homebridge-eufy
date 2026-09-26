@@ -263,16 +263,33 @@
    */
   const DIAGNOSABLE = new Set(['incomplete', 'missing', 'stale']);
 
+  /**
+   * The problem the diagnostics action points at, or nothing: a state a run explains, then the first device nothing
+   * can reach. Each names the diagnostics area and devices a run on it is about.
+   */
+  function attention(result, state, messages) {
+    if (DIAGNOSABLE.has(result.state)) return { ...state, profile: 'startup-authentication' };
+    const device = result.devices.find((candidate) => candidate.availability === 'unavailable');
+    return (
+      device && {
+        title: (messages.attentionUnreachableTitle ?? '').replace('{device}', device.name),
+        summary: messages.attentionUnreachableSummary ?? '',
+        profile: 'device-representation',
+      }
+    );
+  }
+
+  /** Draws the dashboard, and answers the problem it shows the diagnostics action, if any. */
   function render(result, config, messages, elements) {
     const suffix = result.state
       .split('-')
       .map((part) => part[0].toUpperCase() + part.slice(1))
       .join('');
-    elements.title.textContent = messages[`dashboard${suffix}Title`] ?? messages.dashboardIncompleteTitle;
-    elements.summary.textContent = messages[`dashboard${suffix}Summary`] ?? messages.dashboardIncompleteSummary;
+    const title = messages[`dashboard${suffix}Title`] ?? messages.dashboardIncompleteTitle;
+    const summary = messages[`dashboard${suffix}Summary`] ?? messages.dashboardIncompleteSummary;
+    elements.title.textContent = title;
+    elements.summary.textContent = summary;
     elements.dashboard.dataset.state = result.state;
-    // Offered rather than announced: a run is worth suggesting only where the state is one a run explains.
-    if (elements.diagnose) elements.diagnose.hidden = !DIAGNOSABLE.has(result.state);
     elements.dashboard.hidden = false;
     elements.masthead.hidden = true;
     renderUpdatePending(result, messages, elements);
@@ -284,6 +301,7 @@
     } else if (result.state === 'authentication-required') {
       elements.setup.hidden = false;
     }
+    return attention(result, { title, summary }, messages);
   }
 
   function bindPreferences(elements, getConfig, saveConfig, getMessages, openDevice) {

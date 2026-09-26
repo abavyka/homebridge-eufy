@@ -17,6 +17,14 @@ describe('custom UI downloads', () => {
     expect(script).toMatch(
       /menuDiagnostics\.addEventListener\('click',[\s\S]*requestWithinDeadline\('\/diagnostics\/status'/,
     );
+    expect(
+      document,
+      'a detected problem lights the diagnostics action rather than adding a fourth control',
+    ).not.toContain('data-dashboard-diagnose');
+    expect(document).toMatch(/<dialog\s+class="blocking-dialog"[^>]+data-attention-dialog/);
+    expect(stylesheet, 'the attention state carries a shape, not colour alone').toContain(
+      '.dashboard-action[data-attention]::before',
+    );
     expect(stylesheet).toContain('.dashboard-actions');
     expect(stylesheet).toMatch(/\.shell\[data-theme=['"]dark['"]\] \.dashboard-action img/);
     expect(stylesheet).toMatch(/\.shell\[data-theme=['"]dark['"]\] \.dashboard-page-icon/);
