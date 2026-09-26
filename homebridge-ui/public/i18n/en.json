@@ -118,7 +118,7 @@
   "diagnosticsOpenIssue": "Open a new GitHub issue",
   "diagnosticsOtherAction": "Try to make the problem happen once, note what you see, and finish promptly.",
   "diagnosticsOtherSummary": "Captures details for a problem that does not fit another choice.",
-  "diagnosticsPrivacy": "Nothing is uploaded. Passwords, private account data, and camera media are never included.",
+  "diagnosticsPrivacy": "Nothing is uploaded. The diagnostics file is encrypted, and passwords, private account data, and camera media are never included.",
   "diagnosticsProfileControl": "Control or state mismatch",
   "diagnosticsProfileDashboard": "Dashboard or setup interface",
   "diagnosticsProfileDevices": "Missing or incorrect device",

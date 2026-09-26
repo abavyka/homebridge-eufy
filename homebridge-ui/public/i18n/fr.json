@@ -118,7 +118,7 @@
   "diagnosticsOpenIssue": "Ouvrir un nouveau ticket GitHub",
   "diagnosticsOtherAction": "Essayez de faire survenir le problème une fois, notez ce que vous voyez et terminez rapidement.",
   "diagnosticsOtherSummary": "Capture les détails d’un problème qui ne correspond à aucun autre choix.",
-  "diagnosticsPrivacy": "Rien n’est envoyé. Les mots de passe, les données privées du compte et les médias de la caméra ne sont jamais inclus.",
+  "diagnosticsPrivacy": "Rien n’est envoyé. Le fichier de diagnostic est chiffré, et les mots de passe, les données privées du compte et les médias de la caméra n’y sont jamais inclus.",
   "diagnosticsProfileControl": "Décalage de commande ou d’état",
   "diagnosticsProfileDashboard": "Tableau de bord ou interface de configuration",
   "diagnosticsProfileDevices": "Appareil manquant ou incorrect",

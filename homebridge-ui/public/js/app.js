@@ -514,10 +514,12 @@ function closeDashboardPanel() {
 }
 
 /**
- * Opens the diagnostics panel. A preset is an area already known, from the sign-in screen or from a problem the
- * dashboard shows, so a panel with nothing under way captures it at once. Cancel still reaches the other areas.
+ * Opens the diagnostics panel. A preset is an area the reporter already chose to diagnose from a problem the
+ * dashboard named beside the privacy note, so a panel with nothing under way captures it at once. Opened over the
+ * sign-in screen, the panel asks like any other and puts focus on the startup area.
  */
-async function openDiagnostics(preset = setupContent.hidden ? undefined : { profile: 'startup-authentication' }) {
+async function openDiagnostics(preset) {
+  const signingIn = !setupContent.hidden;
   openDashboardPanel(diagnosticsPanel, menuDiagnostics);
   try {
     renderDiagnostics(await requestWithinDeadline('/diagnostics/status', undefined, 12000));
@@ -526,8 +528,10 @@ async function openDiagnostics(preset = setupContent.hidden ? undefined : { prof
     recordActiveUiEventBestEffort('request-failed');
     return;
   }
-  if (preset && diagnosticsWizard.screen(diagnosticsState) === 'choose') {
-    await startDiagnosticsCapture(preset.profile);
+  if (diagnosticsWizard.screen(diagnosticsState) !== 'choose') return;
+  if (preset) await startDiagnosticsCapture(preset.profile);
+  else if (signingIn) {
+    diagnosticsTiles.find((tile) => tile.dataset.diagnosticsTile === 'startup-authentication')?.focus?.();
   }
 }
 

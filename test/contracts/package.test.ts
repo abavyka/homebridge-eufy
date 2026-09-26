@@ -155,7 +155,15 @@ async function renderUi(
     'hksv-recording',
     'dashboard-ui',
     'other',
-  ].map((profile) => interactiveElement({ dataset: { diagnosticsTile: profile } }));
+  ].map((profile) =>
+    interactiveElement({
+      dataset: { diagnosticsTile: profile },
+      focused: false,
+      focus() {
+        this.focused = true;
+      },
+    }),
+  );
   const diagnosticsQuestionText = {
     focused: false,
     textContent: '',
@@ -883,6 +891,12 @@ describe('packed plugin', () => {
       expect(document.match(/class="dashboard-page-back"/g)).toHaveLength(3);
       expect(document.match(/aria-hidden="true">←<\/span>/g)).toHaveLength(3);
       expect(document).toContain('data-diagnostics-handoff');
+      expect(
+        document.match(
+          /(?:data-i18n="diagnosticsTilesHeading"\s*><\/h3>|data-attention-summary><\/p>)\s*<p class="diagnostics-note" data-i18n="diagnosticsPrivacy">/g,
+        ),
+        'the privacy note sits above the areas, and above the attention dialog action that starts a capture',
+      ).toHaveLength(2);
       expect(document).toContain('data-diagnostics-export');
       expect(document).not.toContain('diagnostics-steps');
       expect(document).not.toContain('data-diagnostics-case');
@@ -1420,8 +1434,8 @@ describe('packed plugin', () => {
       });
 
       /**
-       * Opened while the sign-in screen is up, the panel presumes the area rather than asking, and captures it at
-       * once. The presumption is not a lock: cancelling reaches the opening screen like any other.
+       * Opened while the sign-in screen is up, the panel still asks, beside the privacy note, and puts focus on the
+       * startup area. Nothing is captured until the reporter picks it.
        */
       const signingInUi = await renderUi(
         script,
@@ -1482,21 +1496,19 @@ describe('packed plugin', () => {
         setupContent: { hidden: false },
       });
 
-      await signingInUi.menuDiagnostics.dispatch('click');
+      await signingInUi.mastheadDiagnostics.dispatch('click');
 
+      expect(signingInUi.requests.map(({ path }) => path)).not.toContain('/diagnostics/authorize');
+      expect(signingInUi.diagnosticsWizardPanel.hidden, 'the question and its privacy note are on screen').toBe(false);
+      const startupTile = signingInUi.diagnosticsTiles.find(
+        (tile) => tile.dataset.diagnosticsTile === 'startup-authentication',
+      )!;
+      expect(startupTile.focused, 'the startup area is the one offered first').toBe(true);
+      await startupTile.dispatch('click');
       expect(signingInUi.requests).toContainEqual({
         path: '/diagnostics/authorize',
         body: { profile: 'startup-authentication' },
       });
-      expect(signingInUi).toMatchObject({
-        diagnosticsWizardPanel: { hidden: true },
-        diagnosticsPhaseTitle: { textContent: catalogs['i18n/en.json'].diagnosticsProfileStartup },
-        diagnosticsActions: { hidden: false },
-      });
-
-      await signingInUi.diagnosticsCancel.dispatch('click');
-
-      expect(signingInUi.diagnosticsWizardPanel.hidden, 'the presumed area is still open to being changed').toBe(false);
 
       const dashboardBackgroundUi = await renderUi(
         script,
@@ -2258,6 +2270,10 @@ describe('packed plugin', () => {
         });
         expect(attentionUi.mastheadDiagnostics.dataset.attention, 'the masthead action is unchanged').toBeUndefined();
         await attentionUi.menuDiagnostics.dispatch('click');
+        expect(
+          attentionUi.requests.map(({ path }) => path),
+          'naming the problem captures nothing yet',
+        ).not.toContain('/diagnostics/authorize');
         expect(attentionUi).toMatchObject({
           attentionDialog: { open: true },
           attentionTitle: { textContent: title },
