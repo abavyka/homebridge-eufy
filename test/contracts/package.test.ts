@@ -1014,6 +1014,7 @@ describe('packed plugin', () => {
           'stepDiscover',
           'attentionChooseAnother',
           'attentionDiagnose',
+          'menuDiagnostics',
           'trustedDeviceLabel',
           'updatePendingAction',
           'updatePendingTitle',
@@ -1052,7 +1053,7 @@ describe('packed plugin', () => {
       ).toEqual([]);
       const expectedCatalogKeys = [
         ...translationKeys,
-        ...translatedLabelKeys,
+        ...translatedLabelKeys.filter((key) => !translationKeys.includes(key)),
         'authCommitFailed',
         'authFailed',
         'authPluginRunning',
@@ -1349,6 +1350,9 @@ describe('packed plugin', () => {
         { dataset: { collecting: 'true' } },
       ]);
       expect(document.match(/class="diagnostics-capturing" data-i18n="diagnosticsCapturing"/g)).toHaveLength(2);
+      expect(document, 'the dashboard action names itself in words at rest, not only to a screen reader').toMatch(
+        /data-menu-diagnostics[^>]*>\s*<img[^>]*>\s*<span class="diagnostics-name" data-i18n="menuDiagnostics">/,
+      );
       await menuUi.diagnosticsCancel.dispatch('click');
       expect(menuUi.requests.at(-1), 'cancel asks the plugin to delete the session').toEqual({
         path: '/diagnostics/cancel',

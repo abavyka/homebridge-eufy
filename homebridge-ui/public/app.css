@@ -659,20 +659,32 @@ button.diagnostics-quiet-action {
     transform 150ms var(--ease-out);
 }
 
-.dashboard-action[data-collecting] {
+.dashboard-action[data-collecting],
+.dashboard-action:has(.diagnostics-name) {
   width: auto;
   grid-auto-flow: column;
   gap: 6px;
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
   padding: 0 10px;
 }
 
-/* A capture under way is said in words beside the icon, so the state does not rest on colour alone. */
+.dashboard-action[data-collecting] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+
+/*
+ * The dashboard's diagnostics action is named in words at rest, and a capture under way replaces that name
+ * beside the icon, so neither rests on the icon or on colour alone.
+ */
+.diagnostics-name,
 .diagnostics-capturing {
-  display: none;
   font-size: 12px;
   font-weight: 600;
+}
+
+.diagnostics-capturing,
+.dashboard-action[data-collecting] .diagnostics-name {
+  display: none;
 }
 
 .dashboard-action[data-collecting] .diagnostics-capturing {
@@ -1978,6 +1990,11 @@ input:focus-visible {
    */
   .diagnostics-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The row keeps its three actions on one line by leaving the diagnostics action to its icon. */
+  .diagnostics-name {
+    display: none;
   }
 
 
