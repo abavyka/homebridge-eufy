@@ -188,7 +188,6 @@ async function renderUi(
   const diagnosticsAuthorize = interactiveElement({ disabled: false, textContent: '' });
   const diagnosticsReproduction = interactiveElement({ disabled: true, textContent: '' });
   const diagnosticsStatus = { textContent: '' };
-  const diagnosticsIssueHint = { textContent: '' };
   const diagnosticsIssue = interactiveElement({
     hidden: true,
     href: '',
@@ -228,16 +227,7 @@ async function renderUi(
   const diagnosticsGuidanceBeforeSection = { hidden: false };
   const diagnosticsGuidanceBefore = { textContent: '' };
   const diagnosticsGuidanceAction = { textContent: '' };
-  const diagnosticsManifest = {
-    hidden: true,
-    children: [] as unknown[],
-    replaceChildren() {
-      this.children = [];
-    },
-    append(...children: unknown[]) {
-      this.children.push(...children);
-    },
-  };
+  const diagnosticsHandoff = { hidden: true };
   const diagnosticsExport = interactiveElement({ disabled: true, hidden: true });
   const diagnosticsResultHeading = {
     focused: false,
@@ -399,7 +389,6 @@ async function renderUi(
           '[data-diagnostics-devices-every]': diagnosticsDevicesEvery,
           '[data-diagnostics-devices-chosen]': diagnosticsDevicesChosen,
           '[data-diagnostics-issue]': diagnosticsIssue,
-          '[data-diagnostics-issue-hint]': diagnosticsIssueHint,
           '[data-diagnostics-existing-issue]': diagnosticsExistingIssue,
           '[data-diagnostics-result]': diagnosticsResult,
           '[data-diagnostics-actions]': diagnosticsActions,
@@ -410,7 +399,7 @@ async function renderUi(
           '[data-diagnostics-guidance-before-section]': diagnosticsGuidanceBeforeSection,
           '[data-diagnostics-guidance-before]': diagnosticsGuidanceBefore,
           '[data-diagnostics-guidance-action]': diagnosticsGuidanceAction,
-          '[data-diagnostics-manifest]': diagnosticsManifest,
+          '[data-diagnostics-handoff]': diagnosticsHandoff,
           '[data-diagnostics-export]': diagnosticsExport,
           '[data-diagnostics-result-heading]': diagnosticsResultHeading,
           '[data-diagnostics-start-another]': diagnosticsStartAnother,
@@ -667,7 +656,6 @@ async function renderUi(
     diagnosticsReproduction,
     diagnosticsStatus,
     diagnosticsIssue,
-    diagnosticsIssueHint,
     diagnosticsExistingIssue,
     diagnosticsResult,
     diagnosticsActions,
@@ -678,7 +666,7 @@ async function renderUi(
     diagnosticsGuidanceBeforeSection,
     diagnosticsGuidanceBefore,
     diagnosticsGuidanceAction,
-    diagnosticsManifest,
+    diagnosticsHandoff,
     diagnosticsExport,
     diagnosticsResultHeading,
     diagnosticsStartAnother,
@@ -973,7 +961,7 @@ describe('packed plugin', () => {
       // Three panels now: diagnostics, advanced, and one device's settings, each with the same way back.
       expect(document.match(/class="dashboard-page-back"/g)).toHaveLength(3);
       expect(document.match(/aria-hidden="true">←<\/span>/g)).toHaveLength(3);
-      expect(document).toContain('data-diagnostics-manifest');
+      expect(document).toContain('data-diagnostics-handoff');
       expect(document).toContain('data-diagnostics-export');
       expect(document).not.toContain('diagnostics-steps');
       expect(document).not.toContain('data-diagnostics-case');
@@ -1027,8 +1015,6 @@ describe('packed plugin', () => {
           'devicesEyebrow',
           'diagnosticsActionLabel',
           'diagnosticsArchiveExport',
-          'diagnosticsArchiveReviewIntro',
-          'diagnosticsStaysLocal',
           'diagnosticsBeforeLabel',
           'diagnosticsBestMatch',
           'diagnosticsEvidenceReady',
@@ -1146,22 +1132,7 @@ describe('packed plugin', () => {
         'diagnosticOnly',
         'diagnosticsAuthorized',
         'diagnosticsAuthorize',
-        'diagnosticsArchiveCoverageGap',
-        'diagnosticsIssueNeedsArchive',
-        'diagnosticsIssueOpensTab',
-        'diagnosticsArchiveDetail',
         'diagnosticsArchiveDownloaded',
-        'excludedCredentials',
-        'excludedInternalData',
-        'excludedKeys',
-        'excludedMedia',
-        'excludedSessions',
-        'excludedTokens',
-        'diagnosticsArchiveExcluded',
-        'diagnosticsArchiveExpires',
-        'diagnosticsArchiveFields',
-        'diagnosticsArchiveMode',
-        'diagnosticsArchiveTruncated',
         'diagnosticsCollectingFinishHere',
         'diagnosticsComplete',
         'diagnosticsControlAction',
@@ -1832,39 +1803,18 @@ describe('packed plugin', () => {
         'a completed session waits for the reporter to open diagnostics rather than blocking the page on load',
       ).toBe(false);
       await completedDiagnosticsUi.menuDiagnostics.dispatch('click');
-      expect(
-        completedDiagnosticsUi.diagnosticsIssue.attributes,
-        'a control a reader can see but not use says so, and says why',
-      ).toMatchObject({ 'aria-disabled': 'true' });
-      expect(completedDiagnosticsUi, 'the steps arrive with the completed state').toMatchObject({
-        diagnosticsManifest: { hidden: false },
+      expect(completedDiagnosticsUi, 'an archive not yet downloaded offers only its download').toMatchObject({
         diagnosticsExport: { disabled: false, hidden: false },
-        diagnosticsIssue: { hidden: false, href: '' },
+        diagnosticsHandoff: { hidden: true },
         diagnosticsStartAnother: { hidden: true },
         diagnosticsResult: { open: true },
         diagnosticsWizardPanel: { hidden: true },
       });
-      expect(completedDiagnosticsUi.requests, 'the manifest is fetched once, unasked').toContainEqual({
+      expect(completedDiagnosticsUi.requests, 'the archive is reviewed once, unasked').toContainEqual({
         path: '/diagnostics/archive/review',
         body: undefined,
       });
 
-      const manifestChildren = completedDiagnosticsUi.diagnosticsManifest.children as Array<{
-        children?: Array<{ children?: Array<{ textContent: string }>; textContent: string }>;
-        textContent: string;
-      }>;
-      const [, archiveLine, evidenceList] = manifestChildren[0].children ?? [];
-      expect(archiveLine?.textContent).toContain('synthetic v2');
-      expect(evidenceList?.children?.[0].textContent).toContain('plugin-log · diagnostic · included');
-      expect(evidenceList?.children?.[0].textContent).toContain('event: diagnostic');
-      const neverCollected = manifestChildren[1].textContent;
-      expect(neverCollected, 'what is never collected stays in front of the reader').toContain(
-        'your eufy login and password',
-      );
-      expect(neverCollected).toContain('any camera image, video or audio');
-      expect(neverCollected, 'an identifier is not an explanation').not.toMatch(/[a-z]+-[a-z]+-[a-z]/);
-      expect(manifestChildren[2].textContent).toContain('plugin-log');
-      expect(manifestChildren[2].textContent).toContain('do not reach the start of the reproduction');
       await completedDiagnosticsUi.diagnosticsExport.dispatch('click');
       expect(completedDiagnosticsUi.requests).toContainEqual({
         path: '/diagnostics/archive/export',
@@ -1884,9 +1834,9 @@ describe('packed plugin', () => {
         diagnosticsResultHeading: { textContent: catalogs['i18n/en.json'].diagnosticsArchiveDownloaded },
         diagnosticsExport: { hidden: true },
         diagnosticsStartAnother: { hidden: false },
-        diagnosticsIssue: { hidden: false, href: 'https://example.invalid/owner/repo/issues/new?template=bug' },
+        diagnosticsHandoff: { hidden: false },
+        diagnosticsIssue: { href: 'https://example.invalid/owner/repo/issues/new?template=bug' },
         diagnosticsExistingIssue: {
-          hidden: false,
           href: 'https://example.invalid/owner/repo/issues?q=is%3Aissue+is%3Aopen+author%3A%40me',
         },
       });

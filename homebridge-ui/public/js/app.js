@@ -58,7 +58,6 @@ const diagnosticsAuthorize = document.querySelector('[data-diagnostics-authorize
 const diagnosticsReproduction = document.querySelector('[data-diagnostics-reproduction]');
 const diagnosticsStatus = document.querySelector('[data-diagnostics-status]');
 const diagnosticsIssue = document.querySelector('[data-diagnostics-issue]');
-const diagnosticsIssueHint = document.querySelector('[data-diagnostics-issue-hint]');
 const diagnosticsExistingIssue = document.querySelector('[data-diagnostics-existing-issue]');
 const diagnosticsResult = document.querySelector('[data-diagnostics-result]');
 const diagnosticsActions = document.querySelector('[data-diagnostics-actions]');
@@ -69,7 +68,7 @@ const diagnosticsPhaseTitle = document.querySelector('[data-diagnostics-phase-ti
 const diagnosticsGuidanceBeforeSection = document.querySelector('[data-diagnostics-guidance-before-section]');
 const diagnosticsGuidanceBefore = document.querySelector('[data-diagnostics-guidance-before]');
 const diagnosticsGuidanceAction = document.querySelector('[data-diagnostics-guidance-action]');
-const diagnosticsManifest = document.querySelector('[data-diagnostics-manifest]');
+const diagnosticsHandoff = document.querySelector('[data-diagnostics-handoff]');
 const diagnosticsExport = document.querySelector('[data-diagnostics-export]');
 const diagnosticsResultHeading = document.querySelector('[data-diagnostics-result-heading]');
 const diagnosticsStartAnother = document.querySelector('[data-diagnostics-start-another]');
@@ -102,9 +101,9 @@ let legacyAcknowledged = false;
 let diagnosticsState = { status: 'inactive', missingEvidence: [] };
 /** Whether the reporter already downloaded this session's archive, which is what the report offer follows. */
 let diagnosticsArchiveDownloaded = false;
-/** The session whose manifest is on screen, so it is fetched once rather than on every render. */
+/** The session whose archive is reviewed and ready to export, so the review is fetched once rather than per render. */
 let diagnosticsReviewedCaseId = '';
-/** The one fetch in flight, so a burst of renders does not assemble the manifest several times over. */
+/** The one fetch in flight, so a burst of renders does not assemble the archive several times over. */
 let diagnosticsReviewRequest;
 let diagnosticsReviewId = '';
 let panelReturn;
@@ -365,10 +364,7 @@ function renderDiagnosticsWizard() {
  */
 function setIssueStepReachable(url) {
   diagnosticsIssue.href = url;
-  diagnosticsIssue.setAttribute('aria-disabled', url ? 'false' : 'true');
-  diagnosticsIssueHint.textContent = messages[url ? 'diagnosticsIssueOpensTab' : 'diagnosticsIssueNeedsArchive'] ?? '';
   diagnosticsExistingIssue.href = url.replace(/\/issues\/new.*$/, '/issues?q=is%3Aissue+is%3Aopen+author%3A%40me');
-  diagnosticsExistingIssue.hidden = !url;
 }
 
 /**
@@ -411,7 +407,6 @@ function renderDiagnostics(state) {
       : state.status === 'reproducing'
         ? messages.diagnosticsNowFinish
         : messages.diagnosticsStartRecording;
-  diagnosticsIssue.hidden = true;
   setIssueStepReachable(diagnosticsArchiveDownloaded ? (state.issueUrl ?? '') : '');
   const offering = (reviewing || diagnosticsArchiveDownloaded) && !diagnosticsPanel.hidden;
   if (offering && !diagnosticsResult.open) diagnosticsResult.showModal?.();
@@ -419,9 +414,8 @@ function renderDiagnostics(state) {
   diagnosticsResultHeading.textContent =
     messages[diagnosticsArchiveDownloaded ? 'diagnosticsArchiveDownloaded' : 'diagnosticsEvidenceReady'] ?? '';
   const reviewed = reviewing && diagnosticsReviewedCaseId === (state.supportCaseId ?? '');
-  diagnosticsManifest.hidden = !reviewed;
   diagnosticsExport.hidden = !reviewed || diagnosticsArchiveDownloaded;
-  diagnosticsIssue.hidden = !reviewed;
+  diagnosticsHandoff.hidden = !diagnosticsArchiveDownloaded;
   diagnosticsStartAnother.hidden = !diagnosticsArchiveDownloaded;
   if (!reviewed) {
     diagnosticsExport.disabled = true;
@@ -460,69 +454,11 @@ function renderDiagnostics(state) {
 }
 
 /**
- * The catalogue entry that says, in a reader's words, what a never-collected class is.
+ * The reviewed archive for the session on screen, fetched once.
  *
- * A class with no entry falls back to its own identifier, which is visible rather than absent, so a newly
- * declared class shows up as something to translate instead of quietly disappearing from the list.
- */
-const NEVER_COLLECTED_LABELS = {
-  'credentials-and-authentication': 'excludedCredentials',
-  'tokens-cookies-and-authorization': 'excludedTokens',
-  'session-and-push-stores': 'excludedSessions',
-  'private-and-symmetric-keys': 'excludedKeys',
-  'unconstrained-internal-objects': 'excludedInternalData',
-  'camera-images-talkback-and-raw-media': 'excludedMedia',
-};
-
-function renderArchiveManifest(manifest) {
-  diagnosticsManifest.replaceChildren();
-  const summary = document.createElement('p');
-  const mode =
-    messages[manifest.reproductionMode === 'intermittent' ? 'diagnosticsModeIntermittent' : 'diagnosticsModeNow'] ??
-    manifest.reproductionMode;
-  summary.textContent = `${manifest.archiveFormat} v${manifest.version} · ${manifest.keyId} · ${messages.diagnosticsArchiveMode ?? ''} ${mode} · ${(messages.diagnosticsArchiveExpires ?? '').replace('{expiresAt}', new Date(manifest.archiveExpiresAt).toLocaleString(shell.lang || 'en'))}`;
-  const evidence = document.createElement('ul');
-  for (const item of manifest.evidence ?? []) {
-    const row = document.createElement('li');
-    const size = item.bytes === undefined ? '' : ` · ${item.bytes} B`;
-    const truncated = item.truncated ? ` · ${messages.diagnosticsArchiveTruncated ?? ''}` : '';
-    const missing = item.missingReason ? ` · ${item.missingReason}` : '';
-    const fields = (item.fields ?? []).map((field) => `${field.field}: ${field.privacyClass}`).join(', ');
-    row.textContent = `${item.evidence} · ${item.privacyClass} · ${item.status}${missing}${size}${truncated}${fields ? ` · ${messages.diagnosticsArchiveFields ?? ''} ${fields}` : ''}`;
-    evidence.append(row);
-  }
-  const detail = document.createElement('details');
-  const detailLabel = document.createElement('summary');
-  detailLabel.textContent = messages.diagnosticsArchiveDetail ?? '';
-  detail.append(detailLabel, summary, evidence);
-  const exclusions = document.createElement('p');
-  const neverCollected = (manifest.excludedClasses ?? []).map(
-    (excluded) => messages[NEVER_COLLECTED_LABELS[excluded]] ?? excluded,
-  );
-  exclusions.textContent = `${messages.diagnosticsArchiveExcluded ?? ''} ${neverCollected.join(', ')}.`;
-  diagnosticsManifest.append(detail, exclusions);
-  const uncovered = (manifest.evidence ?? []).filter((item) => item.coversReproduction === false);
-  if (uncovered.length > 0) {
-    const gap = document.createElement('p');
-    gap.textContent = (messages.diagnosticsArchiveCoverageGap ?? '')
-      .replace('{classes}', uncovered.map((item) => item.evidence).join(', '))
-      .replace(
-        '{retainedFrom}',
-        new Date(
-          Math.min(...uncovered.map((item) => Date.parse(item.retainedFrom))),
-        ).toLocaleString(shell.lang || 'en'),
-      );
-    diagnosticsManifest.append(gap);
-  }
-  diagnosticsManifest.hidden = false;
-}
-
-/**
- * The manifest for the session on screen, fetched once.
- *
- * A completed reproduction that the reporter is looking at is a file they came for, so the manifest is
- * read without being asked for. It is read once per session rather than per render, because assembling it
- * reads every collected log. Exporting spends it, and ends the session with it.
+ * A completed reproduction that the reporter is looking at is a file they came for, so the archive is
+ * reviewed without being asked for. It is reviewed once per session rather than per render, because
+ * assembling it reads every collected log. Exporting spends it, and ends the session with it.
  */
 function ensureArchiveReview(caseId) {
   if (!caseId || diagnosticsReviewedCaseId === caseId) return Promise.resolve();
@@ -531,7 +467,6 @@ function ensureArchiveReview(caseId) {
       const review = await requestWithinDeadline('/diagnostics/archive/review', undefined, 12000);
       diagnosticsReviewId = review.reviewId;
       diagnosticsReviewedCaseId = caseId;
-      renderArchiveManifest(review.manifest);
       diagnosticsExport.hidden = false;
       diagnosticsExport.disabled = false;
     } catch {

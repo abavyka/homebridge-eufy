@@ -386,87 +386,40 @@ button.diagnostics-quiet-action {
 }
 
 /*
- * The two steps of the handoff share one shape, so the sequence reads as a sequence: same height, same
- * gap, same badge, and a colour each. The download is a button because it acts here; the report is an
- * anchor because it navigates to GitHub.
+ * The download is a button because it acts here; the two ways to report are anchors because they navigate to
+ * GitHub, side by side because either one finishes the handoff.
  */
 .diagnostics-result [data-diagnostics-export],
-.diagnostics-result [data-diagnostics-issue],
-.diagnostics-result [data-diagnostics-existing-issue] {
+.diagnostics-handoff a {
   display: flex;
-  width: 100%;
   min-height: 44px;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  margin-top: 8px;
   border-radius: var(--radius-control);
   font-weight: 600;
+  text-align: center;
   text-decoration: none;
 }
 
-/*
- * The step number is generated content rather than an element, because translation assigns `textContent`
- * on the control and would remove any child it had.
- */
-.diagnostics-result [data-diagnostics-export]::before,
-.diagnostics-result [data-diagnostics-issue]::before {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
+.diagnostics-handoff:not([hidden]) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
 }
 
-/* Each badge inverts its own control's pair, so the digit keeps its contrast on either background. */
-.diagnostics-result [data-diagnostics-export]::before {
-  background: var(--on-accent);
-  color: var(--accent);
-  content: '1';
-}
-
-/*
- * Step two is the same progression as step one and is filled differently rather than coloured
- * differently: a success colour would claim the task is complete, and colour alone must not be what
- * tells two controls apart.
- */
-.diagnostics-result [data-diagnostics-issue] {
-  border: 1px solid var(--accent);
-  background: transparent;
-  color: var(--accent-ink);
-}
-
-.diagnostics-result [data-diagnostics-issue]::before {
+.diagnostics-handoff [data-diagnostics-issue] {
   background: var(--accent);
   color: var(--on-accent);
-  content: '2';
 }
 
-/* The other way to hand the file over: attaching it to an issue the reporter already opened. */
-.diagnostics-result [data-diagnostics-existing-issue] {
+.diagnostics-handoff [data-diagnostics-existing-issue] {
   border: 1px solid var(--line-strong);
   color: var(--ink);
 }
 
-.diagnostics-result [data-diagnostics-existing-issue][hidden] {
-  display: none;
-}
-
-/* Without an archive there is nothing to attach, so the step is present and not yet a link. */
-.diagnostics-result a[data-diagnostics-issue][aria-disabled='true'] {
-  border-color: var(--line);
-  color: var(--ink-disabled);
-  cursor: default;
-}
-
-.diagnostics-result a[data-diagnostics-issue][aria-disabled='true']::before {
-  background: var(--ink-disabled);
-  color: var(--panel);
+.diagnostics-result [data-diagnostics-start-another] {
+  justify-self: center;
 }
 
 /*
@@ -608,35 +561,6 @@ button.diagnostics-quiet-action {
   border-width: 2px;
   background: var(--accent-soft);
   color: var(--accent-ink);
-}
-
-.diagnostics-step-hint {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.diagnostics-local-note {
-  margin: 12px 0 0;
-  color: var(--ink-secondary);
-  font-size: 12px;
-}
-
-.diagnostics-result button {
-  width: 100%;
-}
-
-.diagnostics-manifest {
-  margin-top: 12px;
-  border-block: 1px solid var(--line);
-  padding-block: 8px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.diagnostics-manifest ul {
-  margin: 8px 0;
-  padding-left: 20px;
 }
 
 .advanced-fields {
