@@ -668,7 +668,8 @@ describe('guided diagnostics session', () => {
         partialExportAvailable: true,
       });
       const prefilled = new URL(prepared.issueUrl ?? '').searchParams.get('environment') ?? '';
-      expect(prefilled).toContain('control-state (now)');
+      expect(prefilled).toContain('- **Diagnostics profile**: control-state\n');
+      expect(new URL(prepared.issueUrl ?? '').searchParams.get('title')).toBe('[Diagnostics] Device controls: ');
       expect(prefilled).toContain('**Missing evidence**: plugin-log, sdk-log');
       expect((await diagnostics.reviewSupportArchive()).manifest.evidence).toContainEqual({
         evidence: 'sdk-log',
@@ -1735,7 +1736,8 @@ describe('guided diagnostics issue handoff', () => {
     const form = readFileSync(join(repository, '.github', 'ISSUE_TEMPLATE', 'bug_report.yml'), 'utf8');
     const declared = [...form.matchAll(/^\s{4}id: (\S+)$/gm)].map(([, id]) => id);
     const { url } = await preparedReport('live-media');
-    const addressed = [...url.searchParams.keys()].filter((key) => key !== 'template');
+    // `template` and `title` are GitHub's own parameters rather than fields of the form.
+    const addressed = [...url.searchParams.keys()].filter((key) => key !== 'template' && key !== 'title');
 
     expect(declared).toContain('environment');
     expect(addressed.length).toBeGreaterThan(0);

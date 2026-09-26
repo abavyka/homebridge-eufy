@@ -465,6 +465,7 @@ function bugReportUrl(
 ): string {
   const url = new URL(BUG_REPORT_FORM);
   url.searchParams.set('template', 'bug_report.yml');
+  url.searchParams.set('title', `[Diagnostics] ${BUG_REPORT_AREAS[session.profile]}: `);
   url.searchParams.set(
     'environment',
     [
@@ -473,7 +474,7 @@ function bugReportUrl(
       `- **Node.js Version**: ${process.version}`,
       `- **Homebridge Version**: ${host?.homebridge ?? ''}`,
       `- **OS**: ${process.platform} ${process.arch}`,
-      `- **Diagnostics profile**: ${session.profile} (${session.reproductionMode})`,
+      `- **Diagnostics profile**: ${session.profile}`,
       `- **Missing evidence**: ${missingEvidence.length ? missingEvidence.join(', ') : 'none'}`,
     ].join('\n'),
   );
