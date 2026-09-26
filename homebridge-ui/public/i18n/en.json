@@ -90,6 +90,7 @@
   "diagnosticOnly": "Diagnostic only",
   "diagnosticsActionLabel": "What to do",
   "diagnosticsArchiveDownloaded": "Diagnostics file downloaded.",
+  "diagnosticsArchiveHandoff": "Your browser saved {filename}, usually in Downloads. On GitHub, drag it into the Diagnostics Archive box without renaming it.",
   "diagnosticsArchiveExport": "Download encrypted archive",
   "diagnosticsAuthorize": "Start diagnostics session",
   "diagnosticsAuthorized": "Ready to collect. Start when you are ready.",

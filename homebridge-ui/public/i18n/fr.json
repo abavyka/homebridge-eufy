@@ -90,6 +90,7 @@
   "diagnosticOnly": "Diagnostic uniquement",
   "diagnosticsActionLabel": "À faire",
   "diagnosticsArchiveDownloaded": "Fichier de diagnostic téléchargé.",
+  "diagnosticsArchiveHandoff": "Votre navigateur a enregistré {filename}, en général dans Téléchargements. Sur GitHub, glissez-le dans la case Diagnostics Archive sans le renommer.",
   "diagnosticsArchiveExport": "Télécharger l’archive chiffrée",
   "diagnosticsAuthorize": "Démarrer la session de diagnostic",
   "diagnosticsAuthorized": "La collecte est prête. Démarrez lorsque vous le souhaitez.",

@@ -219,6 +219,8 @@ async function renderUi(
   const diagnosticsGuidanceBefore = { textContent: '' };
   const diagnosticsGuidanceAction = { textContent: '' };
   const diagnosticsHandoff = { hidden: true };
+  const diagnosticsHandoffNote = { hidden: true, textContent: '' };
+  const diagnosticsResultStatus = { textContent: '' };
   const diagnosticsExport = interactiveElement({ disabled: true, hidden: true });
   const diagnosticsResultHeading = {
     focused: false,
@@ -388,6 +390,8 @@ async function renderUi(
           '[data-diagnostics-guidance-before]': diagnosticsGuidanceBefore,
           '[data-diagnostics-guidance-action]': diagnosticsGuidanceAction,
           '[data-diagnostics-handoff]': diagnosticsHandoff,
+          '[data-diagnostics-handoff-note]': diagnosticsHandoffNote,
+          '[data-diagnostics-result-status]': diagnosticsResultStatus,
           '[data-diagnostics-export]': diagnosticsExport,
           '[data-diagnostics-result-heading]': diagnosticsResultHeading,
           '[data-diagnostics-start-another]': diagnosticsStartAnother,
@@ -652,6 +656,8 @@ async function renderUi(
     diagnosticsGuidanceBefore,
     diagnosticsGuidanceAction,
     diagnosticsHandoff,
+    diagnosticsHandoffNote,
+    diagnosticsResultStatus,
     diagnosticsExport,
     diagnosticsResultHeading,
     diagnosticsStartAnother,
@@ -1116,6 +1122,7 @@ describe('packed plugin', () => {
         'diagnosticsAuthorized',
         'diagnosticsAuthorize',
         'diagnosticsArchiveDownloaded',
+        'diagnosticsArchiveHandoff',
         'diagnosticsCollectingFinishHere',
         'diagnosticsComplete',
         'diagnosticsControlAction',
@@ -1819,18 +1826,24 @@ describe('packed plugin', () => {
         diagnosticsExport: { hidden: true },
         diagnosticsStartAnother: { hidden: false },
         diagnosticsHandoff: { hidden: false },
+        diagnosticsHandoffNote: {
+          hidden: false,
+          textContent: expect.stringContaining(
+            'homebridge-eufy-support-00000000-0000-4000-8000-000000000000.eufysupport.gz',
+          ),
+        },
         diagnosticsIssue: { href: 'https://example.invalid/owner/repo/issues/new?template=bug' },
         diagnosticsExistingIssue: {
-          href: 'https://example.invalid/owner/repo/issues?q=is%3Aissue+is%3Aopen+author%3A%40me',
+          href: 'https://example.invalid/owner/repo/issues?q=is%3Aissue+involves%3A%40me',
         },
       });
       await completedDiagnosticsUi.diagnosticsExistingIssue.dispatch('click');
       expect(
-        completedDiagnosticsUi.diagnosticsExistingIssue.href,
-        'the link still leads to GitHub when the browser follows it',
-      ).toBe('https://example.invalid/owner/repo/issues?q=is%3Aissue+is%3Aopen+author%3A%40me');
-      await new Promise((resolve) => setTimeout(resolve));
-      expect(completedDiagnosticsUi, 'handing the file over finishes the session').toMatchObject({
+        completedDiagnosticsUi.diagnosticsResult.open,
+        'following a link keeps the dialog, so a GitHub tab that went wrong can be opened again',
+      ).toBe(true);
+      await completedDiagnosticsUi.diagnosticsStartAnother.dispatch('click');
+      expect(completedDiagnosticsUi, 'leaving the dialog finishes the session').toMatchObject({
         diagnosticsResult: { open: false },
         diagnosticsWizardPanel: { hidden: false },
         diagnosticsQuestion: { hidden: false },

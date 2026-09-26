@@ -66,6 +66,8 @@ const diagnosticsGuidanceBeforeSection = document.querySelector('[data-diagnosti
 const diagnosticsGuidanceBefore = document.querySelector('[data-diagnostics-guidance-before]');
 const diagnosticsGuidanceAction = document.querySelector('[data-diagnostics-guidance-action]');
 const diagnosticsHandoff = document.querySelector('[data-diagnostics-handoff]');
+const diagnosticsHandoffNote = document.querySelector('[data-diagnostics-handoff-note]');
+const diagnosticsResultStatus = document.querySelector('[data-diagnostics-result-status]');
 const diagnosticsExport = document.querySelector('[data-diagnostics-export]');
 const diagnosticsResultHeading = document.querySelector('[data-diagnostics-result-heading]');
 const diagnosticsStartAnother = document.querySelector('[data-diagnostics-start-another]');
@@ -352,7 +354,7 @@ function renderDiagnosticsWizard() {
  */
 function setIssueStepReachable(url) {
   diagnosticsIssue.href = url;
-  diagnosticsExistingIssue.href = url.replace(/\/issues\/new.*$/, '/issues?q=is%3Aissue+is%3Aopen+author%3A%40me');
+  diagnosticsExistingIssue.href = url.replace(/\/issues\/new.*$/, '/issues?q=is%3Aissue+involves%3A%40me');
 }
 
 /**
@@ -406,6 +408,8 @@ function renderDiagnostics(state) {
   const reviewed = reviewing && diagnosticsReviewedCaseId === (state.supportCaseId ?? '');
   diagnosticsExport.hidden = !reviewed || diagnosticsArchiveDownloaded;
   diagnosticsHandoff.hidden = !diagnosticsArchiveDownloaded;
+  diagnosticsHandoffNote.hidden = !diagnosticsArchiveDownloaded;
+  if (!offering) diagnosticsResultStatus.textContent = '';
   diagnosticsStartAnother.hidden = !diagnosticsArchiveDownloaded;
   if (!reviewed) {
     diagnosticsExport.disabled = true;
@@ -460,7 +464,7 @@ function ensureArchiveReview(caseId) {
       diagnosticsExport.hidden = false;
       diagnosticsExport.disabled = false;
     } catch {
-      diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
+      diagnosticsResultStatus.textContent = messages.diagnosticsFailed ?? '';
     } finally {
       diagnosticsReviewRequest = undefined;
     }
@@ -487,6 +491,11 @@ async function downloadDiagnosticsArchive() {
     const download = document.createElement('a');
     download.href = `data:${exported.mediaType};base64,${exported.archive}`;
     download.download = exported.filename;
+    diagnosticsHandoffNote.textContent = (messages.diagnosticsArchiveHandoff ?? '').replace(
+      '{filename}',
+      exported.filename,
+    );
+    diagnosticsResultStatus.textContent = '';
     document.body.appendChild(download);
     download.click();
     document.body.removeChild(download);
@@ -499,7 +508,7 @@ async function downloadDiagnosticsArchive() {
     diagnosticsReviewId = '';
     diagnosticsReviewedCaseId = '';
     diagnosticsExport.disabled = false;
-    diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
+    diagnosticsResultStatus.textContent = messages.diagnosticsFailed ?? '';
   }
 }
 
@@ -591,16 +600,6 @@ diagnosticsChangeAnswers.addEventListener('click', () => {
 });
 
 diagnosticsStartAnother.addEventListener('click', endDiagnosticsCase);
-/**
- * A link is followed only after its click handlers return, and ending the session clears its address, so the
- * session ends on the next turn rather than sending the reporter back to this page.
- */
-function endDiagnosticsCaseAfterFollowing() {
-  setTimeout(endDiagnosticsCase);
-}
-
-diagnosticsExistingIssue.addEventListener('click', endDiagnosticsCaseAfterFollowing);
-diagnosticsIssue.addEventListener('click', endDiagnosticsCaseAfterFollowing);
 /** Escape leaves the archive dialog only once its file is downloaded, and leaving it finishes the session. */
 diagnosticsResult.addEventListener('cancel', (event) => {
   event.preventDefault();
