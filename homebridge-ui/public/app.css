@@ -625,6 +625,7 @@ button.diagnostics-quiet-action {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
   background: var(--panel);
+  color: var(--ink);
   padding: 0;
 }
 
