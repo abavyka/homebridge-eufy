@@ -1038,6 +1038,22 @@ describe('packed plugin', () => {
         'menuRelogin',
         'setupSequenceLabel',
       ]);
+      /**
+       * A condition the dashboard names is worded under the log keys it is reported with, and the ones the page
+       * answers on its own (a sign-in, another owner, a stopped plugin) or no action resolves are left unworded.
+       */
+      const conditionKeys = Object.keys(catalogs['i18n/en.json']).filter((key) => key.startsWith('log.'));
+      expect(conditionKeys.filter((key) => !(key in runtimeMessages))).toEqual([]);
+      expect(
+        conditionKeys.filter((key) =>
+          [
+            'log.runtime.authenticationRequired',
+            'log.runtime.ownerConflict',
+            'log.runtime.failed',
+            'log.homekit.recognizedNotRepresented',
+          ].includes(key),
+        ),
+      ).toEqual([]);
       const expectedCatalogKeys = [
         ...translationKeys,
         ...translatedLabelKeys,
@@ -1149,10 +1165,13 @@ describe('packed plugin', () => {
         'updatePendingManual',
         'updatePendingSummary',
         'updatePendingVersionLabel',
+        ...conditionKeys,
       ].sort();
       expect(Object.keys(catalogs['i18n/en.json']).sort()).toEqual(expectedCatalogKeys);
       expect(Object.keys(catalogs['i18n/fr.json']).sort()).toEqual(expectedCatalogKeys);
-      expect([document, script, JSON.stringify(catalogs)].join('\n')).not.toMatch(/\b(?:SDK|runtime|IPC)\b/i);
+      expect([document, script, JSON.stringify(Object.values(catalogs).map(Object.values))].join('\n')).not.toMatch(
+        /\b(?:SDK|runtime|IPC)\b/i,
+      );
       expect(logos.join('\n')).not.toMatch(/\bSDK\b/i);
       expect(document).not.toMatch(/<!doctype|<(?:html|head|body)(?:\s|>)/i);
       expect(script).toContain('homebridge.userCurrentLightingMode()');
@@ -2094,7 +2113,16 @@ describe('packed plugin', () => {
        * their cause and remedy rather than reading as a first run or offering a diagnostic run.
        */
       for (const [state, snapshot] of [
-        ['failed', { state: 'failed', devices: [] }],
+        [
+          'failed',
+          {
+            state: 'failed',
+            devices: [],
+            conditions: [
+              { code: 'runtime-failed', summaryKey: 'log.runtime.failed', actionKey: 'log.action.reviewRuntime' },
+            ],
+          },
+        ],
         [
           'unreachable',
           {
@@ -2121,8 +2149,9 @@ describe('packed plugin', () => {
       }
 
       /**
-       * A state a run explains, and a device nothing can reach, light the dashboard's diagnostics action. Pressing it
-       * names the problem and its remedy, and diagnosing it opens the wizard past the answers the problem gives.
+       * A state a run explains, an active condition the page has words for, and a device nothing can reach light the
+       * dashboard's diagnostics action, in that order. Pressing it names the problem and its remedy, and diagnosing it
+       * captures the area the problem belongs to.
        */
       const unreachableDevice = {
         serial: 'synthetic-unreachable',
@@ -2155,6 +2184,60 @@ describe('packed plugin', () => {
           catalogs['i18n/en.json'].attentionUnreachableTitle.replace('{device}', 'Porch camera'),
           catalogs['i18n/en.json'].attentionUnreachableSummary,
           'device-representation',
+        ],
+        [
+          {
+            state: 'ready',
+            devices: [unreachableDevice],
+            conditions: [
+              {
+                code: 'runtime-owner-conflict',
+                summaryKey: 'log.runtime.ownerConflict',
+                actionKey: 'log.action.stopOtherOwner',
+              },
+              {
+                code: 'camera-live-session-failed',
+                summaryKey: 'log.homekit.cameraLiveSessionFailed',
+                actionKey: 'log.action.retryLiveView',
+                serials: ['synthetic-unreachable'],
+              },
+            ],
+          },
+          catalogs['i18n/en.json']['log.homekit.cameraLiveSessionFailed'],
+          catalogs['i18n/en.json']['log.action.retryLiveView'],
+          'live-media',
+        ],
+        [
+          {
+            state: 'ready',
+            devices: [],
+            conditions: [
+              {
+                code: 'camera-recording-unavailable',
+                summaryKey: 'log.homekit.cameraRecordingUnavailable',
+                actionKey: 'log.action.setFfmpegPath',
+              },
+            ],
+          },
+          catalogs['i18n/en.json']['log.homekit.cameraRecordingUnavailable'],
+          catalogs['i18n/en.json']['log.action.setFfmpegPath'],
+          'hksv-recording',
+        ],
+        [
+          {
+            state: 'ready',
+            devices: [],
+            conditions: [
+              {
+                code: 'lock-operation-failed',
+                summaryKey: 'log.homekit.lockOperationFailed',
+                actionKey: 'log.action.retryLock',
+              },
+            ],
+          },
+          catalogs['i18n/en.json']['log.homekit.lockOperationFailed'],
+          catalogs['i18n/en.json']['log.action.retryLock'],
+          'control-state',
         ],
       ] as const) {
         const attentionUi = await renderUi(

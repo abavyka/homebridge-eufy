@@ -631,8 +631,6 @@ let warmUpSelection = ['doorbellPress'];
 let warmUpCandidates = [];
 // The devices the dashboard last drew, so opening a tile can find the one it speaks for.
 let dashboardDevices = [];
-// The conditions the plugin held active when the dashboard was last drawn.
-let dashboardConditions = [];
 /**
  * The entries the user has marked, in whichever column they sit.
  *
@@ -826,7 +824,6 @@ async function showDashboard() {
     warmUpCandidates = Array.isArray(snapshot.warmUpCandidates) ? snapshot.warmUpCandidates : [];
     // Kept beside the render that drew them, so opening a tile finds the device that tile stands for.
     dashboardDevices = snapshot.devices ?? [];
-    dashboardConditions = snapshot.conditions ?? [];
     dashboardAttention = dashboardView.render(snapshot, configuredBlock() ?? {}, messages, dashboardElements);
     if (snapshot.state === 'authentication-required' && snapshot.devices?.length > 0 && !reauthDialog.open) {
       reauthDialog.showModal?.();
