@@ -346,6 +346,35 @@ describe('guided diagnostics session', () => {
     }
   });
 
+  /**
+   * A capture still running when its 72 hours end is finished at that end rather than lost: it reviews and exports
+   * like one finished by hand until the archive retention has passed, and then starts over.
+   */
+  it('finishes a capture that outlives its authorization at the moment it ends', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    let now = Date.parse('2026-08-16T08:00:00.000Z');
+    const diagnostics = new GuidedDiagnostics(root, () => now);
+
+    try {
+      const authorized = await diagnostics.authorize('control-state', 'now');
+      await diagnostics.startReproduction();
+
+      now += 73 * HOUR_MS;
+      expect(await diagnostics.status()).toMatchObject({
+        status: 'complete',
+        reproductionEndedAt: authorized.expiresAt,
+        partialExportAvailable: true,
+      });
+      expect((await diagnostics.reviewSupportArchive()).manifest.reproductionEndedAt).toBe(authorized.expiresAt);
+
+      now += 24 * HOUR_MS;
+      expect(await diagnostics.status()).toMatchObject({ status: 'expired', partialExportAvailable: false });
+      await expect(diagnostics.reviewSupportArchive()).rejects.toThrow('expired');
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it('defaults a live version-1 session without a reproduction mode to now', async () => {
     const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
     const now = Date.parse('2026-08-16T08:00:00.000Z');
@@ -442,6 +471,82 @@ describe('guided diagnostics session', () => {
       reportRuntimeNotice(logger, 'status-publication-failed');
       await logger.flush?.();
 
+      const records = readFileSync(join(root, 'logs', 'homebridge-eufy.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(records.map(({ scope }) => scope)).toEqual(['runtime-notice']);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  /**
+   * The area for a fault that fits no other choice selects every log class another area does, so a wrong pick loses
+   * none. The dashboard's UI events are the exception: only a dashboard capture records them.
+   */
+  it('selects every log class the other areas collect, all but the dashboard UI events', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const diagnostics = new GuidedDiagnostics(root);
+    const profiles: DiagnosticsProfile[] = [
+      'startup-authentication',
+      'device-representation',
+      'control-state',
+      'live-media',
+      'hksv-recording',
+      'dashboard-ui',
+    ];
+
+    try {
+      const logs = new Set<string>();
+      for (const profile of profiles) {
+        for (const evidence of (await diagnostics.authorize(profile, 'now')).selectedEvidence) logs.add(evidence);
+      }
+      logs.delete('ui-log');
+      const other = await diagnostics.authorize('other', 'now');
+
+      expect([...other.selectedEvidence].sort()).toEqual([...logs].sort());
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  /** Cancelling writes the UI events already queued and refuses the ones that arrive while it deletes the session. */
+  it('drains queued UI events before a cancel deletes the session', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const diagnostics = new GuidedDiagnostics(root);
+
+    try {
+      await diagnostics.authorize('dashboard-ui', 'now');
+      await diagnostics.startReproduction();
+      const queued = diagnostics.recordUiEvent('dashboard-opened');
+      const cancelled = diagnostics.cancel();
+
+      await expect(diagnostics.recordUiEvent('dashboard-opened')).rejects.toThrow('closing');
+      await expect(queued).resolves.toBeUndefined();
+      await expect(cancelled).resolves.toMatchObject({ status: 'inactive' });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  /** A cancelled capture leaves no session behind, so nothing is offered for it and its verbose scopes stop being kept. */
+  it('deletes a cancelled capture and stops keeping what it admitted', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const diagnostics = new GuidedDiagnostics(root);
+
+    try {
+      await diagnostics.authorize('live-media', 'now');
+      await diagnostics.startReproduction();
+
+      await expect(diagnostics.cancel()).resolves.toMatchObject({ status: 'inactive', partialExportAvailable: false });
+      expect(existsSync(join(root, 'diagnostics', 'session.json'))).toBe(false);
+      await expect(diagnostics.endReproduction()).rejects.toThrow('Diagnostics authorization is inactive or expired');
+
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root);
+      logger.debug?.(JSON.stringify({ scope: 'sdk', level: 'debug', subsystem: 'mqtt', event: 'connection-opened' }));
+      reportRuntimeNotice(logger, 'status-publication-failed');
+      await logger.flush?.();
       const records = readFileSync(join(root, 'logs', 'homebridge-eufy.jsonl'), 'utf8')
         .trim()
         .split('\n')
@@ -563,7 +668,8 @@ describe('guided diagnostics session', () => {
         partialExportAvailable: true,
       });
       const prefilled = new URL(prepared.issueUrl ?? '').searchParams.get('environment') ?? '';
-      expect(prefilled).toContain('control-state (now)');
+      expect(prefilled).toContain('- **Diagnostics profile**: control-state\n');
+      expect(new URL(prepared.issueUrl ?? '').searchParams.get('title')).toBe('[Diagnostics] Device controls: ');
       expect(prefilled).toContain('**Missing evidence**: plugin-log, sdk-log');
       expect((await diagnostics.reviewSupportArchive()).manifest.evidence).toContainEqual({
         evidence: 'sdk-log',
@@ -576,12 +682,13 @@ describe('guided diagnostics session', () => {
       expect(markers).toContain('"event":"reproduction-ended"');
       expect(markers).not.toMatch(/serial|device|camera/i);
 
-      now += 73 * HOUR_MS;
-      expect(await diagnostics.status()).toMatchObject({
+      now += 97 * HOUR_MS;
+      expect(await diagnostics.status(), 'an expired session no longer offers its archive').toMatchObject({
         status: 'expired',
-        partialExportAvailable: true,
+        partialExportAvailable: false,
         issueUrl: prepared.issueUrl,
       });
+      await expect(diagnostics.reviewSupportArchive()).rejects.toThrow('expired');
     } finally {
       rmSync(root, { force: true, recursive: true });
     }
@@ -778,6 +885,15 @@ describe('guided diagnostics session', () => {
       expect(exported.archive.toString('utf8')).not.toContain(forbidden);
       expect(exported.archive.toString('utf8')).not.toContain('contact-state');
       await expect(diagnostics.exportSupportArchive(review.reviewId)).rejects.toThrow('review');
+      expect(await diagnostics.status(), 'an export proves no delivery, so the file stays on offer').toMatchObject({
+        status: 'complete',
+        partialExportAvailable: true,
+      });
+      const again = await diagnostics.exportSupportArchive((await diagnostics.reviewSupportArchive()).reviewId);
+      expect(again.filename, 'a fresh review exports the same capture again').toBe(exported.filename);
+      await expect(diagnostics.cancel(), 'leaving the file ends the session').resolves.toMatchObject({
+        status: 'inactive',
+      });
 
       const payload = decryptSupportArchive(exported.archive, privateKey);
       expect(payload.manifest).toEqual(review.manifest);
@@ -861,6 +977,9 @@ describe('guided diagnostics session', () => {
       tampered.keyId = 'substituted-key';
       expect(() => decryptSupportArchive(gzipSync(JSON.stringify(tampered)), privateKey)).toThrow();
 
+      await diagnostics.authorize('control-state', 'intermittent');
+      await diagnostics.startReproduction();
+      await diagnostics.endReproduction();
       const expiredReview = await diagnostics.reviewSupportArchive();
       now += 24 * HOUR_MS;
       await expect(diagnostics.exportSupportArchive(expiredReview.reviewId)).rejects.toThrow('stale');
@@ -1390,7 +1509,7 @@ describe('a diagnostics authorization the runtime is notified of', () => {
       await logger.flush?.();
 
       expect(info).toHaveBeenCalledExactlyOnceWith(
-        '[diagnostics-authorization-armed] Diagnostic evidence collection is now active in the plugin runtime.',
+        `[diagnostics-authorization-armed] A diagnostics capture started; finish it from the plugin settings before ${new Date(authorized.expiresAt!).toLocaleString()}.`,
       );
       const records = readFileSync(join(root, 'logs', 'homebridge-eufy.jsonl'), 'utf8')
         .trim()
@@ -1617,7 +1736,8 @@ describe('guided diagnostics issue handoff', () => {
     const form = readFileSync(join(repository, '.github', 'ISSUE_TEMPLATE', 'bug_report.yml'), 'utf8');
     const declared = [...form.matchAll(/^\s{4}id: (\S+)$/gm)].map(([, id]) => id);
     const { url } = await preparedReport('live-media');
-    const addressed = [...url.searchParams.keys()].filter((key) => key !== 'template');
+    // `template` and `title` are GitHub's own parameters rather than fields of the form.
+    const addressed = [...url.searchParams.keys()].filter((key) => key !== 'template' && key !== 'title');
 
     expect(declared).toContain('environment');
     expect(addressed.length).toBeGreaterThan(0);
@@ -1634,43 +1754,6 @@ describe('guided diagnostics issue handoff', () => {
     const { url } = await preparedReport('device-representation');
 
     expect(url.toString().length).toBeLessThan(2_000);
-  });
-
-  /**
-   * Every class the plugin never collects is stated in a reader's words. The manifest is the source of the
-   * list, and both catalogues are checked against it, so a class declared without a translation fails here
-   * rather than reaching a reader as an identifier.
-   */
-  it('has a reader-facing phrase for every class it never collects, in both languages', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-issue-'));
-    const diagnostics = new GuidedDiagnostics(root, () => Date.parse('2026-09-11T08:00:00.000Z'));
-    const repository = repositoryRoot();
-    const script = readFileSync(join(repository, 'homebridge-ui', 'public', 'js', 'app.js'), 'utf8');
-    const catalogues = ['en', 'fr'].map((locale) => ({
-      locale,
-      messages: JSON.parse(
-        readFileSync(join(repository, 'homebridge-ui', 'public', 'i18n', `${locale}.json`), 'utf8'),
-      ) as Record<string, string>,
-    }));
-
-    try {
-      await diagnostics.authorize('live-media', 'now');
-      await diagnostics.startReproduction();
-      await diagnostics.endReproduction();
-      const { manifest } = await diagnostics.reviewSupportArchive();
-
-      expect(manifest.excludedClasses.length).toBeGreaterThan(0);
-      for (const excluded of manifest.excludedClasses) {
-        const key = new RegExp(`'${excluded}':\\s*'([A-Za-z]+)'`).exec(script)?.[1];
-
-        expect(key, `${excluded} has no reader-facing phrase`).toBeDefined();
-        for (const { locale, messages } of catalogues) {
-          expect(messages[key ?? ''], `${excluded} in ${locale}`).toBeTruthy();
-        }
-      }
-    } finally {
-      rmSync(root, { force: true, recursive: true });
-    }
   });
 
   /**

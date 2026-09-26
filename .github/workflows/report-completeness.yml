@@ -1,0 +1,255 @@
+name: Report completeness
+
+# A report the maintainers cannot act on says so on the issue, at once, rather than waiting for someone to
+# read it. Four things are checked.
+#
+# 1. Whether the report came through the plugin's own diagnostics flow, which is the only path that produces
+#    an archive and a filled environment block. This is the one finding that closes, and it is judged on the
+#    event that opened the report and never again: a report filed before this rule, and one whose reporter is
+#    still completing it, is not reassessed by a later edit or comment. A report that arrived with an archive
+#    anyway is not closed either, because the archive is the thing the flow exists to produce. A report closed
+#    this way reopens when its reporter attaches the archive in a later comment.
+# 2. The diagnostics archive. The form marks the field required and GitHub honours that with any text, so the
+#    form cannot tell an attachment from a sentence. This can.
+# 3. The environment block, on whether its lines were answered. A blank one is the first thing triage asks
+#    for, and a blank version is what leaves the version check with nothing to read.
+# 4. The plugin version. V4 is unmaintained, so a 4.x report is stated as unactionable while it is still the
+#    reporter's evening rather than a week later.
+#
+# Nothing else here is ever closed: closing a report its reporter can still complete is how a real defect gets
+# lost.
+#
+# The archive may arrive in a later comment, so every event re-reads the whole thread. Only the archive moves
+# a label: a reporter answers the other two in prose, and no label may depend on a body they will not edit.
+# The waiting state is set once, with the ask, so a maintainer who lifts it to work an issue keeps it lifted.
+#
+# `scripts/report-completeness-cases.mjs` drives the script below against a fake GitHub, over the reports
+# whose outcome is a decision rather than a default. Run it after editing this file — nothing else rehearses a
+# judgement that lands on a stranger's issue.
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: report-completeness-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  completeness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assess the report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            if (issue.pull_request) {
+              return;
+            }
+
+            const request = { owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number };
+            let body = issue.body || '';
+            let comments = await github.paginate(github.rest.issues.listComments, { ...request, per_page: 100 });
+
+            // A file upload, optionally as the markdown link GitHub writes, with its name. A pasted or
+            // dragged image normally lands under `assets/` and is never matched here, but a client that
+            // uploads one as a file lands it under `files/`, so an image name is kept either way.
+            const UPLOAD = /(?:\[[^\]]*\]\()?https:\/\/github\.com\/user-attachments\/files\/\d+\/([^\s)]+)\)?/g;
+            const KEEP = /\.(?:eufysupport\.gz|png|jpe?g|gif|webp|heic|svg)$/i;
+            const ATTACHED_ARCHIVE = /github\.com\/user-attachments\/files\/\d+\/[^\s)]+\.eufysupport\.gz/;
+
+            // The one file this project asks for is the encrypted archive. Everything else a reporter reaches
+            // for instead — a Homebridge backup, a config, a raw log — carries their account passwords and
+            // tokens in the clear on a public page, so it goes now rather than whenever a maintainer next
+            // reads the thread. This runs before the report is judged at all, because a device-support request
+            // leaks exactly as badly as a bug report.
+            const strip = (text) =>
+              (text || '').replace(UPLOAD, (match, name) =>
+                KEEP.test(name) ? match : '_(attachment removed: not a diagnostics archive)_',
+              );
+
+            // One path and one file name, in every message this workflow posts.
+            const HOW_TO = 'open the plugin settings, click the **Diagnostics** (bug) icon on the dashboard, and follow it through. It gives you a file named like `homebridge-eufy-support-<id>.eufysupport.gz`.';
+            const ALREADY_RAN = 'Already ran diagnostics? Look in your Downloads for a file ending `.eufysupport.gz` and drag it into a comment here.';
+
+            // A diagnostics file whose name changed on the way, like a browser " (1)" suffix, a zip or an
+            // unpacked copy. It still goes, since the name is what is judged, but it is not a leak.
+            const RENAMED = [
+              '**The file attached here has been removed, because its name changed.** It looks like your diagnostics file, but only a name ending in `.eufysupport.gz` is kept.',
+              '',
+              'Attach it again with the name ending in `.eufysupport.gz`, as the plugin saved it, without unpacking or zipping it.',
+            ].join('\n');
+
+            const WARNING = [
+              '**The file attached here has been removed, because it was not a diagnostics archive.**',
+              '',
+              'The archive the plugin creates is encrypted and stripped of anything personal. Anything else — a Homebridge backup, a config file, a raw log — carries your logins, tokens and pairing code in plain text, and this page is public.',
+              '',
+              'If you attached one of those, treat what was in it as seen: change the password of the eufy account the plugin uses, the passwords of your other connected accounts, and your Homebridge interface password. Removing it here does not unsend the notification emails or take the uploaded file off GitHub, so changing the passwords is the part that protects you.',
+              '',
+              `To produce the right file: ${HOW_TO} Screenshots are welcome as always.`,
+            ].join('\n');
+            const warningFor = (text) =>
+              [...(text || '').matchAll(UPLOAD)].every(([, name]) => KEEP.test(name) || /eufysupport/i.test(name)) ? RENAMED : WARNING;
+
+            for (const comment of comments) {
+              // A maintainer attaching a capture knows what is in it.
+              if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(comment.author_association)) {
+                continue;
+              }
+              if (strip(comment.body) === (comment.body || '')) {
+                continue;
+              }
+              await github.rest.issues.deleteComment({ ...request, comment_id: comment.id });
+              await github.rest.issues.createComment({ ...request, body: warningFor(comment.body) });
+              core.warning(`#${issue.number}: removed comment ${comment.id}, unsafe attachment`);
+            }
+
+            // The body cannot be deleted, so the link is taken out of it. Both passes are idempotent by
+            // removal: what they matched is gone, so a later event finds nothing to act on.
+            if (strip(body) !== body) {
+              await github.rest.issues.createComment({ ...request, body: warningFor(body) });
+              body = strip(body);
+              await github.rest.issues.update({ ...request, body });
+              core.warning(`#${issue.number}: stripped an unsafe attachment from the report body`);
+            }
+
+            comments = await github.paginate(github.rest.issues.listComments, { ...request, per_page: 100 });
+
+            // Only a report whose form asked for the archive is judged on whether one arrived, which keeps
+            // this off device-support requests and off issues opened without a template. Both labels are
+            // matched because reports filed against the previous form say "File".
+            if (!/^###\s+Diagnostics (?:Archive|File)\s*$/im.test(body)) {
+              core.info(`#${issue.number} was not asked for an archive`);
+              return;
+            }
+
+            // The version line, read only where it states a bare 4.x. A blank, a range or anything
+            // unparseable says nothing, and a guess here would tell a V5 reporter to upgrade.
+            const V4_VERSION = /^\s*-\s*\*\*Plugin Version\*\*:\s*v?4\.\d+/im;
+
+            const attached = ATTACHED_ARCHIVE.test(body) || comments.some((comment) => ATTACHED_ARCHIVE.test(comment.body || ''));
+
+            // The prefill the plugin's diagnostics flow hands back writes this line and nothing else does, so
+            // its absence is a report typed straight into the form. Judged on the opening event alone, and
+            // never where an archive arrived regardless: the flow exists to produce one, so one that is here
+            // makes the path it came by irrelevant.
+            const FROM_FLOW = /^\s*-\s*\*\*Diagnostics profile\*\*:/im;
+            const outsideTheFlow = context.payload.action === 'opened' && !attached && !FROM_FLOW.test(body);
+
+            // This workflow's own voice, so every path is idempotent without a label standing in for one.
+            const MARKER = '<!-- report-completeness -->';
+            const spoken = comments.some((comment) => (comment.body || '').includes(MARKER));
+
+            // The environment block's lines, and the names of those left with nothing after the colon. The
+            // support case id is excluded: it is carried by the archive that is asked for separately, and the
+            // plugin deliberately keeps it out of a prefill because a query string is not private.
+            const block = /^###\s+Environment\s*$([\s\S]*?)^###\s/m.exec(`${body}\n### `);
+            const unanswered = [...(block?.[1] ?? '').matchAll(/^\s*-\s*\*\*(.+?)\*\*[^:]*:\s*$/gm)]
+              .map(([, name]) => name)
+              .filter((name) => !name.startsWith('Support Case ID'));
+
+            // A report closed above for arriving outside the flow reopens when its own reporter attaches the
+            // archive in a later comment. The heading ties the close to this workflow, not to a maintainer.
+            const CLOSED = '**This report was not opened from the plugin, so it is closed as it stands.**';
+            const comment = context.payload.comment;
+            if (
+              issue.state === 'closed' &&
+              comment?.user?.login === issue.user?.login &&
+              ATTACHED_ARCHIVE.test(comments.find(({ id }) => id === comment.id)?.body || '') &&
+              comments.some(({ body }) => (body || '').includes(MARKER) && body.includes(CLOSED))
+            ) {
+              await github.rest.issues.update({ ...request, state: 'open' });
+              core.info(`#${issue.number}: reopened, the reporter attached an archive`);
+            }
+
+            const findings = [];
+            if (outsideTheFlow) {
+              findings.push(
+                [
+                  CLOSED,
+                  '',
+                  `The plugin writes the report for you: ${HOW_TO} It also hands back this form already filled in with your versions. That is the one path that produces a report anyone can act on, and it takes a couple of minutes.`,
+                  '',
+                  `${ALREADY_RAN} This issue reopens when you do. If the plugin cannot produce an archive on your setup, say so in a comment here and someone will pick it up.`,
+                ].join('\n'),
+              );
+            }
+            if (V4_VERSION.test(body)) {
+              findings.push(
+                [
+                  '**This report is against V4, which is no longer maintained.** It depends on `eufy-security-client`, which its own maintainer has deprecated, and eufy has since moved its apps to a new protocol. No further fixes will be made to 4.x, so this cannot be actioned as filed.',
+                  '',
+                  'Please update to V5 and tell us whether it still happens:',
+                  '',
+                  '```bash',
+                  'npm install -g @homebridge-plugins/homebridge-eufy-security@beta',
+                  '```',
+                  '',
+                  'V5 needs Homebridge 2 and Node 24.5 or newer, and it registers its own accessories instead of adopting the V4 ones, so expect to reassign rooms, names and automations once. If you cannot move yet, say so and this stays open — it simply waits for V5.',
+                ].join('\n'),
+              );
+            }
+            if (!attached) {
+              findings.push(
+                [
+                  '**No diagnostics archive is attached**, and without it the logs that would say which part failed do not exist.',
+                  '',
+                  `To produce one: ${HOW_TO} Reproduce the problem once while it is collecting, then drag that file into a comment here. It is encrypted and redacted - no serial numbers, addresses, tokens or login details, and the plugin uploads nothing anywhere.`,
+                  '',
+                  ALREADY_RAN,
+                ].join('\n'),
+              );
+            }
+            if (unanswered.length) {
+              findings.push(
+                [
+                  `**The environment block is missing ${unanswered.length === 1 ? 'a line' : 'some lines'}:** ${unanswered.map((name) => `\`${name}\``).join(', ')}.`,
+                  '',
+                  'Editing them into the report is enough. They decide which code you are running, and the answers are on the Homebridge status page and in the plugin settings.',
+                ].join('\n'),
+              );
+            }
+
+            if (findings.length && !spoken) {
+              await github.rest.issues.createComment({
+                ...request,
+                body: [
+                  MARKER,
+                  'Thanks for the report. Before anyone can look into this, there is something to sort out first.',
+                  '',
+                  findings.join('\n\n---\n\n'),
+                  '',
+                  outsideTheFlow ? '' : 'This issue stays open and picks itself back up as soon as that lands.',
+                ].join('\n'),
+              });
+            }
+
+            if (outsideTheFlow) {
+              await github.rest.issues.update({ ...request, state: 'closed', state_reason: 'not_planned' });
+              core.warning(`#${issue.number}: closed, opened outside the diagnostics flow`);
+              return;
+            }
+
+            const labels = (issue.labels || []).map((label) => (typeof label === 'string' ? label : label.name));
+
+            // Set with the ask and cleared by the archive, and touched on no other event.
+            if (!attached && !spoken) {
+              await github.rest.issues.addLabels({ ...request, labels: ['needs-info'] });
+              for (const name of ['needs-triage', 'needs triage']) {
+                if (labels.includes(name)) {
+                  await github.rest.issues.removeLabel({ ...request, name });
+                }
+              }
+              return;
+            }
+            if (attached && labels.includes('needs-info')) {
+              await github.rest.issues.removeLabel({ ...request, name: 'needs-info' });
+              await github.rest.issues.addLabels({ ...request, labels: ['needs-triage'] });
+            }

@@ -274,7 +274,9 @@ h2 {
   padding: 8px 12px;
 }
 
-.diagnostics-actions {
+.diagnostics-actions:not([hidden]) {
+  display: flex;
+  gap: 8px;
   margin-top: 4px;
 }
 
@@ -290,42 +292,25 @@ h2 {
   padding: clamp(16px, 4vw, 24px);
 }
 
-.diagnostics-question,
-.diagnostics-direct,
-.diagnostics-frequency,
-.diagnostics-match {
+.diagnostics-question {
   display: grid;
   gap: 16px;
 }
 
-.diagnostics-question > strong,
-.diagnostics-frequency > strong,
-.diagnostics-match > strong {
+.diagnostics-question > h3,
+.diagnostics-guidance > h3 {
+  margin: 0;
+}
+
+.diagnostics-guidance > h3 {
+  font-size: inherit;
+}
+
+.diagnostics-question > h3 {
   font-size: clamp(17px, 4vw, 21px);
   line-height: 1.35;
   letter-spacing: -0.01em;
   text-wrap: balance;
-}
-
-.diagnostics-match p {
-  margin-bottom: 0;
-}
-
-.diagnostics-choice-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.diagnostics-choice-actions button {
-  width: 100%;
-  padding-inline: 16px;
-}
-
-button.diagnostics-secondary-action {
-  border: 1px solid var(--line-strong);
-  background: transparent;
-  color: var(--ink);
 }
 
 button.diagnostics-quiet-action {
@@ -366,103 +351,83 @@ button.diagnostics-quiet-action {
   text-transform: uppercase;
 }
 
-.diagnostics-actions button {
-  width: 100%;
+.diagnostics-actions [data-diagnostics-reproduction] {
+  flex: 1 1 auto;
 }
 
+.diagnostics-result h2,
 .diagnostics-result p {
   margin-bottom: 0;
 }
 
-.diagnostics-privacy {
+.diagnostics-note {
+  margin-bottom: 0;
   color: var(--muted);
   font-size: 12px;
 }
 
-.diagnostics-result {
+.diagnostics-result[open] {
   display: grid;
+  max-width: 560px;
   gap: 8px;
 }
 
 /*
- * The two steps of the handoff share one shape, so the sequence reads as a sequence: same height, same
- * gap, same badge, and a colour each. The download is a button because it acts here; the report is an
- * anchor because it navigates to GitHub.
+ * The download is a button because it acts here; the two ways to report are anchors because they navigate to
+ * GitHub, side by side because either one finishes the handoff.
  */
 .diagnostics-result [data-diagnostics-export],
-.diagnostics-result [data-diagnostics-issue] {
+.diagnostics-handoff a {
   display: flex;
-  width: 100%;
   min-height: 44px;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  margin-top: 8px;
   border-radius: var(--radius-control);
+  padding: 8px 12px;
   font-weight: 600;
+  text-align: center;
   text-decoration: none;
 }
 
 /*
- * The step number is generated content rather than an element, because translation assigns `textContent`
- * on the control and would remove any child it had.
+ * The dialog sits in the top layer, which adds nothing to the page height Homebridge sizes its iframe by, so the
+ * stage keeps room for it rather than leaving it to scroll inside a sliver.
  */
-.diagnostics-result [data-diagnostics-export]::before,
-.diagnostics-result [data-diagnostics-issue]::before {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
+.diagnostics-stage:has(> .diagnostics-result[open]) {
+  min-height: 320px;
 }
 
-/* Each badge inverts its own control's pair, so the digit keeps its contrast on either background. */
-.diagnostics-result [data-diagnostics-export]::before {
-  background: var(--on-accent);
-  color: var(--accent);
-  content: '1';
+.diagnostics-handoff:not([hidden]) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
 }
 
-/*
- * Step two is the same progression as step one and is filled differently rather than coloured
- * differently: a success colour would claim the task is complete, and colour alone must not be what
- * tells two controls apart.
- */
-.diagnostics-result [data-diagnostics-issue] {
-  border: 1px solid var(--accent);
-  background: transparent;
-  color: var(--accent-ink);
-}
-
-.diagnostics-result [data-diagnostics-issue]::before {
+.diagnostics-handoff [data-diagnostics-issue] {
   background: var(--accent);
   color: var(--on-accent);
-  content: '2';
 }
 
-/* Without an archive there is nothing to attach, so the step is present and not yet a link. */
-.diagnostics-result a[data-diagnostics-issue][aria-disabled='true'] {
-  border-color: var(--line);
-  color: var(--ink-disabled);
-  cursor: default;
+.diagnostics-handoff [data-diagnostics-existing-issue] {
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
 }
 
-.diagnostics-result a[data-diagnostics-issue][aria-disabled='true']::before {
-  background: var(--ink-disabled);
-  color: var(--panel);
+.diagnostics-result [data-diagnostics-result-status]:empty {
+  display: none;
+}
+
+.diagnostics-result [data-diagnostics-download-again],
+.diagnostics-result [data-diagnostics-start-another] {
+  justify-self: center;
 }
 
 /*
- * The opening screen: every area at once, three to a row.
+ * The opening screen: every area at once, three to a row, each label over its one-line summary.
  *
- * Each tile carries a Material Symbols outline glyph (Apache-2.0) as a mask rather than an element, because
- * translation assigns `textContent` on the tile and would remove any child it had. A mask also lets the glyph
- * take the tile's own colour in every state instead of being baked into an image. The data URI is inline, so
+ * Each tile carries a Material Symbols outline glyph (Apache-2.0) as a mask rather than an element. A mask lets
+ * the glyph take the tile's own colour in every state instead of being baked into an image. The data URI is inline, so
  * the panel renders the same on a host with no route to the internet.
  */
 .diagnostics-tiles {
@@ -501,6 +466,12 @@ button.diagnostics-quiet-action {
   mask-size: contain;
 }
 
+.diagnostics-tiles small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .diagnostics-tiles button:hover:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -533,107 +504,6 @@ button.diagnostics-quiet-action {
 
 .diagnostics-tiles [data-diagnostics-tile='other']::before {
   mask-image: url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%20-960%20960%20960%22%3E%3Cpath%20d=%22M513.5-254.5Q528-269%20528-290t-14.5-35.5Q499-340%20478-340t-35.5%2014.5Q428-311%20428-290t14.5%2035.5Q457-240%20478-240t35.5-14.5ZM442-394h74q0-33%207.5-52t42.5-52q26-26%2041-49.5t15-56.5q0-56-41-86t-97-30q-57%200-92.5%2030T342-618l66%2026q5-18%2022.5-39t53.5-21q32%200%2048%2017.5t16%2038.5q0%2020-12%2037.5T506-526q-44%2039-54%2059t-10%2073Zm38%20314q-83%200-156-31.5T197-197q-54-54-85.5-127T80-480q0-83%2031.5-156T197-763q54-54%20127-85.5T480-880q83%200%20156%2031.5T763-763q54%2054%2085.5%20127T880-480q0%2083-31.5%20156T763-197q-54%2054-127%2085.5T480-80Zm0-80q134%200%20227-93t93-227q0-134-93-227t-227-93q-134%200-227%2093t-93%20227q0%20134%2093%20227t227%2093Zm0-320Z%22/%3E%3C/svg%3E');
-}
-
-/* The same grid as the areas, so picking hardware reads as the same kind of act as picking an area. */
-.diagnostics-device-list {
-  display: grid;
-  max-height: 264px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  overflow-y: auto;
-  margin: 8px 0 12px;
-}
-
-.diagnostics-device-list button {
-  display: flex;
-  min-height: 104px;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 6px;
-  border: 1px solid var(--line-strong);
-  background: transparent;
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.2;
-  overflow-wrap: break-word;
-  text-align: center;
-}
-
-.diagnostics-device-list img {
-  width: 24px;
-  height: 24px;
-  flex: none;
-}
-
-/*
- * The device's own artwork, contained rather than cropped and at half the tile.
- *
- * `contain` is how the devices view draws the same image, because it is a cutout of the hardware and not a
- * scene: cropping it to fill cuts the device out of its own picture. Half the tile keeps the name it belongs
- * to from competing with it. That view's darkening filter is not carried over — it exists to seat the image
- * under white text on a coloured tile, and these tiles read dark text on the panel.
- */
-.diagnostics-device-list img.device-photo {
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  max-height: 50%;
-  object-fit: contain;
-}
-
-.diagnostics-device-list button:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-
-/* Pressed is the selection, so it is the border and the fill that say so rather than the colour alone. */
-.diagnostics-device-list button[aria-pressed='true'] {
-  border-color: var(--accent);
-  border-width: 2px;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-
-.diagnostics-step-hint {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.diagnostics-local-note {
-  margin: 12px 0 0;
-  color: var(--ink-secondary);
-  font-size: 12px;
-}
-
-.diagnostics-result button {
-  width: 100%;
-}
-
-.diagnostics-manifest {
-  margin-top: 12px;
-  border-block: 1px solid var(--line);
-  padding-block: 8px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.diagnostics-manifest ul {
-  margin: 8px 0;
-  padding-left: 20px;
-}
-
-.diagnostics-review-confirm {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 12px;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .advanced-fields {
@@ -755,6 +625,7 @@ button.diagnostics-quiet-action {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-control);
   background: var(--panel);
+  color: var(--ink);
   padding: 0;
 }
 
@@ -789,9 +660,54 @@ button.diagnostics-quiet-action {
     transform 150ms var(--ease-out);
 }
 
+.dashboard-action[data-collecting],
+.dashboard-action:has(.diagnostics-name) {
+  width: auto;
+  grid-auto-flow: column;
+  gap: 6px;
+  padding: 0 10px;
+}
+
 .dashboard-action[data-collecting] {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+}
+
+/*
+ * The dashboard's diagnostics action is named in words at rest, and a capture under way replaces that name
+ * beside the icon, so neither rests on the icon or on colour alone.
+ */
+.diagnostics-name,
+.diagnostics-capturing {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.diagnostics-capturing,
+.dashboard-action[data-collecting] .diagnostics-name {
+  display: none;
+}
+
+.dashboard-action[data-collecting] .diagnostics-capturing {
+  display: inline;
+}
+
+/* A problem the dashboard shows: an alert ring, and a dot so the state does not rest on colour alone. */
+.dashboard-action[data-attention] {
+  border-color: var(--alert);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--alert) 24%, transparent);
+}
+
+.dashboard-action[data-attention]::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--panel);
+  border-radius: 50%;
+  background: var(--alert);
 }
 
 .dashboard-action:hover::after,
@@ -800,30 +716,7 @@ button.diagnostics-quiet-action {
   transform: translateY(0);
 }
 
-/*
- * The way into a diagnostic run, standing where a status pill used to. A pill saying "Connected" was decoration on
- * the healthy path and a dead end on every other; this appears only where a run would explain something.
- */
-.dashboard-diagnose {
-  flex: 0 0 auto;
-  /* Buttons are full width by default here, and this one sits inline beside the title. */
-  width: auto;
-  border: 1px solid var(--alert);
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--alert) 16%, var(--panel));
-  color: var(--ink);
-  padding: 6px 12px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.dashboard-diagnose:hover {
-  background: color-mix(in srgb, var(--alert) 26%, var(--panel));
-}
-
-.reauth-dialog {
+.blocking-dialog {
   max-width: 420px;
   border: 0;
   border-radius: var(--radius-panel);
@@ -833,16 +726,16 @@ button.diagnostics-quiet-action {
   padding: 24px;
 }
 
-.reauth-dialog::backdrop {
+.blocking-dialog::backdrop {
   background: rgb(0 0 0 / 30%);
   backdrop-filter: blur(5px);
 }
 
-.reauth-dialog h2 {
+.blocking-dialog h2 {
   margin: 0 0 8px;
 }
 
-.reauth-dialog p {
+.blocking-dialog p {
   margin: 0 0 20px;
   color: var(--ink-secondary);
 }
@@ -1686,8 +1579,7 @@ button.diagnostics-quiet-action {
   cursor: pointer;
 }
 
-.first-setup-confirmation input,
-.diagnostics-review-confirm input {
+.first-setup-confirmation input {
   appearance: none;
   display: grid;
   place-content: center;
@@ -1702,8 +1594,7 @@ button.diagnostics-quiet-action {
   padding: 0;
 }
 
-.first-setup-confirmation input::before,
-.diagnostics-review-confirm input::before {
+.first-setup-confirmation input::before {
   content: '';
   width: 8px;
   height: 4px;
@@ -1712,14 +1603,12 @@ button.diagnostics-quiet-action {
   transform: rotate(-45deg) scale(0);
 }
 
-.first-setup-confirmation input:checked,
-.diagnostics-review-confirm input:checked {
+.first-setup-confirmation input:checked {
   border-color: var(--accent);
   background: var(--accent);
 }
 
-.first-setup-confirmation input:checked::before,
-.diagnostics-review-confirm input:checked::before {
+.first-setup-confirmation input:checked::before {
   transform: rotate(-45deg) scale(1);
 }
 
@@ -2019,7 +1908,6 @@ button:disabled {
   cursor: not-allowed;
 }
 
-button.diagnostics-secondary-action:hover:not(:disabled),
 .dashboard-page-back:hover:not(:disabled),
 .warm-up-controls button:hover:not(:disabled),
 .warm-up-column button:hover:not(:disabled),
@@ -2051,8 +1939,7 @@ button.diagnostics-quiet-action:hover:not(:disabled) {
 }
 
 .warm-up-controls button:disabled,
-.warm-up-column button:disabled,
-button.diagnostics-secondary-action:disabled {
+.warm-up-column button:disabled {
   border-color: var(--line);
   background: var(--panel);
   color: var(--ink-disabled);
@@ -2106,8 +1993,9 @@ input:focus-visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .diagnostics-device-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* The row keeps its three actions on one line by leaving the diagnostics action to its icon. */
+  .diagnostics-name {
+    display: none;
   }
 
 
@@ -2183,14 +2071,14 @@ input:focus-visible {
     width: 100%;
   }
 
-  .diagnostics-choice-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Two actions side by side leave each a sliver of a label at this width, so they stack. */
+  .diagnostics-handoff:not([hidden]) {
+    grid-template-columns: 1fr;
   }
 
-  .diagnostics-choice-actions button {
-    width: 100%;
-    min-width: 0;
+  .diagnostics-choice-actions {
+    display: grid;
+    gap: 8px;
   }
 
   .device-grid {

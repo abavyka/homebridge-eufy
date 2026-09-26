@@ -465,6 +465,7 @@ function bugReportUrl(
 ): string {
   const url = new URL(BUG_REPORT_FORM);
   url.searchParams.set('template', 'bug_report.yml');
+  url.searchParams.set('title', `[Diagnostics] ${BUG_REPORT_AREAS[session.profile]}: `);
   url.searchParams.set(
     'environment',
     [
@@ -473,7 +474,7 @@ function bugReportUrl(
       `- **Node.js Version**: ${process.version}`,
       `- **Homebridge Version**: ${host?.homebridge ?? ''}`,
       `- **OS**: ${process.platform} ${process.arch}`,
-      `- **Diagnostics profile**: ${session.profile} (${session.reproductionMode})`,
+      `- **Diagnostics profile**: ${session.profile}`,
       `- **Missing evidence**: ${missingEvidence.length ? missingEvidence.join(', ') : 'none'}`,
     ].join('\n'),
   );
@@ -488,7 +489,7 @@ const DIAGNOSTICS_PROFILES: Readonly<Record<DiagnosticsProfile, readonly Diagnos
   'live-media': ['plugin-log', 'sdk-log', 'homekit-log', 'ffmpeg-log'],
   'hksv-recording': ['plugin-log', 'sdk-log', 'ffmpeg-log'],
   'dashboard-ui': ['plugin-log', 'ui-log'],
-  other: ['plugin-log', 'sdk-log', 'homekit-log'],
+  other: ['plugin-log', 'sdk-log', 'homekit-log', 'ffmpeg-log'],
 };
 
 /** Narrows external profile input against the diagnostics-owned profile registry. */
@@ -575,6 +576,27 @@ function readDiagnosticsSession(storageRoot: string): PersistedDiagnosticsSessio
 function activeDiagnosticsSession(storageRoot: string, now: number): PersistedDiagnosticsSession | undefined {
   const session = readDiagnosticsSession(storageRoot);
   return session && Date.parse(session.expiresAt) > now ? session : undefined;
+}
+
+/**
+ * A session as it stands at `now`: a capture still running when its authorization ends is finished at that end.
+ *
+ * A finished capture can be reviewed and exported until the archive retention has elapsed past the end of its
+ * authorization, so a capture that ran out its 72 hours keeps what it captured.
+ */
+function settledDiagnosticsSession(
+  session: PersistedDiagnosticsSession,
+  now: number,
+): { session: PersistedDiagnosticsSession; exportable: boolean } {
+  const expiresAt = Date.parse(session.expiresAt);
+  const settled =
+    session.reproductionStartedAt && !session.reproductionEndedAt && expiresAt <= now
+      ? { ...session, reproductionEndedAt: session.expiresAt }
+      : session;
+  return {
+    session: settled,
+    exportable: Boolean(settled.reproductionEndedAt) && now < expiresAt + SUPPORT_ARCHIVE_RETENTION_MS,
+  };
 }
 
 /**
@@ -869,6 +891,22 @@ export class GuidedDiagnostics {
     return this.project(session);
   }
 
+  /**
+   * Deletes the persisted session without an archive, which also ends the verbose retention it authorized. UI events
+   * already queued are written first and later ones are refused until it is gone, so none lands after the delete.
+   */
+  async cancel(): Promise<GuidedDiagnosticsStatus> {
+    this.uiEventsClosing = true;
+    try {
+      await this.uiEventWrites;
+      this.pendingSupportArchive = undefined;
+      await rm(diagnosticsSessionPath(this.storageRoot), { force: true });
+      return await this.status();
+    } finally {
+      this.uiEventsClosing = false;
+    }
+  }
+
   async endReproduction(): Promise<GuidedDiagnosticsStatus> {
     let session = this.requireAuthorized();
     if (!session.reproductionStartedAt) {
@@ -946,9 +984,15 @@ export class GuidedDiagnostics {
   /** Prepares the exact manifest and evidence snapshot that one subsequent export may encrypt. */
   async reviewSupportArchive(): Promise<SupportArchiveReview> {
     await this.uiEventWrites;
-    const session = readDiagnosticsSession(this.storageRoot);
+    const persisted = readDiagnosticsSession(this.storageRoot);
+    const { session, exportable } = persisted
+      ? settledDiagnosticsSession(persisted, this.now())
+      : { session: undefined, exportable: false };
     if (!session?.reproductionStartedAt || !session.reproductionEndedAt) {
       throw new Error('A completed reproduction is required before archive review');
+    }
+    if (!exportable) {
+      throw new Error('Diagnostics authorization is inactive or expired');
     }
     const collected = await this.collectSupportEvidence(session);
     const reproductionStartedAt = Date.parse(session.reproductionStartedAt);
@@ -993,7 +1037,13 @@ export class GuidedDiagnostics {
     return { reviewId, manifest };
   }
 
-  /** Consumes one reviewed snapshot and returns an encrypted envelope without writing plaintext or an archive to disk. */
+  /**
+   * Consumes one reviewed snapshot and returns an encrypted envelope without writing plaintext or an archive to disk.
+   *
+   * The session outlives the export, because nothing here proves the envelope reached the reporter: a fresh review
+   * exports it again until the reporter leaves it with {@link cancel}, another capture replaces it, or the archive
+   * retention ends it.
+   */
   async exportSupportArchive(reviewId: string): Promise<EncryptedSupportArchive> {
     const pending = this.pendingSupportArchive;
     if (!pending || pending.reviewId !== reviewId) {
@@ -1047,11 +1097,12 @@ export class GuidedDiagnostics {
         authTag: cipher.getAuthTag().toString('base64'),
         ciphertext: ciphertext.toString('base64'),
       };
-      return {
+      const exported: EncryptedSupportArchive = {
         filename: `homebridge-eufy-${pending.manifest.supportCaseId}.eufysupport.gz`,
         mediaType: 'application/gzip',
         archive: await gzip(Buffer.from(`${JSON.stringify(envelope)}\n`, 'utf8')),
       };
+      return exported;
     } finally {
       contentKey.fill(0);
     }
@@ -1336,17 +1387,18 @@ export class GuidedDiagnostics {
     return session;
   }
 
-  private async project(session: PersistedDiagnosticsSession | undefined): Promise<GuidedDiagnosticsStatus> {
-    if (!session) {
+  private async project(persisted: PersistedDiagnosticsSession | undefined): Promise<GuidedDiagnosticsStatus> {
+    if (!persisted) {
       return { status: 'inactive', selectedEvidence: [], missingEvidence: [], partialExportAvailable: false };
     }
+    const { session, exportable } = settledDiagnosticsSession(persisted, this.now());
     const selectedEvidence = DIAGNOSTICS_PROFILES[session.profile];
     const collected =
       session.reproductionStartedAt && session.reproductionEndedAt
         ? await this.collectSupportEvidence(session)
         : undefined;
     const missingEvidence = collected ? missingEvidenceClasses(selectedEvidence, collected) : [];
-    const expired = Date.parse(session.expiresAt) <= this.now();
+    const expired = Date.parse(session.expiresAt) <= this.now() && !exportable;
     const status = expired
       ? 'expired'
       : session.reproductionEndedAt
@@ -1365,7 +1417,7 @@ export class GuidedDiagnostics {
       expiresAt: session.expiresAt,
       ...(session.reproductionStartedAt ? { reproductionStartedAt: session.reproductionStartedAt } : {}),
       ...(session.reproductionEndedAt ? { reproductionEndedAt: session.reproductionEndedAt } : {}),
-      partialExportAvailable: Boolean(session.reproductionEndedAt),
+      partialExportAvailable: exportable,
       ...(session.affectedDevices === undefined ? {} : { affectedDevices: session.affectedDevices }),
       issueUrl: bugReportUrl(session, missingEvidence, readHostEnvironment(this.storageRoot)),
     };
@@ -2346,6 +2398,45 @@ const HOMEKIT_REASON_ACTIONS: Readonly<Record<string, string>> = {
   'camera-live-session-failed:adaptation-spawn-failed': 'log.action.checkFfmpegPath',
 };
 
+/**
+ * One condition that is active now, as the custom UI is told it.
+ *
+ * The code and both keys come from the condition catalog, so nothing in it is free text. `serials` names the
+ * devices a HomeKit condition affects and is absent from a runtime condition. It is live state answered to the
+ * owner's own interface and is never retained in a record.
+ */
+export interface ActiveCondition {
+  code: string;
+  summaryKey: string;
+  actionKey: string;
+  serials?: string[];
+}
+
+/** Projects a value onto an active condition, or nothing where the catalog does not write that code with those keys. */
+export function knownCondition(value: unknown): ActiveCondition | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const { code, summaryKey, actionKey, serials } = value as Record<string, unknown>;
+  if (typeof code !== 'string') return undefined;
+  const runtime = Object.values(RUNTIME_CONDITIONS).find((condition) => condition.code === code);
+  const homeKit = Object.hasOwn(HOMEKIT_CONDITIONS, code)
+    ? HOMEKIT_CONDITIONS[code as HomeKitConditionCode]
+    : undefined;
+  const [summary, ...actions]: string[] = runtime
+    ? [runtime.summaryKey, runtime.actionKey]
+    : homeKit
+      ? [
+          ...homeKit,
+          ...Object.entries(HOMEKIT_REASON_ACTIONS)
+            .filter(([key]) => key.startsWith(`${code}:`))
+            .map(([, action]) => action),
+        ]
+      : [];
+  const action = allowlistedLabel(actionKey, actions);
+  if (summary === undefined || summaryKey !== summary || action === undefined) return undefined;
+  const named = Array.isArray(serials) ? serials.filter((serial): serial is string => typeof serial === 'string') : [];
+  return { code, summaryKey: summary, actionKey: action, ...(named.length === 0 ? {} : { serials: named }) };
+}
+
 /** HomeKit conditions that state a gap nothing in the user's setup closes, so an active one is not a warning. */
 const INFORMATIONAL_HOMEKIT_CONDITIONS = new Set<HomeKitConditionCode>(['recognized-device-not-represented']);
 
@@ -2554,13 +2645,15 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
 export function reportRuntimeNotice(
   target: Pick<PlatformLogger, 'error' | 'warn'> & Partial<Pick<PlatformLogger, 'debug' | 'info'>>,
   code: RuntimeNoticeCode,
-  fields: { durationMs?: number } = {},
+  fields: { durationMs?: number; finishBy?: string } = {},
 ): void {
   const notice = RUNTIME_NOTICES[code];
   const durationMs = fields.durationMs === undefined ? undefined : Math.max(0, Math.trunc(fields.durationMs));
   const messageKey =
     durationMs !== undefined && 'durationMessageKey' in notice ? notice.durationMessageKey : notice.messageKey;
-  target[notice.level]?.(`[${code}] ${localize(target, messageKey, { durationMs: durationMs ?? 0 })}`);
+  target[notice.level]?.(
+    `[${code}] ${localize(target, messageKey, { durationMs: durationMs ?? 0, finishBy: fields.finishBy ?? '' })}`,
+  );
   target.debug?.(
     JSON.stringify({
       scope: 'runtime-notice',
@@ -2578,7 +2671,8 @@ export function reportRuntimeNotice(
  * The file is the authority: the supplied identifier only names which window the caller believes was opened,
  * and a session the file does not hold as active changes nothing and reports nothing. A confirmed pickup emits
  * one operational record, which is the evidence that this process began retaining the window's scopes, taken
- * at the moment it did rather than whenever a later record arrives.
+ * at the moment it did rather than whenever a later record arrives, and its console line names the time the
+ * capture stops on its own.
  */
 export function armDiagnosticsAuthorization(
   target: Pick<PlatformLogger, 'error' | 'warn'> & Partial<Pick<PlatformLogger, 'debug' | 'info'>>,
@@ -2586,13 +2680,13 @@ export function armDiagnosticsAuthorization(
   supportCaseId: string,
   now: () => number = Date.now,
 ): boolean {
-  if (
-    !isSupportCaseId(supportCaseId) ||
-    activeDiagnosticsSession(storageRoot, now())?.supportCaseId !== supportCaseId
-  ) {
+  const session = activeDiagnosticsSession(storageRoot, now());
+  if (!isSupportCaseId(supportCaseId) || session?.supportCaseId !== supportCaseId) {
     return false;
   }
-  reportRuntimeNotice(target, 'diagnostics-authorization-armed');
+  reportRuntimeNotice(target, 'diagnostics-authorization-armed', {
+    finishBy: new Date(session.expiresAt).toLocaleString(),
+  });
   return true;
 }
 
@@ -2958,7 +3052,7 @@ function sanitizeLiveVideoSelection(value: Record<string, unknown>): Record<stri
 
 /** Emits bounded normal-output condition transitions without stable device or account identity. */
 export class DiagnosticConditions {
-  private readonly active = new Map<string, string>();
+  private readonly active = new Map<string, { fingerprint: string; condition: ActiveCondition }>();
   private readonly aliases = new Map<string, string>();
   private runtimeState?: RuntimeState;
 
@@ -3051,7 +3145,13 @@ export class DiagnosticConditions {
           return name === undefined ? undefined : alias === undefined ? name : `${name} (${alias})`;
         })
         .filter((named): named is string => named !== undefined),
+      uniqueDeviceIds,
     );
+  }
+
+  /** Every condition active now, each held from the transition that raised it to the one that clears it. */
+  current(): ActiveCondition[] {
+    return [...this.active.values()].map(({ condition }) => condition);
   }
 
   /**
@@ -3080,13 +3180,17 @@ export class DiagnosticConditions {
     conditionKey = code,
     /** Accessory names for the console line only — never retained, see {@link DiagnosticConditions}. */
     names?: readonly string[],
+    serials: readonly string[] = [],
   ): void {
-    const fingerprint = JSON.stringify({ active, reason, ...fields });
+    const fingerprint = JSON.stringify({ active, reason, ...fields, serials });
     if (active) {
-      if (this.active.get(conditionKey) === fingerprint) {
+      if (this.active.get(conditionKey)?.fingerprint === fingerprint) {
         return;
       }
-      this.active.set(conditionKey, fingerprint);
+      this.active.set(conditionKey, {
+        fingerprint,
+        condition: { code, summaryKey, actionKey, ...(serials.length === 0 ? {} : { serials: [...serials] }) },
+      });
     } else if (!this.active.delete(conditionKey)) {
       return;
     }
