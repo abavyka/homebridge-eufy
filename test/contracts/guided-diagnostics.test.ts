@@ -481,8 +481,11 @@ describe('guided diagnostics session', () => {
     }
   });
 
-  /** The area for a fault that fits no other choice selects every log class another area does, so a wrong pick loses none. */
-  it('selects every log class for an issue that fits no other area', async () => {
+  /**
+   * The area for a fault that fits no other choice selects every log class another area does, so a wrong pick loses
+   * none. The dashboard's UI events are the exception: only a dashboard capture records them.
+   */
+  it('selects every log class the other areas collect, all but the dashboard UI events', async () => {
     const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
     const diagnostics = new GuidedDiagnostics(root);
     const profiles: DiagnosticsProfile[] = [
@@ -503,6 +506,25 @@ describe('guided diagnostics session', () => {
       const other = await diagnostics.authorize('other', 'now');
 
       expect([...other.selectedEvidence].sort()).toEqual([...logs].sort());
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  /** Cancelling writes the UI events already queued and refuses the ones that arrive while it deletes the session. */
+  it('drains queued UI events before a cancel deletes the session', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const diagnostics = new GuidedDiagnostics(root);
+
+    try {
+      await diagnostics.authorize('dashboard-ui', 'now');
+      await diagnostics.startReproduction();
+      const queued = diagnostics.recordUiEvent('dashboard-opened');
+      const cancelled = diagnostics.cancel();
+
+      await expect(diagnostics.recordUiEvent('dashboard-opened')).rejects.toThrow('closing');
+      await expect(queued).resolves.toBeUndefined();
+      await expect(cancelled).resolves.toMatchObject({ status: 'inactive' });
     } finally {
       rmSync(root, { force: true, recursive: true });
     }

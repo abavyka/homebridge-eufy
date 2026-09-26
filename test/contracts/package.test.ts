@@ -277,6 +277,8 @@ async function renderUi(
   let saveButtonDisables = 0;
   let saveButtonEnables = 0;
   let configWritesFail = false;
+  let authorizeDelayMs = 0;
+  let endResponseLost = false;
   let diagnosticsSelectedProfile = 'control-state';
   const translatedNodes = translationKeys.map((key) => ({ dataset: { i18n: key }, textContent: '__untranslated__' }));
   const translatedLabels = [
@@ -446,7 +448,7 @@ async function renderUi(
             throw new Error('Invalid diagnostics request');
           }
           diagnosticsSelectedProfile = payload.profile;
-          return {
+          const authorized = {
             status: 'authorized',
             profile: diagnosticsSelectedProfile,
             reproductionMode: 'now',
@@ -455,6 +457,11 @@ async function renderUi(
             missingEvidence: [],
             partialExportAvailable: false,
           };
+          if (authorizeDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, authorizeDelayMs));
+            diagnosticsSnapshot = authorized;
+          }
+          return authorized;
         }
         if (path === '/diagnostics/reproduction/start') {
           return {
@@ -467,7 +474,7 @@ async function renderUi(
           };
         }
         if (path === '/diagnostics/reproduction/end') {
-          return {
+          const complete = {
             status: 'complete',
             supportCaseId: 'support-00000000-0000-4000-8000-000000000001',
             profile: diagnosticsSelectedProfile,
@@ -476,6 +483,11 @@ async function renderUi(
             partialExportAvailable: true,
             issueUrl: 'https://example.invalid/issue',
           };
+          if (endResponseLost) {
+            diagnosticsSnapshot = complete;
+            throw new Error('synthetic lost response');
+          }
+          return complete;
         }
         if (path === '/diagnostics/archive/review') {
           return {
@@ -630,6 +642,14 @@ async function renderUi(
     /** Makes every later configuration write the page attempts fail, as a Homebridge that cannot save would. */
     set configWritesFail(fail: boolean) {
       configWritesFail = fail;
+    },
+    /** Makes the plugin carry out an authorization only after this many milliseconds, past the page's deadline. */
+    set authorizeDelayMs(delay: number) {
+      authorizeDelayMs = delay;
+    },
+    /** Makes the plugin finish the capture but lose its answer, as a dropped response would. */
+    set endResponseLost(lost: boolean) {
+      endResponseLost = lost;
     },
     trustedDeviceName,
     browserWindow,
@@ -2364,6 +2384,63 @@ describe('packed plugin', () => {
         expect(unansweredUi.authStatus.textContent, 'an unanswered sign-in timed out').toBe(
           catalogs['i18n/en.json'].authTimedOut,
         );
+      } finally {
+        vi.useRealTimers();
+      }
+
+      /**
+       * A finish whose answer was lost still downloads the file the plugin now holds, rather than stopping at the
+       * dialog with a failure under its backdrop.
+       */
+      const lostEndUi = await renderUi(
+        script,
+        [{ platform: 'HomebridgeEufy', username: 'guest@example.invalid' }],
+        catalogs,
+        'en',
+        [],
+        undefined,
+        undefined,
+        {
+          status: 'reproducing',
+          profile: 'live-media',
+          reproductionMode: 'now',
+          expiresAt: '2026-08-20T10:18:42.832Z',
+          missingEvidence: [],
+          partialExportAvailable: false,
+        },
+      );
+      lostEndUi.endResponseLost = true;
+      await lostEndUi.mastheadDiagnostics.dispatch('click');
+      await lostEndUi.diagnosticsReproduction.dispatch('click');
+      expect(lostEndUi.requests).toContainEqual({
+        path: '/diagnostics/archive/export',
+        body: { reviewId: 'review-synthetic' },
+      });
+      expect(lostEndUi).toMatchObject({
+        diagnosticsResult: { open: true },
+        diagnosticsResultHeading: { textContent: catalogs['i18n/en.json'].diagnosticsArchiveDownloaded },
+        diagnosticsStatus: { textContent: '' },
+      });
+
+      /**
+       * An authorization that outlives the page's deadline is reported as failed, and its late landing redraws the
+       * session the plugin then holds rather than leaving the failure standing.
+       */
+      vi.useFakeTimers();
+      try {
+        const lateUi = await renderUi(
+          script,
+          [{ platform: 'HomebridgeEufy', username: 'guest@example.invalid' }],
+          catalogs,
+        );
+        lateUi.authorizeDelayMs = 20_000;
+        await lateUi.mastheadDiagnostics.dispatch('click');
+        const picked = lateUi.diagnosticsTiles[0]!.dispatch('click');
+        await vi.advanceTimersByTimeAsync(12_000);
+        await picked;
+        expect(lateUi.diagnosticsStatus.textContent).toBe(catalogs['i18n/en.json'].diagnosticsFailed);
+        await vi.advanceTimersByTimeAsync(8_000);
+        expect(lateUi.diagnosticsStatus.textContent, 'the late session is drawn, and the failure goes').toBe('');
       } finally {
         vi.useRealTimers();
       }

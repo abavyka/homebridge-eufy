@@ -890,11 +890,20 @@ export class GuidedDiagnostics {
     return this.project(session);
   }
 
-  /** Deletes the persisted session without an archive, which also ends the verbose retention it authorized. */
+  /**
+   * Deletes the persisted session without an archive, which also ends the verbose retention it authorized. UI events
+   * already queued are written first and later ones are refused until it is gone, so none lands after the delete.
+   */
   async cancel(): Promise<GuidedDiagnosticsStatus> {
-    this.pendingSupportArchive = undefined;
-    await rm(diagnosticsSessionPath(this.storageRoot), { force: true });
-    return this.status();
+    this.uiEventsClosing = true;
+    try {
+      await this.uiEventWrites;
+      this.pendingSupportArchive = undefined;
+      await rm(diagnosticsSessionPath(this.storageRoot), { force: true });
+      return await this.status();
+    } finally {
+      this.uiEventsClosing = false;
+    }
   }
 
   async endReproduction(): Promise<GuidedDiagnosticsStatus> {

@@ -125,12 +125,17 @@ const dashboardElements = {
 
 const REQUEST_TIMED_OUT = 'Request timed out';
 
+/**
+ * A request the page stops waiting for after `timeoutMs`. The timeout error carries the request as `late`, since
+ * the plugin may still carry it out after the page gave up.
+ */
 function requestWithinDeadline(path, body, timeoutMs = 320000) {
   let timer;
+  const request = homebridge.request(path, body);
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(REQUEST_TIMED_OUT)), timeoutMs);
+    timer = setTimeout(() => reject(Object.assign(new Error(REQUEST_TIMED_OUT), { late: request })), timeoutMs);
   });
-  return Promise.race([homebridge.request(path, body), timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([request, timeout]).finally(() => clearTimeout(timer));
 }
 
 function isDashboardUiReproducing(state = diagnosticsState) {
@@ -243,8 +248,8 @@ function setIssueStepReachable(url) {
 async function endDiagnosticsCase() {
   try {
     renderDiagnostics(await requestWithinDeadline('/diagnostics/cancel', undefined, 12000));
-  } catch {
-    await redrawDiagnosticsAfterFailure('inactive');
+  } catch (error) {
+    await redrawDiagnosticsAfterFailure('inactive', error);
   }
   diagnosticsQuestionText.focus?.();
 }
@@ -388,16 +393,20 @@ async function downloadDiagnosticsArchive() {
 diagnosticsExport.addEventListener('click', downloadDiagnosticsArchive);
 diagnosticsDownloadAgain.addEventListener('click', downloadDiagnosticsArchive);
 
-/** Draws the session as the plugin holds it after a request failed, and says so unless it reached `expected`. */
-async function redrawDiagnosticsAfterFailure(expected) {
-  try {
-    const refreshed = await requestWithinDeadline('/diagnostics/status', undefined, 12000);
-    renderDiagnostics(refreshed);
-    if (refreshed.status !== expected) diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
-    if (refreshed.partialExportAvailable) diagnosticsResultHeading.focus?.();
-  } catch {
-    diagnosticsStatus.textContent = messages.diagnosticsFailed ?? '';
+/**
+ * Draws the session as the plugin holds it after `error`, and says so unless it reached `expected`, inside the
+ * download dialog while that covers the panel. A request that timed out may still land, so its late answer draws
+ * the session again.
+ */
+async function redrawDiagnosticsAfterFailure(expected, error) {
+  const refreshed = await requestWithinDeadline('/diagnostics/status', undefined, 12000).catch(() => undefined);
+  if (refreshed) renderDiagnostics(refreshed);
+  if (refreshed?.status !== expected) {
+    (diagnosticsResult.open ? diagnosticsResultStatus : diagnosticsStatus).textContent = messages.diagnosticsFailed ?? '';
   }
+  error?.late
+    ?.then(async () => renderDiagnostics(await requestWithinDeadline('/diagnostics/status', undefined, 12000)))
+    .catch(() => undefined);
 }
 
 /**
@@ -416,8 +425,8 @@ async function startDiagnosticsCapture(profile) {
       return;
     }
     diagnosticsPhaseTitle.focus?.();
-  } catch {
-    await redrawDiagnosticsAfterFailure('reproducing');
+  } catch (error) {
+    await redrawDiagnosticsAfterFailure('reproducing', error);
   } finally {
     for (const tile of diagnosticsTiles) tile.disabled = false;
   }
@@ -443,14 +452,14 @@ diagnosticsReproduction.addEventListener('click', async () => {
       state = await requestWithinDeadline('/diagnostics/status', undefined, 12000);
     }
     renderDiagnostics(state);
-    if (state.partialExportAvailable) {
-      diagnosticsResultHeading.focus?.();
-      await downloadDiagnosticsArchive();
-    }
-  } catch {
-    await redrawDiagnosticsAfterFailure('complete');
+  } catch (error) {
+    await redrawDiagnosticsAfterFailure('complete', error);
   } finally {
     diagnosticsReproduction.disabled = diagnosticsState.status !== 'reproducing';
+  }
+  if (diagnosticsState.partialExportAvailable) {
+    diagnosticsResultHeading.focus?.();
+    await downloadDiagnosticsArchive();
   }
 });
 
@@ -460,8 +469,8 @@ diagnosticsCancel.addEventListener('click', async () => {
   try {
     renderDiagnostics(await requestWithinDeadline('/diagnostics/cancel', undefined, 12000));
     diagnosticsQuestionText.focus?.();
-  } catch {
-    await redrawDiagnosticsAfterFailure('inactive');
+  } catch (error) {
+    await redrawDiagnosticsAfterFailure('inactive', error);
   } finally {
     diagnosticsCancel.disabled = false;
   }
