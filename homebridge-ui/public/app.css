@@ -396,9 +396,18 @@ button.diagnostics-quiet-action {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-control);
+  padding: 8px 12px;
   font-weight: 600;
   text-align: center;
   text-decoration: none;
+}
+
+/*
+ * The dialog sits in the top layer, which adds nothing to the page height Homebridge sizes its iframe by, so the
+ * stage keeps room for it rather than leaving it to scroll inside a sliver.
+ */
+.diagnostics-stage:has(> .diagnostics-result[open]) {
+  min-height: 320px;
 }
 
 .diagnostics-handoff:not([hidden]) {
