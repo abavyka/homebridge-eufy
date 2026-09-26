@@ -1030,8 +1030,9 @@ export class GuidedDiagnostics {
   /**
    * Consumes one reviewed snapshot and returns an encrypted envelope without writing plaintext or an archive to disk.
    *
-   * Handing the archive over is what finishes a session, so the persisted session goes with it: the next visit
-   * starts a new one rather than offering an archive the reporter already has.
+   * The session outlives the export, because nothing here proves the envelope reached the reporter: a fresh review
+   * exports it again until the reporter leaves it with {@link cancel}, another capture replaces it, or the archive
+   * retention ends it.
    */
   async exportSupportArchive(reviewId: string): Promise<EncryptedSupportArchive> {
     const pending = this.pendingSupportArchive;
@@ -1091,9 +1092,6 @@ export class GuidedDiagnostics {
         mediaType: 'application/gzip',
         archive: await gzip(Buffer.from(`${JSON.stringify(envelope)}\n`, 'utf8')),
       };
-      if (readDiagnosticsSession(this.storageRoot)?.supportCaseId === pending.manifest.supportCaseId) {
-        await rm(diagnosticsSessionPath(this.storageRoot), { force: true });
-      }
       return exported;
     } finally {
       contentKey.fill(0);

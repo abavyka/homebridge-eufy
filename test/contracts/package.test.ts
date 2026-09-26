@@ -215,6 +215,7 @@ async function renderUi(
     },
   };
   const diagnosticsStartAnother = interactiveElement({});
+  const diagnosticsDownloadAgain = interactiveElement({ hidden: true });
   const advancedClose = interactiveElement({ focus() {} });
   const advancedPanel = { hidden: true, scrollIntoView() {}, querySelector: () => advancedClose };
   const deviceClose = interactiveElement({ focus() {} });
@@ -365,6 +366,7 @@ async function renderUi(
           '[data-diagnostics-export]': diagnosticsExport,
           '[data-diagnostics-result-heading]': diagnosticsResultHeading,
           '[data-diagnostics-start-another]': diagnosticsStartAnother,
+          '[data-diagnostics-download-again]': diagnosticsDownloadAgain,
           '[data-advanced-settings]': advancedPanel,
           '[data-advanced-close]': advancedClose,
           '[data-device-settings]': devicePanel,
@@ -514,8 +516,6 @@ async function renderUi(
           return diagnosticsSnapshot;
         }
         if (path === '/diagnostics/archive/export') {
-          // The plugin ends the session with the archive it hands over.
-          diagnosticsSnapshot = { status: 'inactive', missingEvidence: [], partialExportAvailable: false };
           return {
             archive: 'c3ludGhldGlj',
             filename: 'homebridge-eufy-support-00000000-0000-4000-8000-000000000000.eufysupport.gz',
@@ -599,6 +599,7 @@ async function renderUi(
     diagnosticsExport,
     diagnosticsResultHeading,
     diagnosticsStartAnother,
+    diagnosticsDownloadAgain,
     advancedPanel,
     advancedClose,
     advancedPolling,
@@ -974,6 +975,7 @@ describe('packed plugin', () => {
           'diagnosticsDashboardSummary',
           'diagnosticsOtherSummary',
           'diagnosticsStartAnother',
+          'diagnosticsDownloadAgain',
           'diagnosticsTitle',
           'oneAccountSession',
           'pageTitle',
@@ -1656,6 +1658,7 @@ describe('packed plugin', () => {
         diagnosticsResultHeading: { textContent: catalogs['i18n/en.json'].diagnosticsArchiveDownloaded },
         diagnosticsExport: { hidden: true },
         diagnosticsStartAnother: { hidden: false },
+        diagnosticsDownloadAgain: { hidden: false },
         diagnosticsHandoff: { hidden: false },
         diagnosticsHandoffNote: {
           hidden: false,
@@ -1673,8 +1676,28 @@ describe('packed plugin', () => {
         completedDiagnosticsUi.diagnosticsResult.open,
         'following a link keeps the dialog, so a GitHub tab that went wrong can be opened again',
       ).toBe(true);
+      expect(
+        completedDiagnosticsUi.requests.map(({ path }) => path),
+        'the download alone ends nothing, since nothing proves the file arrived',
+      ).not.toContain('/diagnostics/cancel');
+      await completedDiagnosticsUi.diagnosticsDownloadAgain.dispatch('click');
+      expect(
+        completedDiagnosticsUi.requests
+          .filter(({ path }) => path.startsWith('/diagnostics/archive/'))
+          .map(({ path }) => path),
+        'downloading again reviews the capture afresh and exports it once more',
+      ).toEqual([
+        '/diagnostics/archive/review',
+        '/diagnostics/archive/export',
+        '/diagnostics/archive/review',
+        '/diagnostics/archive/export',
+      ]);
       await completedDiagnosticsUi.diagnosticsStartAnother.dispatch('click');
-      expect(completedDiagnosticsUi, 'leaving the dialog finishes the session').toMatchObject({
+      expect(completedDiagnosticsUi.requests.at(-1), 'leaving the dialog ends the session').toEqual({
+        path: '/diagnostics/cancel',
+        body: undefined,
+      });
+      expect(completedDiagnosticsUi, 'and puts the first question back').toMatchObject({
         diagnosticsResult: { open: false },
         diagnosticsWizardPanel: { hidden: false },
         diagnosticsQuestionText: { focused: true },

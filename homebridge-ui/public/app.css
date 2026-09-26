@@ -418,6 +418,7 @@ button.diagnostics-quiet-action {
   display: none;
 }
 
+.diagnostics-result [data-diagnostics-download-again],
 .diagnostics-result [data-diagnostics-start-another] {
   justify-self: center;
 }

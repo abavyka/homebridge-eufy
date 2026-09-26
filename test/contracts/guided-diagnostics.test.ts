@@ -862,7 +862,13 @@ describe('guided diagnostics session', () => {
       expect(exported.archive.toString('utf8')).not.toContain(forbidden);
       expect(exported.archive.toString('utf8')).not.toContain('contact-state');
       await expect(diagnostics.exportSupportArchive(review.reviewId)).rejects.toThrow('review');
-      expect(await diagnostics.status(), 'handing the archive over ends the session').toMatchObject({
+      expect(await diagnostics.status(), 'an export proves no delivery, so the file stays on offer').toMatchObject({
+        status: 'complete',
+        partialExportAvailable: true,
+      });
+      const again = await diagnostics.exportSupportArchive((await diagnostics.reviewSupportArchive()).reviewId);
+      expect(again.filename, 'a fresh review exports the same capture again').toBe(exported.filename);
+      await expect(diagnostics.cancel(), 'leaving the file ends the session').resolves.toMatchObject({
         status: 'inactive',
       });
 

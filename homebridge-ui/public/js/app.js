@@ -64,6 +64,7 @@ const diagnosticsResultStatus = document.querySelector('[data-diagnostics-result
 const diagnosticsExport = document.querySelector('[data-diagnostics-export]');
 const diagnosticsResultHeading = document.querySelector('[data-diagnostics-result-heading]');
 const diagnosticsStartAnother = document.querySelector('[data-diagnostics-start-another]');
+const diagnosticsDownloadAgain = document.querySelector('[data-diagnostics-download-again]');
 const advancedPanel = document.querySelector('[data-advanced-settings]');
 const devicePanel = document.querySelector('[data-device-settings]');
 const deviceClose = document.querySelector('[data-device-close]');
@@ -236,12 +237,15 @@ function setIssueStepReachable(url) {
 }
 
 /**
- * Leaves the archive dialog once its file is handed over: the plugin ended the session with the download, so the
- * wizard is back at its first question.
+ * Leaves the archive dialog once its file is handed over, which is what ends the session: the plugin keeps it until
+ * then so a download that never arrived can be tried again.
  */
-function endDiagnosticsCase() {
-  diagnosticsArchiveDownloaded = false;
-  renderDiagnostics({ status: 'inactive', selectedEvidence: [], missingEvidence: [], partialExportAvailable: false });
+async function endDiagnosticsCase() {
+  try {
+    renderDiagnostics(await requestWithinDeadline('/diagnostics/cancel', undefined, 12000));
+  } catch {
+    await redrawDiagnosticsAfterFailure('inactive');
+  }
   diagnosticsQuestionText.focus?.();
 }
 
@@ -277,6 +281,7 @@ function renderDiagnostics(state) {
     diagnosticsResultStatus.textContent = messages.diagnosticsMissingEvidence ?? '';
   }
   diagnosticsStartAnother.hidden = !diagnosticsArchiveDownloaded;
+  diagnosticsDownloadAgain.hidden = !diagnosticsArchiveDownloaded;
   if (!reviewed) {
     diagnosticsExport.disabled = true;
     diagnosticsReviewId = '';
@@ -367,6 +372,7 @@ async function downloadDiagnosticsArchive() {
     download.click();
     document.body.removeChild(download);
     diagnosticsReviewId = '';
+    diagnosticsReviewedCaseId = '';
     diagnosticsArchiveDownloaded = true;
     renderDiagnostics(diagnosticsState);
     diagnosticsResultHeading.focus?.();
@@ -380,6 +386,7 @@ async function downloadDiagnosticsArchive() {
 }
 
 diagnosticsExport.addEventListener('click', downloadDiagnosticsArchive);
+diagnosticsDownloadAgain.addEventListener('click', downloadDiagnosticsArchive);
 
 /** Draws the session as the plugin holds it after a request failed, and says so unless it reached `expected`. */
 async function redrawDiagnosticsAfterFailure(expected) {
