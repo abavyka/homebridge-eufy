@@ -346,6 +346,35 @@ describe('guided diagnostics session', () => {
     }
   });
 
+  /**
+   * A capture still running when its 72 hours end is finished at that end rather than lost: it reviews and exports
+   * like one finished by hand until the archive retention has passed, and then starts over.
+   */
+  it('finishes a capture that outlives its authorization at the moment it ends', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    let now = Date.parse('2026-08-16T08:00:00.000Z');
+    const diagnostics = new GuidedDiagnostics(root, () => now);
+
+    try {
+      const authorized = await diagnostics.authorize('control-state', 'now');
+      await diagnostics.startReproduction();
+
+      now += 73 * HOUR_MS;
+      expect(await diagnostics.status()).toMatchObject({
+        status: 'complete',
+        reproductionEndedAt: authorized.expiresAt,
+        partialExportAvailable: true,
+      });
+      expect((await diagnostics.reviewSupportArchive()).manifest.reproductionEndedAt).toBe(authorized.expiresAt);
+
+      now += 24 * HOUR_MS;
+      expect(await diagnostics.status()).toMatchObject({ status: 'expired', partialExportAvailable: false });
+      await expect(diagnostics.reviewSupportArchive()).rejects.toThrow('expired');
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it('defaults a live version-1 session without a reproduction mode to now', async () => {
     const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
     const now = Date.parse('2026-08-16T08:00:00.000Z');
@@ -630,7 +659,7 @@ describe('guided diagnostics session', () => {
       expect(markers).toContain('"event":"reproduction-ended"');
       expect(markers).not.toMatch(/serial|device|camera/i);
 
-      now += 73 * HOUR_MS;
+      now += 97 * HOUR_MS;
       expect(await diagnostics.status(), 'an expired session no longer offers its archive').toMatchObject({
         status: 'expired',
         partialExportAvailable: false,
@@ -1451,7 +1480,7 @@ describe('a diagnostics authorization the runtime is notified of', () => {
       await logger.flush?.();
 
       expect(info).toHaveBeenCalledExactlyOnceWith(
-        '[diagnostics-authorization-armed] Diagnostic evidence collection is now active in the plugin runtime.',
+        `[diagnostics-authorization-armed] A diagnostics capture started; finish it from the plugin settings before ${new Date(authorized.expiresAt!).toLocaleString()}.`,
       );
       const records = readFileSync(join(root, 'logs', 'homebridge-eufy.jsonl'), 'utf8')
         .trim()

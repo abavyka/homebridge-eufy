@@ -578,6 +578,27 @@ function activeDiagnosticsSession(storageRoot: string, now: number): PersistedDi
 }
 
 /**
+ * A session as it stands at `now`: a capture still running when its authorization ends is finished at that end.
+ *
+ * A finished capture can be reviewed and exported until the archive retention has elapsed past the end of its
+ * authorization, so a capture that ran out its 72 hours keeps what it captured.
+ */
+function settledDiagnosticsSession(
+  session: PersistedDiagnosticsSession,
+  now: number,
+): { session: PersistedDiagnosticsSession; exportable: boolean } {
+  const expiresAt = Date.parse(session.expiresAt);
+  const settled =
+    session.reproductionStartedAt && !session.reproductionEndedAt && expiresAt <= now
+      ? { ...session, reproductionEndedAt: session.expiresAt }
+      : session;
+  return {
+    session: settled,
+    exportable: Boolean(settled.reproductionEndedAt) && now < expiresAt + SUPPORT_ARCHIVE_RETENTION_MS,
+  };
+}
+
+/**
  * Collapses one supplied string to bounded printable text, or nothing where none of it survives.
  *
  * Every value this module accepts from outside itself passes through here first, so that a field arriving as
@@ -953,11 +974,14 @@ export class GuidedDiagnostics {
   /** Prepares the exact manifest and evidence snapshot that one subsequent export may encrypt. */
   async reviewSupportArchive(): Promise<SupportArchiveReview> {
     await this.uiEventWrites;
-    const session = readDiagnosticsSession(this.storageRoot);
+    const persisted = readDiagnosticsSession(this.storageRoot);
+    const { session, exportable } = persisted
+      ? settledDiagnosticsSession(persisted, this.now())
+      : { session: undefined, exportable: false };
     if (!session?.reproductionStartedAt || !session.reproductionEndedAt) {
       throw new Error('A completed reproduction is required before archive review');
     }
-    if (Date.parse(session.expiresAt) <= this.now()) {
+    if (!exportable) {
       throw new Error('Diagnostics authorization is inactive or expired');
     }
     const collected = await this.collectSupportEvidence(session);
@@ -1355,17 +1379,18 @@ export class GuidedDiagnostics {
     return session;
   }
 
-  private async project(session: PersistedDiagnosticsSession | undefined): Promise<GuidedDiagnosticsStatus> {
-    if (!session) {
+  private async project(persisted: PersistedDiagnosticsSession | undefined): Promise<GuidedDiagnosticsStatus> {
+    if (!persisted) {
       return { status: 'inactive', selectedEvidence: [], missingEvidence: [], partialExportAvailable: false };
     }
+    const { session, exportable } = settledDiagnosticsSession(persisted, this.now());
     const selectedEvidence = DIAGNOSTICS_PROFILES[session.profile];
     const collected =
       session.reproductionStartedAt && session.reproductionEndedAt
         ? await this.collectSupportEvidence(session)
         : undefined;
     const missingEvidence = collected ? missingEvidenceClasses(selectedEvidence, collected) : [];
-    const expired = Date.parse(session.expiresAt) <= this.now();
+    const expired = Date.parse(session.expiresAt) <= this.now() && !exportable;
     const status = expired
       ? 'expired'
       : session.reproductionEndedAt
@@ -1384,7 +1409,7 @@ export class GuidedDiagnostics {
       expiresAt: session.expiresAt,
       ...(session.reproductionStartedAt ? { reproductionStartedAt: session.reproductionStartedAt } : {}),
       ...(session.reproductionEndedAt ? { reproductionEndedAt: session.reproductionEndedAt } : {}),
-      partialExportAvailable: Boolean(session.reproductionEndedAt) && !expired,
+      partialExportAvailable: exportable,
       ...(session.affectedDevices === undefined ? {} : { affectedDevices: session.affectedDevices }),
       issueUrl: bugReportUrl(session, missingEvidence, readHostEnvironment(this.storageRoot)),
     };
@@ -2612,13 +2637,15 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
 export function reportRuntimeNotice(
   target: Pick<PlatformLogger, 'error' | 'warn'> & Partial<Pick<PlatformLogger, 'debug' | 'info'>>,
   code: RuntimeNoticeCode,
-  fields: { durationMs?: number } = {},
+  fields: { durationMs?: number; finishBy?: string } = {},
 ): void {
   const notice = RUNTIME_NOTICES[code];
   const durationMs = fields.durationMs === undefined ? undefined : Math.max(0, Math.trunc(fields.durationMs));
   const messageKey =
     durationMs !== undefined && 'durationMessageKey' in notice ? notice.durationMessageKey : notice.messageKey;
-  target[notice.level]?.(`[${code}] ${localize(target, messageKey, { durationMs: durationMs ?? 0 })}`);
+  target[notice.level]?.(
+    `[${code}] ${localize(target, messageKey, { durationMs: durationMs ?? 0, finishBy: fields.finishBy ?? '' })}`,
+  );
   target.debug?.(
     JSON.stringify({
       scope: 'runtime-notice',
@@ -2636,7 +2663,8 @@ export function reportRuntimeNotice(
  * The file is the authority: the supplied identifier only names which window the caller believes was opened,
  * and a session the file does not hold as active changes nothing and reports nothing. A confirmed pickup emits
  * one operational record, which is the evidence that this process began retaining the window's scopes, taken
- * at the moment it did rather than whenever a later record arrives.
+ * at the moment it did rather than whenever a later record arrives, and its console line names the time the
+ * capture stops on its own.
  */
 export function armDiagnosticsAuthorization(
   target: Pick<PlatformLogger, 'error' | 'warn'> & Partial<Pick<PlatformLogger, 'debug' | 'info'>>,
@@ -2644,13 +2672,13 @@ export function armDiagnosticsAuthorization(
   supportCaseId: string,
   now: () => number = Date.now,
 ): boolean {
-  if (
-    !isSupportCaseId(supportCaseId) ||
-    activeDiagnosticsSession(storageRoot, now())?.supportCaseId !== supportCaseId
-  ) {
+  const session = activeDiagnosticsSession(storageRoot, now());
+  if (!isSupportCaseId(supportCaseId) || session?.supportCaseId !== supportCaseId) {
     return false;
   }
-  reportRuntimeNotice(target, 'diagnostics-authorization-armed');
+  reportRuntimeNotice(target, 'diagnostics-authorization-armed', {
+    finishBy: new Date(session.expiresAt).toLocaleString(),
+  });
   return true;
 }
 

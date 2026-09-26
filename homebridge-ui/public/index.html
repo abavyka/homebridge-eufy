@@ -17,6 +17,7 @@
       data-i18n-aria-label="menuDiagnostics"
     >
       <img src="assets/icons/bug-report.svg" alt="" />
+      <span class="diagnostics-capturing" data-i18n="diagnosticsCapturing"></span>
     </button>
   </header>
 
@@ -68,6 +69,7 @@
         </button>
         <button type="button" class="dashboard-action" data-menu-diagnostics data-i18n-aria-label="menuDiagnostics">
           <img src="assets/icons/bug-report.svg" alt="" />
+          <span class="diagnostics-capturing" data-i18n="diagnosticsCapturing"></span>
         </button>
         <button type="button" class="dashboard-action" data-menu-advanced data-i18n-aria-label="menuAdvanced">
           <img src="assets/icons/settings.svg" alt="" />
@@ -237,7 +239,7 @@
           <button type="button" data-diagnostics-reproduction disabled data-i18n="diagnosticsNowFinish"></button>
           <button type="button" class="diagnostics-quiet-action" data-diagnostics-cancel data-i18n="diagnosticsCancel"></button>
         </div>
-        <p class="diagnostics-note" data-i18n="diagnosticsCaptureKeepsRunning"></p>
+        <p class="diagnostics-note" data-diagnostics-capture-note></p>
       </div>
       <dialog class="blocking-dialog diagnostics-result" data-diagnostics-result aria-labelledby="diagnostics-result-heading">
         <strong id="diagnostics-result-heading" tabindex="-1" data-diagnostics-result-heading data-i18n="diagnosticsEvidenceReady"></strong>

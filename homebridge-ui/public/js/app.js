@@ -57,6 +57,7 @@ const diagnosticsActions = document.querySelector('[data-diagnostics-actions]');
 const diagnosticsGuidance = document.querySelector('[data-diagnostics-guidance]');
 const diagnosticsPhaseTitle = document.querySelector('[data-diagnostics-phase-title]');
 const diagnosticsGuidanceAction = document.querySelector('[data-diagnostics-guidance-action]');
+const diagnosticsCaptureNote = document.querySelector('[data-diagnostics-capture-note]');
 const diagnosticsHandoff = document.querySelector('[data-diagnostics-handoff]');
 const diagnosticsHandoffNote = document.querySelector('[data-diagnostics-handoff-note]');
 const diagnosticsResultStatus = document.querySelector('[data-diagnostics-result-status]');
@@ -260,7 +261,13 @@ function renderDiagnostics(state) {
   if (offering && !diagnosticsResult.open) diagnosticsResult.showModal?.();
   if (!offering && diagnosticsResult.open) diagnosticsResult.close?.();
   diagnosticsResultHeading.textContent =
-    messages[diagnosticsArchiveDownloaded ? 'diagnosticsArchiveDownloaded' : 'diagnosticsEvidenceReady'] ?? '';
+    messages[
+      diagnosticsArchiveDownloaded
+        ? 'diagnosticsArchiveDownloaded'
+        : state.reproductionEndedAt && state.reproductionEndedAt === state.expiresAt
+          ? 'diagnosticsCaptureTimedOut'
+          : 'diagnosticsEvidenceReady'
+    ] ?? '';
   const reviewed = reviewing && diagnosticsReviewedCaseId === (state.supportCaseId ?? '');
   diagnosticsExport.hidden = !reviewed || diagnosticsArchiveDownloaded;
   diagnosticsHandoff.hidden = !diagnosticsArchiveDownloaded;
@@ -272,7 +279,15 @@ function renderDiagnostics(state) {
     diagnosticsReviewId = '';
     if (reviewing && !diagnosticsArchiveDownloaded) void ensureArchiveReview(state.supportCaseId ?? '');
   }
-  if (screen === 'reproduce') renderDiagnosticsGuidance(state.profile);
+  if (screen === 'reproduce') {
+    renderDiagnosticsGuidance(state.profile);
+    const stopsAt = new Date(state.expiresAt).toLocaleString(shell.lang || undefined, {
+      weekday: 'long',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+    diagnosticsCaptureNote.textContent = (messages.diagnosticsCaptureKeepsRunning ?? '').replace('{time}', stopsAt);
+  }
   const statusKey = reviewing
     ? state.missingEvidence?.length
       ? 'diagnosticsMissingEvidence'
@@ -289,11 +304,11 @@ function renderDiagnostics(state) {
 }
 
 /**
- * Marks both diagnostics actions while a background collection runs, and otherwise the dashboard's own while it
- * shows a problem.
+ * Marks both diagnostics actions while a capture runs, whichever area it is on, and otherwise the dashboard's own
+ * while it shows a problem.
  */
 function renderDiagnosticsEntries() {
-  const collecting = isDashboardUiReproducing();
+  const collecting = diagnosticsState.status === 'reproducing';
   for (const entry of [mastheadDiagnostics, menuDiagnostics]) {
     const attending = !collecting && entry === menuDiagnostics && dashboardAttention !== undefined;
     if (collecting) entry.dataset.collecting = 'true';

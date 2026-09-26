@@ -649,8 +649,23 @@ button.diagnostics-quiet-action {
 }
 
 .dashboard-action[data-collecting] {
+  width: auto;
+  grid-auto-flow: column;
+  gap: 6px;
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  padding: 0 10px;
+}
+
+/* A capture under way is said in words beside the icon, so the state does not rest on colour alone. */
+.diagnostics-capturing {
+  display: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dashboard-action[data-collecting] .diagnostics-capturing {
+  display: inline;
 }
 
 /* A problem the dashboard shows: an alert ring, and a dot so the state does not rest on colour alone. */

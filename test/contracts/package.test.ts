@@ -202,6 +202,7 @@ async function renderUi(
   };
   const diagnosticsPhaseTitle = { textContent: '' };
   const diagnosticsGuidanceAction = { textContent: '' };
+  const diagnosticsCaptureNote = { textContent: '' };
   const diagnosticsHandoff = { hidden: true };
   const diagnosticsHandoffNote = { hidden: true, textContent: '' };
   const diagnosticsResultStatus = { textContent: '' };
@@ -364,6 +365,7 @@ async function renderUi(
           '[data-diagnostics-guidance]': diagnosticsGuidance,
           '[data-diagnostics-phase-title]': diagnosticsPhaseTitle,
           '[data-diagnostics-guidance-action]': diagnosticsGuidanceAction,
+          '[data-diagnostics-capture-note]': diagnosticsCaptureNote,
           '[data-diagnostics-handoff]': diagnosticsHandoff,
           '[data-diagnostics-handoff-note]': diagnosticsHandoffNote,
           '[data-diagnostics-result-status]': diagnosticsResultStatus,
@@ -484,6 +486,7 @@ async function renderUi(
         if (path === '/diagnostics/reproduction/start') {
           return {
             status: 'reproducing',
+            expiresAt: '2026-08-20T10:18:42.832Z',
             profile: diagnosticsSelectedProfile,
             reproductionMode: diagnosticsReproductionMode,
             missingEvidence: [],
@@ -625,6 +628,7 @@ async function renderUi(
     diagnosticsGuidance,
     diagnosticsPhaseTitle,
     diagnosticsGuidanceAction,
+    diagnosticsCaptureNote,
     diagnosticsHandoff,
     diagnosticsHandoffNote,
     diagnosticsResultStatus,
@@ -991,7 +995,7 @@ describe('packed plugin', () => {
           'diagnosticsPrivacy',
           'diagnosticsNowFinish',
           'diagnosticsCancel',
-          'diagnosticsCaptureKeepsRunning',
+          'diagnosticsCapturing',
           'diagnosticsStartupSummary',
           'diagnosticsDevicesSummary',
           'diagnosticsControlSummary',
@@ -1111,6 +1115,8 @@ describe('packed plugin', () => {
         'diagnosticsArchiveDownloaded',
         'diagnosticsArchiveHandoff',
         'diagnosticsAttention',
+        'diagnosticsCaptureKeepsRunning',
+        'diagnosticsCaptureTimedOut',
         'diagnosticsCollectingFinishHere',
         'diagnosticsComplete',
         'diagnosticsControlAction',
@@ -1339,6 +1345,27 @@ describe('packed plugin', () => {
         diagnosticsActions: { hidden: false },
         diagnosticsReproduction: { disabled: false },
       });
+      expect(menuUi.diagnosticsCaptureNote.textContent, 'the capture screen says when it stops on its own').toBe(
+        catalogs['i18n/en.json'].diagnosticsCaptureKeepsRunning.replace(
+          '{time}',
+          new Date('2026-08-20T10:18:42.832Z').toLocaleString('en', {
+            weekday: 'long',
+            hour: 'numeric',
+            minute: '2-digit',
+          }),
+        ),
+      );
+      expect(
+        [menuUi.menuDiagnostics, menuUi.mastheadDiagnostics],
+        'a capture on any area marks both diagnostics actions, in words as well as colour',
+      ).toMatchObject([
+        {
+          dataset: { collecting: 'true' },
+          attributes: { 'aria-label': catalogs['i18n/en.json'].diagnosticsCollectingFinishHere },
+        },
+        { dataset: { collecting: 'true' } },
+      ]);
+      expect(document.match(/class="diagnostics-capturing" data-i18n="diagnosticsCapturing"/g)).toHaveLength(2);
       await menuUi.diagnosticsCancel.dispatch('click');
       expect(menuUi.requests.at(-1), 'cancel asks the plugin to delete the session').toEqual({
         path: '/diagnostics/cancel',
@@ -1349,6 +1376,7 @@ describe('packed plugin', () => {
         diagnosticsQuestionText: { focused: true },
         diagnosticsGuidance: { hidden: true },
         diagnosticsResult: { open: false },
+        menuDiagnostics: { dataset: {} },
       });
       await controlTile.dispatch('click');
       await menuUi.diagnosticsReproduction.dispatch('click');
@@ -1697,6 +1725,33 @@ describe('packed plugin', () => {
       expect(completedDiagnosticsUi, 'a finished session is not offered again on return').toMatchObject({
         diagnosticsResult: { open: false },
         diagnosticsWizardPanel: { hidden: false },
+      });
+
+      /** A capture that ran out its 72 hours is finished at their end, and the page says so over its download. */
+      const timedOutUi = await renderUi(
+        script,
+        [{ platform: 'HomebridgeEufy', username: 'guest@example.invalid' }],
+        catalogs,
+        'en',
+        [],
+        undefined,
+        undefined,
+        {
+          status: 'complete',
+          supportCaseId: 'support-00000000-0000-4000-8000-000000000000',
+          profile: 'live-media',
+          reproductionMode: 'now',
+          expiresAt: '2026-08-19T10:18:42.832Z',
+          reproductionEndedAt: '2026-08-19T10:18:42.832Z',
+          missingEvidence: [],
+          partialExportAvailable: true,
+        },
+      );
+      await timedOutUi.mastheadDiagnostics.dispatch('click');
+      expect(timedOutUi).toMatchObject({
+        diagnosticsResult: { open: true },
+        diagnosticsResultHeading: { textContent: catalogs['i18n/en.json'].diagnosticsCaptureTimedOut },
+        diagnosticsExport: { hidden: false },
       });
 
       const expiredCompletedDiagnosticsUi = await renderUi(
