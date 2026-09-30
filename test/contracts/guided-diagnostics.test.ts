@@ -460,6 +460,63 @@ describe('guided diagnostics session', () => {
     }
   });
 
+  it('refuses a renamed archive unless --accept-renamed, which opens it and names the original', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    const fingerprint = createHash('sha256').update(publicKey.trim()).digest('hex');
+    mkdirSync(join(root, 'diagnostics'), { recursive: true });
+    writeFileSync(
+      join(root, 'diagnostics', 'session.json'),
+      `${JSON.stringify({
+        version: 1,
+        supportCaseId: 'support-00000000-0000-4000-8000-000000000011',
+        profile: 'startup-authentication',
+        authorizedAt: '2026-08-16T07:00:00.000Z',
+        expiresAt: '2026-08-19T07:00:00.000Z',
+        reproductionStartedAt: '2026-08-17T07:59:00.000Z',
+        reproductionEndedAt: '2026-08-17T08:00:00.000Z',
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const diagnostics = new GuidedDiagnostics(root, () => Date.parse('2026-08-17T08:00:05.000Z'), {
+      keyId: 'test-support-key',
+      publicKey,
+      sha256: fingerprint,
+    });
+
+    try {
+      const exported = await diagnostics.exportSupportArchive((await diagnostics.reviewSupportArchive()).reviewId);
+      // A reporter's own description, the way uploads arrive on issues.
+      const archivePath = join(root, 'No.homebase.not.streaming.eufysupport.gz');
+      const privateKeyPath = join(root, 'test-private.pem');
+      writeFileSync(archivePath, exported.archive, { mode: 0o600 });
+      writeFileSync(privateKeyPath, privateKey, { mode: 0o600 });
+      const decryptor = fileURLToPath(new URL('../../scripts/decrypt-diagnostics.mjs', import.meta.url));
+      const env = { ...process.env, HOMEBRIDGE_EUFY_SUPPORT_KEY_SHA256: fingerprint };
+
+      const refused = spawnSync(process.execPath, [decryptor, archivePath, privateKeyPath], { encoding: 'utf8', env });
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain(`renamed from ${exported.filename}`);
+      expect(existsSync(archivePath.replace(/\.eufysupport\.gz$/, ''))).toBe(false);
+
+      const opened = spawnSync(process.execPath, [decryptor, '--accept-renamed', archivePath, privateKeyPath], {
+        encoding: 'utf8',
+        env,
+      });
+      expect(opened.status, opened.stderr).toBe(0);
+      expect(opened.stderr).toContain(`WARNING: support archive was renamed from ${exported.filename}`);
+      expect(
+        JSON.parse(readFileSync(join(archivePath.replace(/\.eufysupport\.gz$/, ''), 'manifest.json'), 'utf8')),
+      ).toMatchObject({ profile: 'startup-authentication' });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it('admits verbose evidence only when the selected profile includes its scope', async () => {
     const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
     const diagnostics = new GuidedDiagnostics(root);

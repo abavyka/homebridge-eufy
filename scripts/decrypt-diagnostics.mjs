@@ -4,7 +4,11 @@
  * Authenticates, decrypts, and extracts a V5 Homebridge Eufy support archive.
  *
  * Usage:
- *   node scripts/decrypt-diagnostics.mjs <archive.eufysupport.gz> [private-key.pem]
+ *   node scripts/decrypt-diagnostics.mjs [--accept-renamed] <archive.eufysupport.gz> [private-key.pem]
+ *
+ * The filename must name the case inside. Reporters rename uploads to describe them; `--accept-renamed`
+ * opens such a file anyway, since the name is not part of what GCM authenticates, and warns with the name
+ * the plugin gave it.
  */
 
 import crypto from 'node:crypto';
@@ -197,7 +201,7 @@ function decryptPayload(envelope, privateKey) {
   }
 }
 
-function validatePayload(payload, envelope, archivePath) {
+function validatePayload(payload, envelope, archivePath, acceptRenamed) {
   if (
     !payload ||
     typeof payload !== 'object' ||
@@ -233,7 +237,6 @@ function validatePayload(payload, envelope, archivePath) {
     manifest.archiveFormat !== envelope.format ||
     manifest.keyId !== envelope.keyId ||
     !supportCasePattern.test(manifest.supportCaseId) ||
-    path.basename(archivePath) !== `homebridge-eufy-${manifest.supportCaseId}.eufysupport.gz` ||
     !PROFILES.has(manifest.profile) ||
     !['now', 'intermittent'].includes(reproductionMode) ||
     !Number.isFinite(createdAt) ||
@@ -253,7 +256,16 @@ function validatePayload(payload, envelope, archivePath) {
     new Set(manifest.excludedClasses).size !== EXCLUDED_CLASSES.size ||
     manifest.excludedClasses.some((entry) => !EXCLUDED_CLASSES.has(entry))
   ) {
-    throw new Error('Support archive manifest does not match its envelope or filename');
+    throw new Error('Support archive manifest does not match its envelope');
+  }
+  const expectedFilename = `homebridge-eufy-${manifest.supportCaseId}.eufysupport.gz`;
+  if (path.basename(archivePath) !== expectedFilename) {
+    if (!acceptRenamed) {
+      throw new Error(
+        `Support archive was renamed from ${expectedFilename}; pass --accept-renamed to open it under this name`,
+      );
+    }
+    console.warn(`WARNING: support archive was renamed from ${expectedFilename}`);
   }
 
   const manifestEvidence = new Map();
@@ -374,9 +386,13 @@ function extract(archivePath, manifest, evidence) {
 }
 
 function main() {
-  const [archiveArgument, keyArgument] = process.argv.slice(2);
+  const argumentsList = process.argv.slice(2);
+  const acceptRenamed = argumentsList.includes('--accept-renamed');
+  const [archiveArgument, keyArgument] = argumentsList.filter((argument) => argument !== '--accept-renamed');
   if (!archiveArgument) {
-    console.error('Usage: node scripts/decrypt-diagnostics.mjs <archive.eufysupport.gz> [private-key.pem]');
+    console.error(
+      'Usage: node scripts/decrypt-diagnostics.mjs [--accept-renamed] <archive.eufysupport.gz> [private-key.pem]',
+    );
     process.exitCode = 1;
     return;
   }
@@ -386,7 +402,7 @@ function main() {
     const envelope = readEnvelope(archivePath);
     const privateKey = readPrivateKey(keyPath, envelope.keyId);
     const payload = decryptPayload(envelope, privateKey);
-    const { manifest, extracted } = validatePayload(payload, envelope, archivePath);
+    const { manifest, extracted } = validatePayload(payload, envelope, archivePath, acceptRenamed);
     const directory = extract(archivePath, manifest, extracted);
     console.log(`Authenticated V5 support archive encrypted to ${envelope.keyId}.`);
     console.log(`Decrypted and extracted to: ${directory}/`);
