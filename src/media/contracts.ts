@@ -1,4 +1,10 @@
-import type { FragmentRecordingHandle, LiveStreamConsumer, TalkbackHandle } from '@mega-yfue/eufy-sdk';
+import type {
+  FragmentRecordingHandle,
+  LiveStreamConsumer,
+  LiveStreamStartFailureReason,
+  LiveStreamStartStage,
+  TalkbackHandle,
+} from '@mega-yfue/eufy-sdk';
 
 import type { SnapshotMode } from '../configuration.js';
 
@@ -96,13 +102,20 @@ export type LiveSessionFailureStage =
   | 'first-adapted-output'
   | 'controller-rtcp';
 
-/** One live session lifecycle outcome, carrying no device identity, address, key, or media material. */
+/**
+ * One live session lifecycle outcome, carrying no device identity, address, key, or media material.
+ *
+ * `sourceStage` and `sourceReason` are the SDK's own account of a warm-up that ended without a keyframe, present
+ * only where the SDK gave one.
+ */
 export type LiveSessionOutcome =
   | { readonly outcome: 'streaming' }
   | {
       readonly outcome: 'failed';
       readonly reason: LiveSessionFailure;
       readonly stage: LiveSessionFailureStage;
+      readonly sourceStage?: LiveStreamStartStage;
+      readonly sourceReason?: LiveStreamStartFailureReason;
     };
 
 /** Why one return-audio lifecycle ended without usable device audio. */
@@ -268,7 +281,7 @@ export interface StationLiveSessionRegistry {
  *
  * Every session that negotiated a selection reports one, including a session stopped while its source was
  * still being acquired: that session reaches no adaptation and no outcome, so its release is the only record
- * that it existed at all.
+ * that it existed at all, and it names `sdk-source-acquisition` as the stage the session never got past.
  */
 export type LiveSessionRelease = 'requested' | 'failed';
 
@@ -292,7 +305,11 @@ export interface LiveMediaTransport {
   readonly audio?: LiveMediaTarget;
   readonly onVideoFailure?: () => void;
   readonly onSessionOutcome?: (outcome: LiveSessionOutcome) => void;
-  readonly onSessionReleased?: (release: LiveSessionRelease, controller: ControllerLiveness) => void;
+  readonly onSessionReleased?: (
+    release: LiveSessionRelease,
+    controller: ControllerLiveness,
+    stage?: 'sdk-source-acquisition',
+  ) => void;
   readonly onTalkbackOutcome?: (outcome: TalkbackOutcome) => void;
 }
 

@@ -271,6 +271,49 @@ describe('a session that got no source', () => {
       stage: 'sdk-source-acquisition',
     });
   });
+
+  it('records a release that came before any source, and not as a failure', () => {
+    const debug = vi.fn();
+    reportHomeKitEvent(
+      { debug },
+      {
+        adapter: 'camera.streaming',
+        event: 'live-session-released',
+        release: 'requested',
+        stage: 'sdk-source-acquisition',
+      },
+    );
+    expect(records(debug)[0]).toMatchObject({
+      event: 'live-session-released',
+      release: 'requested',
+      stage: 'sdk-source-acquisition',
+    });
+  });
+});
+
+/**
+ * A warm-up the SDK ended without a keyframe keeps the SDK's own stage and reason on the record, and a value
+ * outside the SDK's vocabulary is dropped while the failure itself is kept.
+ */
+describe("the SDK's account of a failed warm-up", () => {
+  it('records its stage and reason', () => {
+    const debug = vi.fn();
+    const failed = {
+      adapter: 'camera.streaming',
+      event: 'live-session-failed',
+      outcome: 'failed',
+      reason: 'source-error',
+      stage: 'first-source-keyframe',
+    } as const;
+    reportHomeKitEvent({ debug }, { ...failed, sourceStage: 'awaiting-keyframe', sourceReason: 'warm-timeout' });
+    reportHomeKitEvent({ debug }, { ...failed, sourceStage: 'T8000P0000000000', sourceReason: 'free text' });
+
+    const [carried, dropped] = records(debug);
+    expect(carried).toMatchObject({ ...failed, sourceStage: 'awaiting-keyframe', sourceReason: 'warm-timeout' });
+    expect(dropped).toMatchObject(failed);
+    expect(dropped).not.toHaveProperty('sourceStage');
+    expect(dropped).not.toHaveProperty('sourceReason');
+  });
 });
 
 /**
