@@ -154,6 +154,7 @@
   "log.action.checkPhysicalArmingMode": "Check the physical security-system mode before retrying.",
   "log.action.checkPhysicalLight": "Check the physical smart-light state before retrying.",
   "log.action.checkPhysicalLock": "Check the physical lock state before retrying.",
+  "log.action.controlTimedOut": "The device did not answer in time; use the Eufy app for this control, and attach a diagnostics file to your issue if it keeps happening.",
   "log.action.enableCamera": "Turn the camera on in the Eufy app, then open live view again.",
   "log.action.mapArmingMode": "Assign this mode to a HomeKit state under HomeKit guard modes in the device’s settings.",
   "log.action.reduceConcurrentMedia": "Open live view again; if it keeps happening, close a camera already open or raise Cameras streaming at once in Advanced settings.",

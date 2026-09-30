@@ -951,8 +951,9 @@ describe('diagnostic conditions', () => {
   /**
    * A condition names the remedy that fits its cause. A device HomeKit cannot represent yet is an informational line
    * with nothing to do, an unmapped guard mode points at the mode map, a missing FFmpeg points at the path setting,
-   * and one that cannot be started points at the same setting to check. A reason with no remedy of its own keeps
-   * the condition's. The retained record carries the same level and action as the console line.
+   * and one that cannot be started points at the same setting to check. A control that timed out points at the Eufy
+   * app rather than a retry. A reason with no remedy of its own keeps the condition's. The retained
+   * record carries the same level and action as the console line.
    */
   it('names the remedy that fits each cause, at its level, on the console and in the record', async () => {
     const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-remedy-'));
@@ -996,6 +997,13 @@ describe('diagnostic conditions', () => {
         'source-error',
         'warn',
         'log.action.retryLiveView',
+      ],
+      [
+        'lock-operation-failed',
+        { capability: 'lock', member: 'target' },
+        'timeout',
+        'warn',
+        'log.action.controlTimedOut',
       ],
     ] as const;
 
