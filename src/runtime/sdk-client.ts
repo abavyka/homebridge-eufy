@@ -10,12 +10,12 @@ import type {
 
 import type { EufyConfig } from '../configuration.js';
 import { discoverCompleteDeviceRegistry, type CompleteDeviceSnapshot } from '../device/snapshot.js';
-import { createSdkLogger, type PlatformLogger, type UnconfirmedWrite } from '../diagnostics.js';
-
-/** Tolerates an SDK build that predates realtime readiness, which the pinned dependency may be. */
-interface RealtimeReadyClient {
-  waitForRealtime?(): Promise<{ state: string }>;
-}
+import {
+  createSdkLogger,
+  reportRealtimeReadiness,
+  type PlatformLogger,
+  type UnconfirmedWrite,
+} from '../diagnostics.js';
 
 export type SdkStartResult =
   | {
@@ -130,7 +130,7 @@ export class PersistedSdkClient implements SdkClient {
     private readonly config: EufyConfig,
     private readonly stores: RuntimeClientStores,
     private readonly restoredClient?: EufyMega,
-    logger?: SdkLogger,
+    private readonly logger?: SdkLogger,
   ) {
     this.diagnostics = createSdkLogger(logger);
   }
@@ -263,11 +263,12 @@ export class PersistedSdkClient implements SdkClient {
   }
 
   private async realtimeReady(client: EufyMega): Promise<boolean> {
-    const waitForRealtime = (client as EufyMega & RealtimeReadyClient).waitForRealtime;
-    if (!waitForRealtime) {
+    if (typeof client.waitForRealtime !== 'function') {
       return true;
     }
-    return (await waitForRealtime.call(client)).state === 'ready';
+    const readiness = await client.waitForRealtime();
+    reportRealtimeReadiness(this.logger, readiness);
+    return readiness.state === 'ready';
   }
 }
 

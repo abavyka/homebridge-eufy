@@ -784,6 +784,36 @@ describe('HomeKit registry reconciliation', () => {
     expect(recording.unregisterPlatformAccessories).toHaveBeenCalledWith([accessory]);
   });
 
+  /** An event no attached adapter is offered is reported by what its serial named, never by the serial. */
+  it('reports an event it cannot route, stating whether it named nothing, a station, or an unattached serial', () => {
+    const camera = 'synthetic-relayed-contact';
+    const station = 'synthetic-homebase';
+    const source = new RegistrySource();
+    const traces: HomeKitEventReport[] = [];
+    new HomeKitReconciler(source, recordingApi().api, vi.fn(), [], (trace) => traces.push(trace)).start();
+    source.publish(
+      registryView(
+        1,
+        new Map([
+          [camera, { ...contactDevice(false), sn: camera, stationSn: station } as unknown as Device],
+          [station, { sn: station, stationSn: station } as unknown as Device],
+        ]),
+        snapshot(contactManifest(camera), identityOnlyManifest(station)),
+      ),
+    );
+
+    source.publishEvent({ eventName: 'motion' });
+    source.publishEvent({ eventName: 'motion', deviceSn: station });
+    source.publishEvent({ eventName: 'motion', deviceSn: 'synthetic-unpaired' });
+    source.publishEvent({ eventName: 'contactState', deviceSn: camera, open: true });
+
+    expect(traces.filter(({ event }) => event === 'event-unrouted')).toEqual([
+      { event: 'event-unrouted', kind: 'motion', target: 'none' },
+      { event: 'event-unrouted', kind: 'motion', target: 'station' },
+      { event: 'event-unrouted', kind: 'motion', target: 'unattached' },
+    ]);
+  });
+
   /** A security system its owner turned off is removed from the cached accessory, and the device's other services stay. */
   it('attaches no Security System where the preference turns it off, and keeps the rest of the accessory', () => {
     const serial = 'synthetic-standalone-security-system';

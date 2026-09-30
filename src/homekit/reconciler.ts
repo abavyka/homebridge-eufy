@@ -64,7 +64,15 @@ export type HomeKitDiagnosticSink = (diagnostic: HomeKitDiagnostic, affectedDevi
  * One adapter serves every camera of a household, so the adapter alone does not identify what a report concerns.
  * `serial` is an identity: the sink resolves it to a support-case alias and retains that.
  */
-export type HomeKitEventReport = { adapter: string; serial: string } & AdapterTrace;
+export type HomeKitEventReport = ({ adapter: string; serial: string } & AdapterTrace) | UnroutedEventReport;
+
+/**
+ * An SDK event that reached no attached adapter, by its kind and what its serial named.
+ *
+ * `target` is `none` for an event carrying no device serial, `station` for one naming another device's station,
+ * and `unattached` for any other serial no adapter is attached to. The serial itself is never carried.
+ */
+type UnroutedEventReport = { event: 'event-unrouted'; kind: string; target: 'none' | 'station' | 'unattached' };
 
 export type HomeKitEventReportSink = (trace: HomeKitEventReport) => void;
 
@@ -312,13 +320,22 @@ export class HomeKitReconciler {
   }
 
   private observe(event: AnyDeviceEvent): void {
-    if (!event.deviceSn) {
+    const serial = event.deviceSn;
+    const handles = serial ? this.attachedAdapters.get(serial) : undefined;
+    if (!serial || !handles) {
+      const registry = this.source.currentRegistry()?.registry.values() ?? [];
+      const target = !serial
+        ? 'none'
+        : [...registry].some((device) => device.sn !== serial && device.stationSn === serial)
+          ? 'station'
+          : 'unattached';
+      this.trace?.({ event: 'event-unrouted', kind: event.eventName, target });
       return;
     }
-    for (const [adapter, handle] of this.attachedAdapters.get(event.deviceSn) ?? []) {
+    for (const [adapter, handle] of handles) {
       const result = handle.event?.(event);
       if (result) {
-        this.trace?.({ adapter, serial: event.deviceSn, ...result });
+        this.trace?.({ adapter, serial, ...result });
       }
     }
   }

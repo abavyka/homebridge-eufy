@@ -677,6 +677,41 @@ describe('persisted runtime owner', () => {
     expect(getDevices).toHaveBeenCalledOnce();
   });
 
+  /** Push startup is recorded by its counts, which a ready-or-degraded outcome alone cannot tell apart. */
+  it('records how push startup settled', async () => {
+    const { persistence } = await activeRuntime();
+    const active = await persistence.active();
+    const debug = vi.fn();
+    const client = {
+      loggedIn: true,
+      login: vi.fn(async () => ({ status: 'ok' as const, raw: { restored: true } })),
+      waitForRealtime: vi.fn(async () => ({
+        ...realtimeReady(),
+        state: 'partial' as const,
+        push: { required: 1, ready: 0, failed: 1, pending: 0 },
+      })),
+      on: vi.fn(),
+      off: vi.fn(),
+      getDevices: vi.fn(async () => [{ sn: 'synthetic-current' }]),
+      getDevice: vi.fn(async () => sdkDevice('synthetic-current')),
+    } as unknown as EufyMega;
+    const config = parseConfig({ platform: 'HomebridgeEufy', username: 'runtime@example.invalid', password: 'p' });
+
+    await new PersistedSdkClient(config, active!, client, { debug }).start();
+
+    expect(debug.mock.calls.map(([line]) => JSON.parse(String(line)))).toContainEqual({
+      scope: 'sdk',
+      level: 'debug',
+      subsystem: 'push',
+      event: 'realtime-readiness',
+      state: 'partial',
+      required: 1,
+      ready: 0,
+      failed: 1,
+      pending: 0,
+    });
+  });
+
   it('lets final realtime readiness settle initial transport lifecycle events', async () => {
     const { persistence } = await activeRuntime();
     const active = await persistence.active();
