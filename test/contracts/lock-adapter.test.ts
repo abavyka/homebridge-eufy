@@ -513,6 +513,37 @@ describe('T8531 lock capability adapter', () => {
     vi.useRealTimers();
   });
 
+  /** A command that completes after HomeKit's deadline lands: the target is presented, the warning cleared, reconciliation opened. */
+  it('presents a timed-out command that the SDK completes late', async () => {
+    vi.useFakeTimers();
+    const target = accessory();
+    const operation = deferred();
+    const diagnostics: LockDiagnostic[] = [];
+    attach(
+      lockDevice({ lock: vi.fn(() => operation.promise), unlock: vi.fn(async () => undefined) }),
+      target,
+      (diagnostic) => diagnostics.push(diagnostic),
+    );
+    const desired = target
+      .getServiceById(Service.LockMechanism, LOCK_ADAPTER_KEY)!
+      .getCharacteristic(Characteristic.LockTargetState);
+    const write = expect(desired.handleSetRequest(Characteristic.LockTargetState.SECURED)).rejects.toBe(
+      HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+    );
+    await vi.advanceTimersByTimeAsync(8_000);
+    await write;
+
+    operation.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(desired.value).toBe(Characteristic.LockTargetState.SECURED);
+    await expect(desired.handleGetRequest()).resolves.toBe(Characteristic.LockTargetState.SECURED);
+    expect(diagnostics.at(-1)).toMatchObject({ code: 'lock-operation-failed', active: false, reason: 'recovered' });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(diagnostics.at(-1)).toMatchObject({ code: 'lock-reconciliation-expired', active: true });
+    vi.useRealTimers();
+  });
+
   it('expires an unreconciled target projection without inventing current or jammed state', async () => {
     vi.useFakeTimers();
     const target = accessory();

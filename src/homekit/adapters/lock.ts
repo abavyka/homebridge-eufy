@@ -155,6 +155,7 @@ class LockTargetWrites {
       active: boolean,
       reason: LockDiagnostic['reason'],
     ) => void,
+    private readonly restore: () => void,
   ) {}
 
   read(): number | undefined {
@@ -238,13 +239,17 @@ class LockTargetWrites {
     if (this.active !== batch) {
       return;
     }
-    if (batch.abandoned) {
+    if (batch.abandoned && this.queued?.requests.some(({ settled }) => !settled)) {
       this.active = undefined;
       this.startQueued();
       return;
     }
     for (const request of batch.requests) {
       this.settle(request, 'resolve');
+    }
+    if (batch.abandoned) {
+      this.projection = batch.value;
+      this.restore();
     }
     this.diagnose('lock-operation-failed', false, 'recovered');
     if (this.projection !== undefined) {
@@ -511,6 +516,7 @@ function attachLock(context: AdapterAttachmentContext): AttachedAdapter | undefi
       ),
     (error) => error instanceof CapabilityNotSupportedError,
     (code, active, reason) => state.diagnose(code, active, reason),
+    () => target.updateValue(state.writes!.read()!),
   );
 
   current.onGet(currentValue);
