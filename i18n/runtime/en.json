@@ -4,6 +4,7 @@
   "log.action.checkPhysicalArmingMode": "Check the physical security-system mode before retrying",
   "log.action.checkPhysicalLight": "Check the physical smart-light state before retrying",
   "log.action.checkPhysicalLock": "Check the physical lock state before retrying",
+  "log.action.controlTimedOut": "The device did not answer in time; use the Eufy app for this control, and attach a diagnostics file to your issue if it keeps happening",
   "log.action.checkCameraSnapshot": "Check that the camera is reachable and can produce an image, then open the camera again",
   "log.action.waitCameraControl": "No action is needed; the control returns when the camera reports it again",
   "log.action.checkCameraControl": "Check the camera in the Eufy app; this control is unavailable until it reports its state",

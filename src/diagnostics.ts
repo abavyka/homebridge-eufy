@@ -2390,12 +2390,17 @@ type HomeKitConditionCode = keyof typeof HOMEKIT_CONDITIONS;
  * The action a HomeKit condition names for a reason whose remedy is not the condition's own, keyed `code:reason`.
  *
  * A camera adapter is missing only where no FFmpeg path resolved, and an adaptation fails to spawn only where the
- * path cannot be run, so both are fixed in the plugin's settings rather than waited out.
+ * path cannot be run, so both are fixed in the plugin's settings rather than waited out. A control that timed out
+ * will likely time out again, so it points at the Eufy app instead of a retry.
  */
 const HOMEKIT_REASON_ACTIONS: Readonly<Record<string, string>> = {
   'camera-streaming-capability-unavailable:adapter-missing': 'log.action.setFfmpegPath',
   'camera-recording-unavailable:adapter-missing': 'log.action.setFfmpegPath',
   'camera-live-session-failed:adaptation-spawn-failed': 'log.action.checkFfmpegPath',
+  'lock-operation-failed:timeout': 'log.action.controlTimedOut',
+  'arming-operation-failed:timeout': 'log.action.controlTimedOut',
+  'smart-light-operation-failed:timeout': 'log.action.controlTimedOut',
+  'camera-control-operation-failed:timeout': 'log.action.controlTimedOut',
 };
 
 /**
