@@ -59,3 +59,6 @@ node scripts/decrypt-diagnostics.mjs /path/to/archive.eufysupport.gz
 The V5-only decryptor verifies key permissions and fingerprint, authenticates the envelope, checks the
 manifest against each evidence item, and writes owner-only `manifest.json`, JSON, and JSONL files beside
 the archive. Treat that output as sensitive and delete it after the support case is complete.
+
+The filename must name the case inside it. A reporter who renamed the upload is refused with the name the
+plugin gave it; `--accept-renamed` opens the file anyway, since the name is not authenticated, and warns.
