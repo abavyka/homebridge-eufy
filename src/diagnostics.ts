@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gunzip as gunzipCallback, gzip as gzipCallback } from 'node:zlib';
 
-import { LIVE_TRACE_MESSAGE, type Logger, type LiveTrace } from '@mega-yfue/eufy-sdk';
+import { LIVE_TRACE_MESSAGE, type AnyDeviceEvent, type Logger, type LiveTrace } from '@mega-yfue/eufy-sdk';
 
 export interface PlatformLogger {
   debug?(message: string): void;
@@ -117,8 +117,40 @@ export type HomeKitEventTrace = { adapter: string; serial?: string } & (
   | { event: 'live-request-refused'; reason: string }
 );
 
+/** An SDK event no adapter was offered, by the kind it was and what its serial named. */
+type UnroutedEventTrace = { event: 'event-unrouted'; kind: string; target: string };
+
 /** Why a live session gave its source back: a stop from outside it, or the session ending itself. */
 const LIVE_SESSION_RELEASES = ['requested', 'failed'] as const;
+
+/**
+ * The SDK event kinds a HomeKit adapter consumes, which are the kinds an unrouted-event record may name.
+ *
+ * Checked against the SDK's event union at build time, so a kind the SDK renames or removes fails the build.
+ */
+const UNROUTED_EVENT_KINDS = [
+  'alarm',
+  'armingModeChanged',
+  'batteryAlert',
+  'cameraEnabledChanged',
+  'contactState',
+  'cryingDetected',
+  'dogDetected',
+  'doorbellPress',
+  'lockState',
+  'motion',
+  'packageDelivered',
+  'packageStranded',
+  'packageTaken',
+  'personDetected',
+  'petDetection',
+  'smartLightState',
+  'soundDetected',
+  'strangerDetected',
+  'vehicleDetected',
+] as const satisfies readonly AnyDeviceEvent['eventName'][];
+/** What an unrouted event's serial named: none, another device's station, or a serial no adapter holds. */
+const UNROUTED_EVENT_TARGETS = ['none', 'station', 'unattached'] as const;
 
 /** The claims that contend for a station's one live channel, and the decisions taken over it. */
 const STATION_CLAIMS = ['live', 'recording', 'snapshot'] as const;
@@ -275,6 +307,7 @@ const SDK_EVENT_KEYS = new Set([
   'observation-invalid',
   'protocol-command',
   'protocol-unhandled',
+  'realtime-readiness',
   'session-connecting',
   'session-idle',
   'session-resumed',
@@ -1941,6 +1974,39 @@ function opaqueAccessoryAlias(value: unknown): string | undefined {
 }
 
 /**
+ * Narrows one realtime startup outcome to its state and push start counts, or nothing where the state is unknown.
+ *
+ * Read by both halves of the path — {@link reportRealtimeReadiness} builds the record and the file sink rebuilds it.
+ */
+function sanitizeRealtimeReadiness(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  const state = allowlistedLabel(value.state, ['ready', 'partial', 'disabled', 'superseded', 'timed-out']);
+  if (!state) return undefined;
+  const counts = Object.fromEntries(
+    (['required', 'ready', 'failed', 'pending'] as const).flatMap((key) => {
+      const count = nonNegativeInteger(value[key]);
+      return count === undefined ? [] : [[key, count]];
+    }),
+  );
+  return { event: 'realtime-readiness', state, ...counts };
+}
+
+/**
+ * Records how the SDK's realtime startup settled, with the push plane's start counts, as `sdk-log` evidence.
+ *
+ * Carries the state and the counts alone, which separate a push plane that failed or never settled from one that
+ * started.
+ */
+export function reportRealtimeReadiness(
+  target: Partial<Pick<PlatformLogger, 'debug'>> | undefined,
+  readiness: { state: string; push?: object },
+): void {
+  const record = sanitizeRealtimeReadiness({ ...readiness.push, state: readiness.state });
+  if (target?.debug && record) {
+    target.debug(JSON.stringify({ scope: 'sdk', level: 'debug', subsystem: 'push', ...record }));
+  }
+}
+
+/**
  * Adapts SDK protocol detail to bounded debug output without preserving supplied values.
  *
  * The SDK runs FFmpeg of its own for snapshot decoding and WebRTC containers and forwards that process's
@@ -2478,6 +2544,10 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
     ) {
       return undefined;
     }
+    if (value.event === 'realtime-readiness') {
+      const readiness = sanitizeRealtimeReadiness(value);
+      return readiness ? { scope: 'sdk', level: 'debug', subsystem: 'push', ...readiness } : undefined;
+    }
     if (value.event === 'live-start-trace') {
       if (level !== 'debug') return undefined;
       const trace = sanitizeSdkLiveStartTrace(value);
@@ -2539,6 +2609,10 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
   }
 
   if (value.scope === 'homekit') {
+    if (value.event === 'event-unrouted') {
+      const unrouted = sanitizeUnroutedEvent(value);
+      return unrouted ? { scope: 'homekit', level: 'debug', ...unrouted } : undefined;
+    }
     if (value.event === 'station-claim') {
       const claim = sanitizeStationClaim(value);
       return claim ? { scope: 'homekit', level: 'debug', ...claim } : undefined;
@@ -2746,6 +2820,17 @@ function sanitizeStationClaim(value: Record<string, unknown>): Record<string, un
 }
 
 /**
+ * Narrows one offered unrouted SDK event to its kind and target, or nothing where either is not allowlisted.
+ *
+ * Read by both halves of the path — {@link reportHomeKitEvent} builds the record and the file sink rebuilds it.
+ */
+function sanitizeUnroutedEvent(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  const kind = allowlistedLabel(value.kind, UNROUTED_EVENT_KINDS);
+  const target = allowlistedLabel(value.target, UNROUTED_EVENT_TARGETS);
+  return kind && target ? { event: 'event-unrouted', kind, target } : undefined;
+}
+
+/**
  * Records one arbitration decision over a station's own session as `homekit-log` evidence.
  *
  * A still that stood aside produced no picture of its own and no failure, so without this the deferral is
@@ -2765,9 +2850,16 @@ export function reportStationClaim(
 
 export function reportHomeKitEvent(
   target: Pick<PlatformLogger, 'debug'>,
-  trace: HomeKitEventTrace,
+  trace: HomeKitEventTrace | UnroutedEventTrace,
   aliasFor?: (serial: string) => string | undefined,
 ): void {
+  if (!('adapter' in trace)) {
+    const unrouted = sanitizeUnroutedEvent(trace);
+    if (target.debug && unrouted) {
+      target.debug(JSON.stringify({ scope: 'homekit', level: 'debug', ...unrouted }));
+    }
+    return;
+  }
   const alias = typeof trace.serial === 'string' ? aliasFor?.(trace.serial) : undefined;
   const offered = { ...(trace as unknown as Record<string, unknown>), accessory: alias };
   const accessory = alias === undefined ? {} : { accessory: alias };

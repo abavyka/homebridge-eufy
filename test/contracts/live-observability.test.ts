@@ -477,6 +477,20 @@ describe('a live record that reached the support archive', () => {
     ]);
   });
 
+  it('keeps an event no adapter was offered, by kind and target alone', async () => {
+    await expect(retained({ event: 'event-unrouted', kind: 'motion', target: 'station' })).resolves.toEqual([
+      { scope: 'homekit', level: 'debug', event: 'event-unrouted', kind: 'motion', target: 'station' },
+    ]);
+    await expect(retained({ event: 'event-unrouted', kind: 'T8160P0000000000', target: 'station' })).resolves.toEqual(
+      [],
+    );
+  });
+
+  it('keeps how push startup settled, by state and counts alone', async () => {
+    const record = { scope: 'sdk', level: 'debug', subsystem: 'push', event: 'realtime-readiness', state: 'partial' };
+    await expect(retained({ ...record, failed: 1, token: 'synthetic' })).resolves.toEqual([{ ...record, failed: 1 }]);
+  });
+
   it('keeps a request refused before the source, the badge an operator saw having no other counterpart', async () => {
     await expect(
       retained({ adapter: 'camera.streaming', event: 'live-request-refused', reason: 'at-capacity' }),
