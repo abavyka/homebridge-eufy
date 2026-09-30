@@ -458,7 +458,7 @@ describe('live media adaptation', () => {
 
   /**
    * A session stopped while its source was still being acquired reaches no adaptation and reports no outcome,
-   * so its release is the only record that it existed at all.
+   * so its release is the only record that it existed at all, and it names the acquisition it never got past.
    */
   it('reports the release of a session stopped while its source was still being acquired', async () => {
     const session = await liveSession({
@@ -474,7 +474,11 @@ describe('live media adaptation', () => {
     await expect(starting).rejects.toThrow('live media session stopped');
     expect(session.outcomes).toEqual([]);
     expect(session.children).toHaveLength(0);
-    expect(session.released).toHaveBeenCalledExactlyOnceWith('requested', expect.objectContaining({ reports: 0 }));
+    expect(session.released).toHaveBeenCalledExactlyOnceWith(
+      'requested',
+      expect.objectContaining({ reports: 0 }),
+      'sdk-source-acquisition',
+    );
   });
 
   it('fails a session on the SDK warm-up error before the video backstop', async () => {
@@ -509,28 +513,47 @@ describe('live media adaptation', () => {
     expect(session.onVideoFailure).toHaveBeenCalledOnce();
     expect(session.stream.stop).toHaveBeenCalledOnce();
     expect(session.outcomes).toEqual([
-      { outcome: 'failed', reason: 'source-audio-only', stage: 'first-source-keyframe' },
+      {
+        outcome: 'failed',
+        reason: 'source-audio-only',
+        stage: 'first-source-keyframe',
+        sourceStage: 'audio-only',
+        sourceReason: 'warm-timeout',
+      },
     ]);
     vi.useRealTimers();
   });
 
-  it('reports a start that never delivered a frame at all as a source error rather than an audio-only one', async () => {
+  /**
+   * An SDK warm-up failure is reported with the SDK's own stage and reason, and at the first source keyframe
+   * even where a keyframe the source replayed had already reached the adaptation.
+   */
+  it('reports an SDK warm-up failure with the stage and reason the SDK gave', async () => {
     vi.useFakeTimers();
     const session = await liveSession();
     await session.start();
+    session.stream.video(KEYFRAME);
 
     await vi.advanceTimersByTimeAsync(20_000);
     session.stream.emit(
       'error',
       new LiveStreamStartError({
         reason: 'warm-timeout',
-        stage: 'awaiting-first-frame',
+        stage: 'awaiting-keyframe',
         timeoutMs: 20_000,
         attempts: 10,
       }),
     );
 
-    expect(session.outcomes).toEqual([{ outcome: 'failed', reason: 'source-error', stage: 'first-source-keyframe' }]);
+    expect(session.outcomes).toEqual([
+      {
+        outcome: 'failed',
+        reason: 'source-error',
+        stage: 'first-source-keyframe',
+        sourceStage: 'awaiting-keyframe',
+        sourceReason: 'warm-timeout',
+      },
+    ]);
     vi.useRealTimers();
   });
 
@@ -550,7 +573,13 @@ describe('live media adaptation', () => {
     await expect(session.start()).rejects.toBe(failure);
 
     expect(session.outcomes).toEqual([
-      { outcome: 'failed', reason: 'source-audio-only', stage: 'sdk-source-acquisition' },
+      {
+        outcome: 'failed',
+        reason: 'source-audio-only',
+        stage: 'sdk-source-acquisition',
+        sourceStage: 'audio-only',
+        sourceReason: 'source-ended',
+      },
     ]);
   });
 

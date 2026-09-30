@@ -85,13 +85,22 @@ export type HomeKitEventTrace = { adapter: string; serial?: string } & (
       outcome: 'failed';
       reason: string;
       stage: 'sdk-source-acquisition' | 'first-source-keyframe' | 'first-adapted-output' | 'controller-rtcp';
+      sourceStage?: string;
+      sourceReason?: string;
     }
   /**
    * A session gave its source back, stating whether it was asked to or ended itself.
    *
-   * A controller stops showing a picture either way, so this record is the only place the two differ.
+   * A controller stops showing a picture either way, so this record is the only place the two differ. `stage`
+   * is present where the session was released before its source arrived.
    */
-  | { event: 'live-session-released'; release: string; reports?: number; sinceLastReportMs?: number }
+  | {
+      event: 'live-session-released';
+      release: string;
+      reports?: number;
+      sinceLastReportMs?: number;
+      stage?: 'sdk-source-acquisition';
+    }
   /**
    * The first adapted output reached the negotiated destination.
    *
@@ -2240,6 +2249,9 @@ const HOMEKIT_LIVE_SESSION_STAGES = new Set([
   'first-adapted-output',
   'controller-rtcp',
 ]);
+/** The SDK's own stage and reason for a live warm-up that ended without a keyframe. */
+const SDK_LIVE_START_STAGES = ['awaiting-first-frame', 'audio-only', 'awaiting-keyframe'];
+const SDK_LIVE_START_REASONS = ['warm-timeout', 'source-error', 'source-ended'];
 /**
  * Which adaptation process an FFmpeg record came from.
  *
@@ -2457,7 +2469,8 @@ type HomeKitConditionCode = keyof typeof HOMEKIT_CONDITIONS;
  *
  * A camera adapter is missing only where no FFmpeg path resolved, and an adaptation fails to spawn only where the
  * path cannot be run, so both are fixed in the plugin's settings rather than waited out. A control that timed out
- * will likely time out again, so it points at the Eufy app instead of a retry.
+ * will likely time out again, so it points at the Eufy app instead of a retry. A station whose session did not
+ * connect is fixed at that station, not at the camera a viewer opened.
  */
 const HOMEKIT_REASON_ACTIONS: Readonly<Record<string, string>> = {
   'camera-streaming-capability-unavailable:adapter-missing': 'log.action.setFfmpegPath',
@@ -2467,6 +2480,7 @@ const HOMEKIT_REASON_ACTIONS: Readonly<Record<string, string>> = {
   'arming-operation-failed:timeout': 'log.action.controlTimedOut',
   'smart-light-operation-failed:timeout': 'log.action.controlTimedOut',
   'camera-control-operation-failed:timeout': 'log.action.controlTimedOut',
+  'camera-live-session-failed:station-unreachable': 'log.action.checkStation',
 };
 
 /**
@@ -3069,6 +3083,7 @@ function sanitizeLiveSessionTrace(value: Record<string, unknown>): Record<string
       release,
       ...(reports === undefined ? {} : { reports }),
       ...(sinceLastReportMs === undefined ? {} : { sinceLastReportMs }),
+      ...(value.stage === 'sdk-source-acquisition' ? { stage: value.stage } : {}),
       ...accessory,
     };
   }
@@ -3095,12 +3110,16 @@ function sanitizeLiveSessionTrace(value: Record<string, unknown>): Record<string
   ) {
     return undefined;
   }
+  const sourceStage = allowlistedLabel(value.sourceStage, SDK_LIVE_START_STAGES);
+  const sourceReason = allowlistedLabel(value.sourceReason, SDK_LIVE_START_REASONS);
   return {
     adapter: value.adapter,
     event: value.event,
     outcome: value.outcome,
     reason: value.reason,
     stage: value.stage,
+    ...(sourceStage === undefined ? {} : { sourceStage }),
+    ...(sourceReason === undefined ? {} : { sourceReason }),
     ...accessory,
   };
 }

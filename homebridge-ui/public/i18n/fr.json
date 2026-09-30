@@ -154,6 +154,7 @@
   "log.action.checkPhysicalArmingMode": "Vérifiez le mode réel du système de sécurité avant de réessayer.",
   "log.action.checkPhysicalLight": "Vérifiez l’état réel de l’éclairage avant de réessayer.",
   "log.action.checkPhysicalLock": "Vérifiez l’état réel de la serrure avant de réessayer.",
+  "log.action.checkStation": "Vérifiez que la station ou la HomeBase de cette caméra est alimentée et en ligne, ainsi que l’accès réseau entre Homebridge et elle, puis rouvrez la vue en direct.",
   "log.action.controlTimedOut": "L’appareil n’a pas répondu à temps ; utilisez l’app Eufy pour cette commande, et joignez un fichier de diagnostic à votre ticket si cela se reproduit.",
   "log.action.enableCamera": "Allumez la caméra dans l’app Eufy, puis rouvrez la vue en direct.",
   "log.action.mapArmingMode": "Associez ce mode à un état HomeKit sous Modes de garde HomeKit dans les réglages de l’appareil.",

@@ -459,29 +459,39 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
       stopProcess(audioProcess);
       source?.stop();
       if (negotiated) {
-        transport.onSessionReleased?.(videoFailed ? 'failed' : 'requested', {
-          reports: rtcpReports,
-          ...(lastRtcpAt === undefined ? {} : { sinceLastReportMs: Date.now() - lastRtcpAt }),
-        });
+        transport.onSessionReleased?.(
+          videoFailed ? 'failed' : 'requested',
+          {
+            reports: rtcpReports,
+            ...(lastRtcpAt === undefined ? {} : { sinceLastReportMs: Date.now() - lastRtcpAt }),
+          },
+          ...(source === undefined ? (['sdk-source-acquisition'] as const) : []),
+        );
       }
       videoPort.close();
       audioPort?.close();
     };
-    const failVideo = (reason: LiveSessionFailure): void => {
+    const failVideo = (reason: LiveSessionFailure, error?: unknown): void => {
       if (stopped || videoFailed) {
         return;
       }
       videoFailed = true;
       stop();
+      const warmUp = error instanceof LiveStreamStartError;
       const stage =
         reason === 'source-acquisition-timeout' || source === undefined
           ? 'sdk-source-acquisition'
           : reason === 'rtcp-timeout'
             ? 'controller-rtcp'
-            : !receivedVideoKeyframe
+            : warmUp || !receivedVideoKeyframe
               ? 'first-source-keyframe'
               : 'first-adapted-output';
-      transport.onSessionOutcome?.({ outcome: 'failed', reason, stage });
+      transport.onSessionOutcome?.({
+        outcome: 'failed',
+        reason,
+        stage,
+        ...(warmUp ? { sourceStage: error.stage, sourceReason: error.reason } : {}),
+      });
       transport.onVideoFailure?.();
     };
     /**
@@ -867,7 +877,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           ]);
         } catch (error) {
           acquisition.abort(new Error('live media source acquisition was cancelled'));
-          failVideo(error === SOURCE_ACQUISITION_TIMEOUT ? 'source-acquisition-timeout' : sourceFailure(error));
+          failVideo(error === SOURCE_ACQUISITION_TIMEOUT ? 'source-acquisition-timeout' : sourceFailure(error), error);
           throw error === SOURCE_ACQUISITION_TIMEOUT ? new Error('live media source acquisition timed out') : error;
         } finally {
           clearTimeout(acquisitionDeadline);
@@ -887,7 +897,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
             notice.extend();
           }
         });
-        source.on('error', (error) => failVideo(sourceFailure(error)));
+        source.on('error', (error) => failVideo(sourceFailure(error), error));
         source.on('stop', () => failVideo('source-stopped'));
         await returnAudioReady;
       },
