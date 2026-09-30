@@ -309,13 +309,20 @@ export class SnapshotAcquisition implements SnapshotMediaAdapter {
     throw new TypeError(`unsupported snapshot acquisition mode: ${mode satisfies never}`);
   }
 
-  /** What a `Refresh` camera can answer with now: its retained image, or the stored acquisition instead. */
+  /**
+   * What a `Refresh` camera can answer with now: its retained image, or the stored acquisition instead.
+   *
+   * Every request also offers the stored acquisition to the retained image without waiting for it, so a push
+   * thumbnail newer than the retained image replaces it under the rule every other retention follows and
+   * answers the next request.
+   */
   private async refreshed(scope: SnapshotAcquisitionScope, source: SnapshotMediaSource): Promise<Buffer> {
+    const stored = this.stored(scope, source);
+    stored?.catch(() => undefined);
     const retained = await this.images?.read(scope.serial);
     if (retained) {
       return retained;
     }
-    const stored = this.stored(scope, source);
     if (stored) {
       return stored;
     }

@@ -1,5 +1,10 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
+import { PersistedLastSuccessfulImages } from '../../src/media/last-successful-image.js';
 import { SnapshotAcquisition } from '../../src/media/snapshot.js';
 import type { LastSuccessfulImages } from '../../src/media/snapshot.js';
 import type { StationLiveSessionRegistry } from '../../src/media/contracts.js';
@@ -234,5 +239,50 @@ describe('a still asked to yield the station', () => {
       .catch(() => undefined);
 
     await vi.waitFor(() => expect(released).toBe(1));
+  });
+});
+
+/**
+ * A push thumbnail the SDK retained after a motion event is newer than the image a `Refresh` camera kept, so it
+ * replaces that image instead of waiting behind the next live refresh. The request that offers it is still answered
+ * at once with the image already retained, so the thumbnail answers the request after it. The same thumbnail
+ * offered again after a later live refresh is no longer new, so it never takes that live image's place.
+ */
+describe('push thumbnail under refresh', () => {
+  it('replaces the retained image with a new thumbnail and never with one already superseded', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-refresh-'));
+    try {
+      const images = new PersistedLastSuccessfulImages(root);
+      const scope = { identity: {}, serial: 'SYNTHETIC0000000D' };
+      let live: (image: Buffer) => void = () => undefined;
+      const source = {
+        snapshotStored: async () => jpeg('motion thumbnail'),
+        snapshotLive: vi.fn(
+          () =>
+            new Promise<{ jpeg: Buffer; width: number; height: number }>((resolve) => {
+              live = (image) => resolve({ jpeg: image, width: 1280, height: 720 });
+            }),
+        ),
+      };
+      const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0);
+      await images.write(scope.serial, jpeg('earlier live'), 'live');
+
+      vi.setSystemTime(Date.now() + 150_000);
+      expect((await acquisition.acquire(scope, source, 'Refresh')).equals(jpeg('earlier live'))).toBe(true);
+      await vi.waitFor(async () =>
+        expect((await images.read(scope.serial))?.equals(jpeg('motion thumbnail'))).toBe(true),
+      );
+      expect((await acquisition.acquire(scope, source, 'Refresh')).equals(jpeg('motion thumbnail'))).toBe(true);
+
+      live(jpeg('later live'));
+      await vi.waitFor(async () => expect((await images.read(scope.serial))?.equals(jpeg('later live'))).toBe(true));
+
+      vi.setSystemTime(Date.now() + 150_000);
+      expect((await acquisition.acquire(scope, source, 'Refresh')).equals(jpeg('later live'))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

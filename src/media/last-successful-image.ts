@@ -11,6 +11,8 @@ interface RetainedImage {
   jpeg?: Buffer;
   provenance?: SnapshotProvenance;
   acceptedAtMs?: number;
+  /** The last stored-only image this process accepted, which a later live image does not make new again. */
+  stored?: Buffer;
 }
 
 /**
@@ -79,7 +81,8 @@ export class PersistedLastSuccessfulImages {
       return;
     }
     this.discardedNames.delete(this.name(serial));
-    this.retained.set(serial, { jpeg, provenance, acceptedAtMs: Date.now() });
+    const stored = provenance === 'live' ? this.retained.get(serial)?.stored : jpeg;
+    this.retained.set(serial, { jpeg, provenance, acceptedAtMs: Date.now(), stored });
     await this.serialize(() => this.persist(serial, jpeg));
   }
 
@@ -123,14 +126,15 @@ export class PersistedLastSuccessfulImages {
 
   /**
    * A live image always replaces a retained image. A stored-only image may replace another stored-only
-   * image only when it differs, and may replace a live image only two minutes after that live success.
+   * image only when it differs, and may replace a live image only two minutes after that live success and
+   * only when it differs from the stored-only image that live image replaced.
    */
   private accepts(serial: string, jpeg: Buffer, provenance: SnapshotProvenance): boolean {
     const current = this.retained.get(serial);
     if (provenance === 'live') {
       return true;
     }
-    if (current?.jpeg?.equals(jpeg)) {
+    if (current?.jpeg?.equals(jpeg) || current?.stored?.equals(jpeg)) {
       return false;
     }
     if (current?.provenance !== 'live' || current.acceptedAtMs === undefined) {

@@ -718,7 +718,6 @@ describe('camera streaming bundle adapter', () => {
     };
 
     await expect(callSnapshot(controller.delegate)).resolves.toEqual(retained);
-    expect(snapshotStored).not.toHaveBeenCalled();
     expect(snapshotLive).toHaveBeenCalledOnce();
 
     await expect(callSnapshot(controller.delegate)).resolves.toEqual(retained);
@@ -770,7 +769,6 @@ describe('camera streaming bundle adapter', () => {
     expect(images.write).toHaveBeenCalledWith(SNAPSHOT_SERIAL, stored, 'stored-only');
 
     await expect(callSnapshot(controller.delegate)).resolves.toEqual(stored);
-    expect(snapshotStored).toHaveBeenCalledOnce();
   });
 
   it('presents unavailable when Refresh acquisitions return invalid image bytes', async () => {
