@@ -484,6 +484,36 @@ describe('security-system capability adapter', () => {
     vi.useRealTimers();
   });
 
+  /** A mode change that completes after HomeKit's deadline lands: the target is presented, the fault cleared, reconciliation opened. */
+  it('presents a timed-out mode change that the SDK completes late', async () => {
+    vi.useFakeTimers();
+    const target = accessory();
+    const operation = deferred();
+    const diagnostics: SecuritySystemDiagnostic[] = [];
+    attach(armingDevice({ mode: 63, setMode: vi.fn(() => operation.promise) }), target, (diagnostic) =>
+      diagnostics.push(diagnostic),
+    );
+    const service = target.getServiceById(Service.SecuritySystem, SECURITY_SYSTEM_ADAPTER_KEY)!;
+    const desired = service.getCharacteristic(Characteristic.SecuritySystemTargetState);
+    const write = expect(desired.handleSetRequest(Characteristic.SecuritySystemTargetState.AWAY_ARM)).rejects.toBe(
+      HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+    );
+    await vi.advanceTimersByTimeAsync(8_000);
+    await write;
+    expect(desired.value).toBe(Characteristic.SecuritySystemTargetState.DISARM);
+
+    operation.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(desired.value).toBe(Characteristic.SecuritySystemTargetState.AWAY_ARM);
+    await expect(desired.handleGetRequest()).resolves.toBe(Characteristic.SecuritySystemTargetState.AWAY_ARM);
+    expect(service.getCharacteristic(Characteristic.StatusFault).value).toBe(Characteristic.StatusFault.NO_FAULT);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(desired.value).toBe(Characteristic.SecuritySystemTargetState.DISARM);
+    expect(diagnostics.at(-1)).toMatchObject({ code: 'arming-reconciliation-expired', active: true });
+    vi.useRealTimers();
+  });
+
   it('keeps an in-flight control attached while a complete observation replaces the adapter handle', async () => {
     const target = accessory();
     const operation = deferred();

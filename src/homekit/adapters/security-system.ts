@@ -189,13 +189,17 @@ class SecurityModeWrites {
     if (this.active !== batch) {
       return;
     }
-    if (batch.abandoned) {
+    if (batch.abandoned && this.queued?.requests.some(({ settled }) => !settled)) {
       this.active = undefined;
       this.startQueued();
       return;
     }
     for (const request of batch.requests) {
       this.settle(request, 'resolve');
+    }
+    if (batch.abandoned && !batch.reconciled) {
+      this.projection = batch.value;
+      this.restore();
     }
     this.diagnose('operation', false, 'recovered');
     if (!batch.reconciled) {
@@ -529,8 +533,9 @@ function attachSecuritySystem(context: AdapterAttachmentContext): AttachedAdapte
     },
     () => {
       const mode = readMode();
-      if (mode.exact) {
-        target.updateValue(mode.state);
+      const value = state.writes!.read() ?? (mode.exact ? mode.state : undefined);
+      if (value !== undefined) {
+        target.updateValue(value);
       }
     },
   );
