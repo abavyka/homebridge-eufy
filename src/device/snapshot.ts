@@ -84,7 +84,7 @@ function isDetail(value: unknown): boolean {
   return (
     isRecord(value) &&
     typeof value.capability === 'string' &&
-    typeof value.accessor === 'string' &&
+    (value.accessor === undefined || typeof value.accessor === 'string') &&
     Array.isArray(value.reads) &&
     value.reads.every(isRead) &&
     Array.isArray(value.actions) &&
