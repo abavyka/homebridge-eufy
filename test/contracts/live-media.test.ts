@@ -21,7 +21,12 @@ import type {
   NegotiatedLiveVideo,
   TalkbackOutcome,
 } from '../../src/media/contracts.js';
-import { FfmpegLiveMedia, resolveFfmpegIdentity, type MediaProcess } from '../../src/media/live-stream.js';
+import {
+  FfmpegLiveMedia,
+  resolveFfmpegIdentity,
+  SMALL_VIDEO_PACKET_SIZE,
+  type MediaProcess,
+} from '../../src/media/live-stream.js';
 import { StallingAdaptationInput } from './stalling-adaptation-input.js';
 
 const NEGOTIATED_VIDEO: NegotiatedLiveVideo = {
@@ -1205,6 +1210,43 @@ describe('live media adaptation', () => {
     expect(session.children.at(-1)!.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
+  /** A configured video packet size caps the negotiated one and never raises it. */
+  it('caps the video packet size at the configured size', async () => {
+    for (const [mtu, expected] of [
+      [1378, 1128],
+      [600, 600],
+    ] as const) {
+      const stream = new SyntheticLiveStream();
+      const spawned: string[][] = [];
+      const media = new FfmpegLiveMedia(
+        '/synthetic/ffmpeg',
+        undefined,
+        (_executable: string, args: readonly string[]) => {
+          spawned.push([...args]);
+          return process();
+        },
+        async () => ({ port: 41000, onMessage: vi.fn(), close: vi.fn() }),
+        undefined,
+        SMALL_VIDEO_PACKET_SIZE,
+      );
+      const prepared = await media.prepare({
+        addressVersion: 'ipv4',
+        targetAddress: '192.0.2.10',
+        video: {
+          port: 50100,
+          srtpCryptoSuite: 'AES_CM_128_HMAC_SHA1_80',
+          srtpKey: Buffer.alloc(16, 1),
+          srtpSalt: Buffer.alloc(14, 2),
+        },
+      });
+      await prepared.start({ live: async () => stream }, { video: { ...NEGOTIATED_VIDEO, mtu } });
+      stream.video({ codec: 'h264', width: 1280, height: 720, keyframe: true, data: Buffer.from([0, 0, 0, 1, 0x65]) });
+
+      expect(spawned[0], String(mtu)).toContain(`srtp://192.0.2.10:50100?rtcpport=50100&pkt_size=${expected}`);
+      prepared.stop();
+    }
+  });
+
   it('transcodes H.264 when passthrough compliance cannot be proven from SDK frames', async () => {
     const stream = new SyntheticLiveStream();
     const spawned: Array<{ executable: string; args: string[]; process: MediaProcess }> = [];
@@ -1905,6 +1947,20 @@ describe('isolated return-audio adaptation', () => {
       { role: 'live-video', event: 'started', cause: 'first' },
       { role: 'return-audio', event: 'spawn-failed' },
     ]);
+  });
+
+  /** A return-audio input that timed out is a controller that sent no audio, which is reported as such. */
+  it('reports a return-audio input that timed out as a controller that sent no audio', async () => {
+    const session = await talkbackSession(vi.fn(async () => new SyntheticTalkback()));
+    session.stream.video(KEYFRAME);
+    session.returned[0]!.stderr.write('[in#0/sdp @ 0x0] Error during demuxing: Operation timed out\n');
+    await settle();
+
+    session.returned[0]!.emit('exit', 0, null);
+    await settle();
+
+    expect(session.talkbackOutcomes).toEqual([{ outcome: 'failed', reason: 'no-controller-audio' }]);
+    expect(session.onVideoFailure).not.toHaveBeenCalled();
   });
 
   /**

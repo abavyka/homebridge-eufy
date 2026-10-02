@@ -264,6 +264,9 @@ export interface ReturnAudioProcess extends MediaProcess {
 export type ReturnAudioProcessFactory = (executable: string, args: readonly string[]) => ReturnAudioProcess;
 export type MediaPortFactory = (addressVersion: 'ipv4' | 'ipv6') => Promise<ReservedMediaPort>;
 
+/** The live video packet size an administrator can choose for networks that drop the negotiated one. */
+export const SMALL_VIDEO_PACKET_SIZE = 1128;
+
 /** Adapts separate SDK elementary streams into independently failing HomeKit SRTP outputs. */
 export class FfmpegLiveMedia implements LiveMediaAdapter {
   constructor(
@@ -272,6 +275,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     private readonly createProcess: LiveMediaProcessFactory = spawnLiveMediaProcess,
     private readonly reservePort: MediaPortFactory = reserveMediaPort,
     private readonly createReturnAudioProcess: ReturnAudioProcessFactory = spawnReturnAudioProcess,
+    private readonly maxVideoPacketSize = Number.POSITIVE_INFINITY,
   ) {}
 
   /**
@@ -283,6 +287,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
   async prepare(transport: LiveMediaTransport): Promise<PreparedLiveMedia> {
     const videoPort = await this.reservePort(transport.addressVersion);
     const targetAddress = transport.addressVersion === 'ipv6' ? `[${transport.targetAddress}]` : transport.targetAddress;
+    const maxVideoPacketSize = this.maxVideoPacketSize;
     let audioPort: ReservedMediaPort | undefined;
     try {
       audioPort = transport.audio ? await this.reservePort(transport.addressVersion) : undefined;
@@ -836,7 +841,11 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
             code,
             signal,
           );
-          failTalkback('adaptation-failed');
+          failTalkback(
+            stderr.tail().some((line) => line.includes('Error during demuxing: Operation timed out'))
+              ? 'no-controller-audio'
+              : 'adaptation-failed',
+          );
         });
         child.stdin.end(returnAudioSdp(audioPort.port, selection, transport.audio, transport.addressVersion));
         await delay(RETURN_AUDIO_BIND_GRACE_MS);
@@ -852,7 +861,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         if (stopped) {
           throw new Error('live media session is already stopped');
         }
-        negotiated = selection;
+        negotiated = { ...selection, video: { ...selection.video, mtu: Math.min(selection.video.mtu, maxVideoPacketSize) } };
         const returnAudioReady = startReturnAudio(camera, selection.audio);
         let sourcePromise: Promise<LiveStreamConsumer>;
         let acquisitionDeadline: ReturnType<typeof setTimeout> | undefined;

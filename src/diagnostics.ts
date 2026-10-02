@@ -2194,6 +2194,7 @@ const REASONS = new Set([
   'unsupported',
   'unsupported-selection',
   'device-audio-failed',
+  'no-controller-audio',
 ]);
 /** Every runtime state, plus the withdrawal a recovered condition reports. */
 const RUNTIME_CONDITION_REASONS: ReadonlySet<string> = new Set<string>([...RUNTIME_STATES, 'recovered']);
@@ -2481,6 +2482,7 @@ const HOMEKIT_REASON_ACTIONS: Readonly<Record<string, string>> = {
   'smart-light-operation-failed:timeout': 'log.action.controlTimedOut',
   'camera-control-operation-failed:timeout': 'log.action.controlTimedOut',
   'camera-live-session-failed:station-unreachable': 'log.action.checkStation',
+  'camera-talkback-failed:no-controller-audio': 'log.action.trySmallVideoPackets',
 };
 
 /**

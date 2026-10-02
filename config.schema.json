@@ -59,6 +59,12 @@
         "minLength": 1,
         "type": "string"
       },
+      "smallVideoPackets": {
+        "title": "Smaller live video packets",
+        "description": "Turn this on if the Home app keeps loading a camera but never shows the live picture. Live video is then sent in smaller network packets, as version 4 did. Off by default.",
+        "default": false,
+        "type": "boolean"
+      },
       "entityPreferences": {
         "title": "Entity preferences",
         "additionalProperties": false,

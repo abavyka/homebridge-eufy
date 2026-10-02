@@ -540,6 +540,12 @@ button.diagnostics-quiet-action {
   font: inherit;
 }
 
+.advanced-fields input[type='checkbox'] {
+  justify-self: start;
+  width: auto;
+  min-height: 0;
+}
+
 .advanced-fields small,
 .advanced-device-help {
   color: var(--muted);
