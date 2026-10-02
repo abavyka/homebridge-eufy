@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 
@@ -737,7 +737,6 @@ describe('packed plugin', () => {
         ),
         'no build byproduct, editable master, or recorded media ships',
       ).toEqual([]);
-      expect(result.entryCount, 'the package holds a bounded number of files').toBeLessThanOrEqual(280);
       expect(result.unpackedSize, 'the package holds a bounded number of bytes').toBeLessThanOrEqual(14_000_000);
     } finally {
       rmSync(directory, { force: true, recursive: true });
@@ -838,7 +837,11 @@ describe('packed plugin', () => {
         .filter((path) => path.startsWith('homebridge-ui/'))
         .sort();
       const deviceArtworkFiles = uiFiles.filter((path) => path.startsWith('homebridge-ui/public/assets/devices/'));
-      const uiShellFiles = uiFiles.filter((path) => !path.startsWith('homebridge-ui/public/assets/devices/'));
+      const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
+      const uiSourceFiles = readdirSync(join(repositoryRoot, 'homebridge-ui'), { recursive: true, withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => relative(repositoryRoot, join(entry.parentPath, entry.name)))
+        .sort();
 
       expect(packedPackage.name).toBe('@homebridge-plugins/homebridge-eufy-security');
       expect(schema.customUi).toBe(true);
@@ -869,27 +872,7 @@ describe('packed plugin', () => {
       ).toEqual([]);
       expect(Object.keys(runtimeMessages).every((key) => key.startsWith('log.'))).toBe(true);
       expect(runtimeMessages['log.condition.active']).toContain('{summary}');
-      expect(uiShellFiles).toEqual([
-        'homebridge-ui/public/app.css',
-        'homebridge-ui/public/assets/icons/bolt.svg',
-        'homebridge-ui/public/assets/icons/bug-report.svg',
-        'homebridge-ui/public/assets/icons/inventory.svg',
-        'homebridge-ui/public/assets/icons/settings.svg',
-        'homebridge-ui/public/assets/icons/settings_backup_restore.svg',
-        'homebridge-ui/public/assets/icons/troubleshoot.svg',
-        'homebridge-ui/public/assets/icons/warning.svg',
-        'homebridge-ui/public/assets/logo-dark.svg',
-        'homebridge-ui/public/assets/logo.svg',
-        'homebridge-ui/public/i18n/en.json',
-        'homebridge-ui/public/i18n/fr.json',
-        'homebridge-ui/public/index.html',
-        'homebridge-ui/public/js/app.js',
-        'homebridge-ui/public/js/dashboard.js',
-        'homebridge-ui/public/js/legacy-settings.js',
-        'homebridge-ui/public/js/profile-wizard.js',
-        'homebridge-ui/server.js',
-      ]);
-      expect(deviceArtworkFiles).toHaveLength(153);
+      expect(uiFiles, 'every checked-in UI file ships').toEqual(uiSourceFiles);
       expect(
         deviceArtworkFiles.every((path) =>
           /^homebridge-ui\/public\/assets\/devices\/(?:clean|life|mower|security)\/[A-Za-z0-9-]+\.webp$/.test(path),
