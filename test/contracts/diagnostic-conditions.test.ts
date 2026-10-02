@@ -471,7 +471,7 @@ describe('diagnostic conditions', () => {
       'level2-unavailable': { reason: 'grace-elapsed', waitedMs: 8000 },
       'cipher-fallback': { cipherId: 209, answeredCipherId: 196 },
       'level2-negotiating': { cipherId: 209 },
-      'lookup-channels': { local: true, cloud: false },
+      'lookup-channels': { local: true, cloud: false, cloudMissing: 'dsk-key' },
       'station-resolved': { topology: 'attached', channel: 2, stationAdmin: 'self', stationModel: 'T8030' },
       'station-channel-unresolved': { issue: 'shared' },
       warming: { retryMs: 2000, deadlineMs: 20000 },
@@ -498,6 +498,11 @@ describe('diagnostic conditions', () => {
       resolved?.stationModel,
       'a base this SDK reaches differently reads like a base switched off unless its model is retained',
     ).toBe('T8030');
+
+    const lookup = debug.mock.calls
+      .map(([message]) => JSON.parse(message))
+      .find((record) => record.phase === 'lookup-channels');
+    expect(lookup?.cloudMissing, 'a connect with no cloud lookup must say what the lookup lacked').toBe('dsk-key');
   });
 
   /**
