@@ -1895,9 +1895,13 @@ const LIVE_TRACE_PHASES = {
    *
    * A connect that had one channel failed for that channel's reason alone, and a connect that had neither
    * could not have succeeded. Both are otherwise indistinguishable from a station that is switched off.
+   * `cloudMissing` names what the cloud channel lacked when it was unavailable.
    */
-  'lookup-channels': (c) =>
-    typeof c.local === 'boolean' && typeof c.cloud === 'boolean' ? { local: c.local, cloud: c.cloud } : undefined,
+  'lookup-channels': (c) => {
+    if (typeof c.local !== 'boolean' || typeof c.cloud !== 'boolean') return undefined;
+    const cloudMissing = allowlistedLabel(c.cloudMissing, ['dsk-key', 'cloud-addresses']);
+    return { local: c.local, cloud: c.cloud, ...(cloudMissing === undefined ? {} : { cloudMissing }) };
+  },
   'station-resolved': (c) => {
     const topology = allowlistedLabel(c.topology, ['attached', 'own']);
     const stationAdmin = allowlistedLabel(c.stationAdmin, ['self', 'other', 'unstated']);
