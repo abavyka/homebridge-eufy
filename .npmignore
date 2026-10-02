@@ -1,39 +1,6 @@
 # Ignore source code
 src
 
-# Ship only the production custom UI shell. The remaining checked-in UI is planning material.
-homebridge-ui/*
-!homebridge-ui/public/
-!homebridge-ui/server.js
-homebridge-ui/public/*
-!homebridge-ui/public/index.html
-!homebridge-ui/public/app.css
-!homebridge-ui/public/js/
-homebridge-ui/public/js/*
-!homebridge-ui/public/js/app.js
-!homebridge-ui/public/js/dashboard.js
-!homebridge-ui/public/js/legacy-settings.js
-!homebridge-ui/public/js/profile-wizard.js
-!homebridge-ui/public/assets/
-homebridge-ui/public/assets/*
-!homebridge-ui/public/assets/logo.svg
-!homebridge-ui/public/assets/logo-dark.svg
-!homebridge-ui/public/assets/devices/
-!homebridge-ui/public/assets/devices/**
-!homebridge-ui/public/assets/icons/
-homebridge-ui/public/assets/icons/*
-!homebridge-ui/public/assets/icons/inventory.svg
-!homebridge-ui/public/assets/icons/bolt.svg
-!homebridge-ui/public/assets/icons/bug-report.svg
-!homebridge-ui/public/assets/icons/settings.svg
-!homebridge-ui/public/assets/icons/settings_backup_restore.svg
-!homebridge-ui/public/assets/icons/troubleshoot.svg
-!homebridge-ui/public/assets/icons/warning.svg
-!homebridge-ui/public/i18n/
-homebridge-ui/public/i18n/*
-!homebridge-ui/public/i18n/en.json
-!homebridge-ui/public/i18n/fr.json
-
 # Editable image masters. The runtime resolves its packaged images from media/ at the package root,
 # which is the copy that ships.
 *.xcf
