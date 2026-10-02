@@ -163,6 +163,7 @@ describe('V5 configuration', () => {
       trustedDeviceName: 'Synthetic Bridge',
       pollingIntervalMinutes: 3,
       ffmpegPath: '/synthetic/ffmpeg',
+      smallVideoPackets: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {
@@ -186,6 +187,7 @@ describe('V5 configuration', () => {
       pollingIntervalMinutes: 3,
       warmUpEvents: ['doorbellPress'],
       ffmpegPath: '/synthetic/ffmpeg',
+      smallVideoPackets: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {

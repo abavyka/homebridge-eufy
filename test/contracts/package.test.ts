@@ -240,6 +240,7 @@ async function renderUi(
     reportValidity() {},
   });
   const advancedFfmpeg = interactiveElement({ value: '' });
+  const advancedSmallVideoPackets = interactiveElement({ checked: false });
   /**
    * The transfer list the warm-up setting draws into.
    *
@@ -379,6 +380,7 @@ async function renderUi(
           '[data-advanced-polling]': advancedPolling,
           '[data-advanced-concurrent-media]': advancedConcurrentMedia,
           '[data-advanced-ffmpeg]': advancedFfmpeg,
+          '[data-advanced-small-video-packets]': advancedSmallVideoPackets,
           '[data-advanced-status]': advancedStatus,
           '[data-warm-up-available]': warmUpAvailable,
           '[data-warm-up-chosen]': warmUpChosen,
@@ -617,6 +619,7 @@ async function renderUi(
     advancedPolling,
     advancedConcurrentMedia,
     advancedFfmpeg,
+    advancedSmallVideoPackets,
     advancedStatus,
     legacyAcknowledge,
     legacyNotice,
@@ -930,6 +933,8 @@ describe('packed plugin', () => {
           'advancedFfmpegLabel',
           'advancedPollingHelp',
           'advancedPollingLabel',
+          'advancedSmallVideoPacketsHelp',
+          'advancedSmallVideoPacketsLabel',
           'advancedSummary',
           'advancedTitle',
           'advancedWarmUpAvailable',
@@ -1389,6 +1394,12 @@ describe('packed plugin', () => {
         menuUi.updatedConfig?.[0],
         'unlimited is what an absent key already means, so storing a zero would only pin today default',
       ).not.toHaveProperty('maxConcurrentMediaSessions');
+      menuUi.advancedSmallVideoPackets.checked = true;
+      await menuUi.advancedSmallVideoPackets.dispatch('change');
+      expect(menuUi.updatedConfig?.[0]).toMatchObject({ smallVideoPackets: true });
+      menuUi.advancedSmallVideoPackets.checked = false;
+      await menuUi.advancedSmallVideoPackets.dispatch('change');
+      expect(menuUi.updatedConfig?.[0]).not.toHaveProperty('smallVideoPackets');
       menuUi.advancedConcurrentMedia.value = '1.5';
       await menuUi.advancedConcurrentMedia.dispatch('change');
       expect(menuUi.advancedConcurrentMedia.validityMessage).toBe(

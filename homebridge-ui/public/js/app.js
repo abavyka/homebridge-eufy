@@ -75,6 +75,7 @@ const advancedClose = document.querySelector('[data-advanced-close]');
 const advancedPolling = document.querySelector('[data-advanced-polling]');
 const advancedConcurrentMedia = document.querySelector('[data-advanced-concurrent-media]');
 const advancedFfmpeg = document.querySelector('[data-advanced-ffmpeg]');
+const advancedSmallVideoPackets = document.querySelector('[data-advanced-small-video-packets]');
 const warmUpAvailable = document.querySelector('[data-warm-up-available]');
 const warmUpChosen = document.querySelector('[data-warm-up-chosen]');
 const warmUpAdd = document.querySelector('[data-warm-up-add]');
@@ -586,6 +587,7 @@ menuAdvanced.addEventListener('click', async () => {
   warmUpMarked = new Set();
   renderWarmUp();
   advancedFfmpeg.value = config.ffmpegPath ?? '';
+  advancedSmallVideoPackets.checked = config.smallVideoPackets === true;
   openDashboardPanel(advancedPanel, menuAdvanced);
   /**
    * The panel asks for its own candidates rather than relying on the devices view having been opened first.
@@ -641,6 +643,8 @@ async function updateAdvancedSettings() {
   else next.maxConcurrentMediaSessions = maxConcurrentMediaSessions;
   if (ffmpegPath) next.ffmpegPath = ffmpegPath;
   else delete next.ffmpegPath;
+  if (advancedSmallVideoPackets.checked) next.smallVideoPackets = true;
+  else delete next.smallVideoPackets;
   // The default is what the plugin applies when the key is absent, so storing it would only pin today's default.
   if (warmUpSelection.length === 1 && warmUpSelection[0] === 'doorbellPress') delete next.warmUpEvents;
   else next.warmUpEvents = [...warmUpSelection];
@@ -656,6 +660,7 @@ async function updateAdvancedSettings() {
 advancedPolling.addEventListener('change', updateAdvancedSettings);
 advancedConcurrentMedia.addEventListener('change', updateAdvancedSettings);
 advancedFfmpeg.addEventListener('change', updateAdvancedSettings);
+advancedSmallVideoPackets.addEventListener('change', updateAdvancedSettings);
 warmUpAdd.addEventListener('click', () => moveWarmUp('available'));
 warmUpAddAll.addEventListener('click', () => moveWarmUp('available', true));
 warmUpRemove.addEventListener('click', () => moveWarmUp('chosen'));

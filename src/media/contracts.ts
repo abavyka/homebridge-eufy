@@ -118,8 +118,18 @@ export type LiveSessionOutcome =
       readonly sourceReason?: LiveStreamStartFailureReason;
     };
 
-/** Why one return-audio lifecycle ended without usable device audio. */
-export type TalkbackFailure = 'source-unavailable' | 'unsupported-selection' | 'adaptation-failed' | 'device-audio-failed';
+/**
+ * Why one return-audio lifecycle ended without usable device audio.
+ *
+ * `no-controller-audio` is a controller that sent no audio before FFmpeg's input timed out. A controller presenting
+ * the live view sends audio throughout, so this one never presented it.
+ */
+export type TalkbackFailure =
+  | 'source-unavailable'
+  | 'unsupported-selection'
+  | 'adaptation-failed'
+  | 'device-audio-failed'
+  | 'no-controller-audio';
 
 /** One isolated return-audio outcome, carrying no media, address, key, or device identity. */
 export type TalkbackOutcome =

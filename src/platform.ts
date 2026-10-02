@@ -18,7 +18,7 @@ import { deviceSnapshotLabel } from './device/snapshot.js';
 import { HomeKitReconciler, type HomeKitAccessoryStore } from './homekit/reconciler.js';
 import { describeHomeKitRepresentation } from './homekit/representation.js';
 import type { AdaptationDiagnostics } from './media/contracts.js';
-import { FfmpegLiveMedia, resolveFfmpegIdentity } from './media/live-stream.js';
+import { FfmpegLiveMedia, resolveFfmpegIdentity, SMALL_VIDEO_PACKET_SIZE } from './media/live-stream.js';
 import { FfmpegRecordingMedia } from './media/recording.js';
 import { PersistedLastSuccessfulImages } from './media/last-successful-image.js';
 import { SnapshotAcquisition } from './media/snapshot.js';
@@ -81,7 +81,14 @@ export function createEufyPlatform(
         report: (notice) => reportAdaptationNotice(diagnosticLog, notice),
       };
       const liveMedia = configuredConfig.ffmpegPath
-        ? new FfmpegLiveMedia(configuredConfig.ffmpegPath, adaptationDiagnostics)
+        ? new FfmpegLiveMedia(
+            configuredConfig.ffmpegPath,
+            adaptationDiagnostics,
+            undefined,
+            undefined,
+            undefined,
+            configuredConfig.smallVideoPackets ? SMALL_VIDEO_PACKET_SIZE : undefined,
+          )
         : undefined;
       const recordingMedia = configuredConfig.ffmpegPath
         ? new FfmpegRecordingMedia(configuredConfig.ffmpegPath, adaptationDiagnostics)

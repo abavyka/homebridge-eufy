@@ -1005,6 +1005,13 @@ describe('diagnostic conditions', () => {
         'warn',
         'log.action.controlTimedOut',
       ],
+      [
+        'camera-talkback-failed',
+        { capability: 'camera', member: 'talkback' },
+        'no-controller-audio',
+        'warn',
+        'log.action.trySmallVideoPackets',
+      ],
     ] as const;
 
     try {
