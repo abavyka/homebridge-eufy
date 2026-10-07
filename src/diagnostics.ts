@@ -2163,6 +2163,7 @@ const REASONS = new Set([
   'live-failed',
   'live-no-keyframe',
   'live-source-failed',
+  'live-station-unreachable',
   'live-unavailable',
   'live-undecodable-burst',
   'malformed',
@@ -2486,6 +2487,7 @@ const HOMEKIT_REASON_ACTIONS: Readonly<Record<string, string>> = {
   'smart-light-operation-failed:timeout': 'log.action.controlTimedOut',
   'camera-control-operation-failed:timeout': 'log.action.controlTimedOut',
   'camera-live-session-failed:station-unreachable': 'log.action.checkStation',
+  'camera-snapshot-unavailable:live-station-unreachable': 'log.action.checkStation',
   'camera-talkback-failed:no-controller-audio': 'log.action.trySmallVideoPackets',
 };
 

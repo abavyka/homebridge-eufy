@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 
 import type { LiveSnapshotUnavailableReason, StoredSnapshotUnavailableReason } from '@mega-yfue/eufy-sdk';
-import { LiveSnapshotUnavailableError, StoredSnapshotUnavailableError } from '@mega-yfue/eufy-sdk';
+import {
+  LiveSnapshotUnavailableError,
+  StationUnreachableError,
+  StoredSnapshotUnavailableError,
+} from '@mega-yfue/eufy-sdk';
 
 import type {
   MediaSessionBudget,
@@ -123,8 +127,14 @@ function storedFailure(error: unknown): SnapshotFailure {
     : 'stored-failed';
 }
 
-/** Why the live still acquisition produced no usable image, under the same rule as the stored one. */
+/**
+ * Why the live still acquisition produced no usable image, under the same rule as the stored one. A station
+ * whose session never connected is named apart, because its remedy is at the station, not the camera.
+ */
 function liveFailure(error: unknown): SnapshotFailure {
+  if (error instanceof StationUnreachableError) {
+    return 'live-station-unreachable';
+  }
   return error instanceof LiveSnapshotUnavailableError && Object.hasOwn(LIVE_FAILURES, error.reason)
     ? LIVE_FAILURES[error.reason]
     : 'live-failed';

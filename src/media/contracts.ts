@@ -460,6 +460,7 @@ export type SnapshotFailure =
   | 'live-unavailable'
   | 'live-at-capacity'
   | 'live-failed'
+  | 'live-station-unreachable'
   | 'live-no-keyframe'
   | 'live-source-failed'
   | 'live-undecodable-burst'

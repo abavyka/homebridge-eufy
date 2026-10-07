@@ -7,6 +7,7 @@ import {
   CapabilityNotSupportedError,
   LiveSnapshotUnavailableError,
   NightVision,
+  StationUnreachableError,
   StoredSnapshotUnavailableError,
   unreflectedMembers,
 } from '@mega-yfue/eufy-sdk';
@@ -176,6 +177,12 @@ const UNANSWERED_SNAPSHOT_CASES = [
     rejection: new LiveSnapshotUnavailableError(reason, 'synthetic live refusal'),
     expected: `live-${reason}`,
   })),
+  {
+    mode: 'Live' as const,
+    member: 'snapshotLive' as const,
+    rejection: new StationUnreachableError(20_000),
+    expected: 'live-station-unreachable',
+  },
 ];
 
 const SETUP_ENDPOINTS_SUCCESS = 0;
