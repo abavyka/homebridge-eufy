@@ -112,7 +112,8 @@ async function releaseLease(onReleased?: () => void): Promise<{ state: 'stopped'
 }
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
+  // A platform under test can still be flushing its log when the test ends, so rmdir may race one last write.
+  await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true, maxRetries: 3 })));
 });
 
 describe('persisted runtime owner', () => {
@@ -642,7 +643,7 @@ describe('persisted runtime owner', () => {
     expect(getDevice).toHaveBeenCalledExactlyOnceWith('synthetic-current');
   });
 
-  it('does not publish readiness before required realtime transports are ready', async () => {
+  it('stays ready when one wired station of several fails to start', async () => {
     const { persistence } = await activeRuntime();
     const active = await persistence.active();
     expect(active).not.toBeNull();
@@ -655,6 +656,41 @@ describe('persisted runtime owner', () => {
         ...realtimeReady(),
         state: 'partial' as const,
         wiredP2p: { required: 2, ready: 1, failed: 1, pending: 0 },
+      })),
+      on: vi.fn(),
+      off: vi.fn(),
+      getDevices,
+      getDevice: vi.fn(async () => sdkDevice('synthetic-current')),
+      disconnect: vi.fn(async () => undefined),
+    } as unknown as EufyMega;
+    const runtime = new PersistedSdkClient(
+      parseConfig({
+        platform: 'HomebridgeEufy',
+        username: 'runtime@example.invalid',
+        password: 'persisted-password',
+      }),
+      active!,
+      client,
+    );
+
+    await expect(runtime.start()).resolves.toMatchObject({ state: 'ready', snapshot: current });
+    expect(client.waitForRealtime).toHaveBeenCalledWith();
+    expect(getDevices).toHaveBeenCalledOnce();
+  });
+
+  it('degrades when every wired station fails to start', async () => {
+    const { persistence } = await activeRuntime();
+    const active = await persistence.active();
+    expect(active).not.toBeNull();
+    const current = snapshot('synthetic-current');
+    const getDevices = vi.fn(async () => [{ sn: 'synthetic-current' }]);
+    const client = {
+      loggedIn: true,
+      login: vi.fn(async () => ({ status: 'ok' as const, raw: { restored: true } })),
+      waitForRealtime: vi.fn(async () => ({
+        ...realtimeReady(),
+        state: 'partial' as const,
+        wiredP2p: { required: 2, ready: 0, failed: 2, pending: 0 },
       })),
       on: vi.fn(),
       off: vi.fn(),

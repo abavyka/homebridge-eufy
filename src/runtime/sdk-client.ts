@@ -5,6 +5,7 @@ import type {
   EufyMega,
   FcmStore,
   Logger,
+  RealtimeReadiness,
   SessionStore,
 } from '@mega-yfue/eufy-sdk';
 
@@ -268,8 +269,23 @@ export class PersistedSdkClient implements SdkClient {
     }
     const readiness = await client.waitForRealtime();
     reportRealtimeReadiness(this.logger, readiness);
-    return readiness.state === 'ready';
+    return realtimeSettled(readiness);
   }
+}
+
+/**
+ * Whether realtime startup leaves the account working. Push and MQTT serve every device, so any failure there
+ * degrades it. A wired station that did not answer is that station's own fault, which its live view and
+ * snapshot already report as `station-unreachable`; only every wired station failing is account-wide.
+ */
+function realtimeSettled({ state, push, mqtt, wiredP2p }: RealtimeReadiness): boolean {
+  if (state !== 'partial') {
+    return state === 'ready';
+  }
+  const planeReady = (plane: RealtimeReadiness['push']): boolean => plane.failed === 0 && plane.pending === 0;
+  return (
+    planeReady(push) && planeReady(mqtt) && wiredP2p.pending === 0 && (wiredP2p.failed === 0 || wiredP2p.ready > 0)
+  );
 }
 
 export function createPersistedSdkClient(

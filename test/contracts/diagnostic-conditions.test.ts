@@ -880,6 +880,7 @@ describe('diagnostic conditions', () => {
       'stored-invalid-image': true,
       'live-unavailable': true,
       'live-failed': true,
+      'live-station-unreachable': true,
       'live-no-keyframe': true,
       'live-source-failed': true,
       'live-undecodable-burst': true,
