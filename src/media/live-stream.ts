@@ -1,4 +1,10 @@
-import type { LiveAudioFrame, LiveStreamConsumer, LiveVideoConfig, LiveVideoFrame, TalkbackHandle } from '@mega-yfue/eufy-sdk';
+import type {
+  LiveAudioFrame,
+  LiveStreamConsumer,
+  LiveVideoConfig,
+  LiveVideoFrame,
+  TalkbackHandle,
+} from '@mega-yfue/eufy-sdk';
 import { LiveStreamStartError, StationKeyUnavailableError, StationUnreachableError } from '@mega-yfue/eufy-sdk';
 import { createSocket } from 'node:dgram';
 import { execFile, spawn } from 'node:child_process';
@@ -260,6 +266,8 @@ export interface ReservedMediaPort {
 export type LiveMediaProcessFactory = (executable: string, args: readonly string[]) => MediaProcess;
 export interface ReturnAudioProcess extends MediaProcess {
   readonly stdout: Readable;
+  /** FFmpeg's fd 3: the AAC-ELD FLV output. */
+  readonly eld: Readable;
 }
 export type ReturnAudioProcessFactory = (executable: string, args: readonly string[]) => ReturnAudioProcess;
 export type MediaPortFactory = (addressVersion: 'ipv4' | 'ipv6') => Promise<ReservedMediaPort>;
@@ -316,6 +324,8 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     let returnAudioProcess: ReturnAudioProcess | undefined;
     let talkbackHandle: TalkbackHandle | undefined;
     let talkbackSink: Writable | undefined;
+    let talkbackCodec: TalkbackHandle['codec'] | undefined;
+    let eldHeld = false;
     let talkbackStarting = false;
     let talkbackEnded = false;
     let negotiated: NegotiatedLiveMedia | undefined;
@@ -441,6 +451,8 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
       }
       talkbackEnded = true;
       stopProcess(returnAudioProcess);
+      returnAudioProcess?.stdout.destroy();
+      returnAudioProcess?.eld.destroy();
       returnAudioProcess = undefined;
       talkbackSink?.destroy();
       talkbackSink = undefined;
@@ -726,12 +738,16 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
      * Write one decoded return-audio chunk through the SDK writable that owns ADTS frame recovery,
      * validation, pacing, and transport backpressure. The first chunk opens exactly one SDK handle;
      * stdout stays paused while that handle is acquired so acquisition cannot create an unbounded queue.
+     * Once the handle's `codec` is `aac-eld`, ADTS output is discarded and fd 3 feeds the handle instead.
      */
     const writeReturnAudio = (camera: LiveMediaSource, child: ReturnAudioProcess, chunk: Buffer): void => {
       if (stopped || talkbackEnded) {
         return;
       }
       if (talkbackSink) {
+        if (talkbackCodec === 'aac-eld') {
+          return;
+        }
         try {
           if (!talkbackSink.write(chunk)) {
             child.stdout.pause();
@@ -766,6 +782,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           }
           talkbackHandle = handle;
           try {
+            talkbackCodec = handle.codec;
             const sink = handle.writable();
             talkbackSink = sink;
             handle.on('budget', (notice) => {
@@ -780,6 +797,14 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
             }
           });
             sink.on('error', () => failTalkback('device-audio-failed'));
+            if (handle.codec === 'aac-eld') {
+              const reader = new FlvAacReader();
+              child.eld.on('data', (eldChunk: Buffer) => writeReturnFrames(child, reader, eldChunk));
+              child.stdout.resume();
+              transport.onTalkbackOutcome?.({ outcome: 'talking' });
+              return;
+            }
+            child.eld.resume();
             const accepted = sink.write(chunk);
             if (talkbackEnded) {
               return;
@@ -803,9 +828,43 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     };
 
     /**
+     * Write the access units completed by one ELD output chunk through the SDK's object-mode writable,
+     * holding fd 3 from the first refusal until that writable drains. What stays buffered is the SDK's
+     * bounded pacing queue and at most the rest of the one read that was in hand. A write that fails or
+     * ends the talkback stops the loop.
+     */
+    const writeReturnFrames = (child: ReturnAudioProcess, reader: FlvAacReader, chunk: Buffer): void => {
+      const sink = talkbackSink;
+      if (stopped || talkbackEnded || !sink) {
+        return;
+      }
+      try {
+        for (const data of reader.push(chunk)) {
+          if (stopped || talkbackEnded || talkbackSink !== sink) {
+            return;
+          }
+          if (!sink.write(data) && !eldHeld) {
+            eldHeld = true;
+            child.eld.pause();
+            sink.once('drain', () => {
+              eldHeld = false;
+              if (!stopped && !talkbackEnded) {
+                child.eld.resume();
+              }
+            });
+          }
+        }
+      } catch {
+        failTalkback('device-audio-failed');
+      }
+    };
+
+    /**
      * Hand the accessory audio endpoint to FFmpeg and give the spawned process a bounded bind grace before
      * stream start is acknowledged. FFmpeg owns SRTP authentication, RTP AAC-ELD depacketization, decoding,
-     * and AAC-LC ADTS encoding; the SDK handle remains unopened until the process produces decoded audio.
+     * the AAC-LC ADTS encoding on stdout, and the copy of HomeKit's AAC-ELD access units on fd 3; the SDK
+     * handle remains unopened until the process produces decoded audio, and the handle's `codec` then
+     * selects the ADTS output (stdout) or the ELD output (fd 3).
      */
     const startReturnAudio = async (camera: LiveMediaSource, selection: NegotiatedLiveAudio | undefined): Promise<void> => {
       if (!camera.talkback || !selection || !transport.audio || !audioPort) {
@@ -836,6 +895,12 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           writeReturnAudio(camera, child, chunk);
         });
         child.stdout.on('error', () => {
+          if (!stopped && !talkbackEnded && !stoppingProcesses.has(child)) {
+            reportAdaptation('return-audio', 'input-failed', stderr);
+            failTalkback('adaptation-failed');
+          }
+        });
+        child.eld.on('error', () => {
           if (!stopped && !talkbackEnded && !stoppingProcesses.has(child)) {
             reportAdaptation('return-audio', 'input-failed', stderr);
             failTalkback('adaptation-failed');
@@ -1152,6 +1217,53 @@ function flvAacAccessUnit(accessUnit: Buffer): Buffer {
 }
 
 /**
+ * Every access unit of one AAC elementary stream carried in FLV tags, in order. Bytes arrive in arbitrary pieces, so a
+ * partial tag is held until the rest arrives; the sequence-header tag and non-AAC tags are skipped.
+ */
+class FlvAacReader {
+  private held = Buffer.alloc(0);
+  private bodyStart: number | undefined;
+
+  /** Feed the next bytes of the stream and return the access units they complete. */
+  push(chunk: Buffer): Buffer[] {
+    const bytes = this.held.length ? Buffer.concat([this.held, chunk]) : chunk;
+    let at = 0;
+    if (this.bodyStart === undefined) {
+      if (bytes.length < 9) {
+        this.held = Buffer.from(bytes);
+        return [];
+      }
+      this.bodyStart = bytes.readUInt32BE(5) + 4;
+    }
+    if (at < this.bodyStart) {
+      if (bytes.length < this.bodyStart) {
+        this.held = Buffer.from(bytes);
+        return [];
+      }
+      at = this.bodyStart;
+      this.bodyStart = 0;
+    }
+    const units: Buffer[] = [];
+    while (bytes.length - at >= 11) {
+      const size = bytes.readUIntBE(at + 1, 3);
+      const end = at + 11 + size + 4;
+      if (bytes.length < end) {
+        break;
+      }
+      const body = bytes.subarray(at + 11, at + 11 + size);
+      if (bytes[at] === AUDIO_TAG && body.length > 2 && body[0] === AAC_SOUND_FLAGS) {
+        if (body[1] === AAC_RAW) {
+          units.push(Buffer.from(body.subarray(2)));
+        }
+      }
+      at = end;
+    }
+    this.held = Buffer.from(bytes.subarray(at));
+    return units;
+  }
+}
+
+/**
  * The FFmpeg input format and input options for one source audio stream.
  *
  * A stream whose decoder config travels apart from its access units is framed as FLV, which states that config
@@ -1217,9 +1329,10 @@ function audioArguments(
 }
 
 /**
- * Decode HomeKit's controller-to-accessory AAC-ELD SRTP and emit the SDK's exact talkback input: 16 kHz
- * mono AAC-LC in ADTS. The SDK owns complete-frame recovery, the 640-byte frame limit, and 64 ms pacing,
- * so FFmpeg must produce a byte stream rather than impose another clock.
+ * Decode HomeKit's controller-to-accessory AAC-ELD SRTP and emit both talkback inputs the SDK accepts: 16 kHz mono
+ * AAC-LC in ADTS on stdout, and HomeKit's own AAC-ELD access units, copied unchanged, in FLV on fd 3. The opened
+ * handle's `codec` names the one that is fed; the other is drained. The SDK owns frame validation, the 640-byte
+ * limit and pacing, so FFmpeg produces byte streams rather than imposing another clock.
  */
 function returnAudioArguments(): string[] {
   return [
@@ -1251,6 +1364,16 @@ function returnAudioArguments(): string[] {
     '-f',
     'adts',
     'pipe:1',
+    '-map',
+    '0:a:0',
+    '-vn',
+    '-c:a',
+    'copy',
+    '-flvflags',
+    'no_duration_filesize',
+    '-f',
+    'flv',
+    'pipe:3',
   ];
 }
 
@@ -1289,7 +1412,8 @@ function spawnLiveMediaProcess(executable: string, args: readonly string[]): Med
 }
 
 function spawnReturnAudioProcess(executable: string, args: readonly string[]): ReturnAudioProcess {
-  return spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(executable, args, { stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+  return Object.assign(child, { eld: child.stdio[3] as Readable });
 }
 
 function reserveMediaPort(addressVersion: 'ipv4' | 'ipv6'): Promise<ReservedMediaPort> {
