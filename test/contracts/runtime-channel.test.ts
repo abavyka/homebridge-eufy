@@ -277,6 +277,64 @@ describe('runtime channel round trip', () => {
   });
 
   /**
+   * A device's settings are read and written through the runtime that holds its session, inside the closed field
+   * set: a body outside it is refused before the runtime sees it, a write the device refuses reads as false, and an
+   * older runtime that serves neither path reads as no settings and refuses every write.
+   */
+  it('reads and writes device settings inside the closed field set', async () => {
+    const writes: unknown[] = [];
+    const client = await serve(() => status(), {
+      deviceSettings: ({ serial }) =>
+        serial === 'T8000P0000000000'
+          ? [
+              {
+                setting: 'nightVision',
+                value: 1,
+                labels: { '0': 'Off', '1': 'Infrared' },
+                writable: true,
+                extra: 'dropped',
+              } as never,
+            ]
+          : undefined,
+      writeDeviceSetting: async (write) => {
+        writes.push(write);
+        if (write.value === 2) throw new Error('synthetic refusal');
+        return true;
+      },
+    });
+
+    await expect(client.readDeviceSettings('T8000P0000000000')).resolves.toEqual([
+      { setting: 'nightVision', value: 1, labels: { '0': 'Off', '1': 'Infrared' }, writable: true },
+    ]);
+    await expect(client.readDeviceSettings('T8000P0000000001')).resolves.toBeUndefined();
+    await expect(
+      client.writeDeviceSetting({ serial: 'T8000P0000000000', setting: 'nightVision', value: 0 }),
+    ).resolves.toBe(true);
+    await expect(
+      client.writeDeviceSetting({ serial: 'T8000P0000000000', setting: 'nightVision', value: 2 }),
+    ).resolves.toBe(false);
+    await expect(
+      client.writeDeviceSetting({ serial: 'T8000P0000000000', setting: 'motionDetection', value: 1 as never }),
+      'a value of the wrong type never reaches the runtime',
+    ).resolves.toBe(false);
+    await expect(
+      client.writeDeviceSetting({ serial: 'T8000P0000000000', setting: 'privacy' as never, value: true }),
+      'a setting outside the closed set never reaches the runtime',
+    ).resolves.toBe(false);
+    expect(writes).toEqual([
+      { serial: 'T8000P0000000000', setting: 'nightVision', value: 0 },
+      { serial: 'T8000P0000000000', setting: 'nightVision', value: 2 },
+    ]);
+
+    const older = await serve(() => status());
+
+    await expect(older.readDeviceSettings('T8000P0000000000')).resolves.toBeUndefined();
+    await expect(
+      older.writeDeviceSetting({ serial: 'T8000P0000000000', setting: 'nightVision', value: 0 }),
+    ).resolves.toBe(false);
+  });
+
+  /**
    * The channel answers the live runtime state, which is the one thing the persisted tracker can be a
    * heartbeat behind, so a read that reaches the runtime is distinguishable from one that read the file.
    */

@@ -66,6 +66,58 @@ export const RUNTIME_STAND_DOWN_PATH = '/runtime/stand-down';
 /** The path an end-and-respawn is requested on, so a superseded runtime is replaced by the installed build. */
 export const RUNTIME_RESTART_PATH = '/runtime/restart';
 
+/** The path that answers the eufy settings one device states, among {@link DEVICE_SETTINGS}. */
+export const RUNTIME_DEVICE_SETTINGS_PATH = '/runtime/device-settings';
+
+/** The path one eufy setting of one device is written on. */
+export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write';
+
+/**
+ * The eufy settings this channel reads and writes, and nothing else.
+ *
+ * Each is a typed SDK member with a confirmed write: `motionDetection` is the motion capability's master switch,
+ * `nightVision` and `notificationStyle` are camera settings whose values are the SDK's own enumerations.
+ */
+export const DEVICE_SETTINGS = ['motionDetection', 'nightVision', 'notificationStyle'] as const;
+
+export type DeviceSettingName = (typeof DEVICE_SETTINGS)[number];
+
+/** The longest serial a settings request may name, which bounds what an inbound body can carry. */
+const MAX_SERIAL_LENGTH = 64;
+
+/**
+ * One eufy setting as a device states it now.
+ *
+ * `labels` names each value an enumerated setting takes, keyed by the value, as the SDK describes it. `writable`
+ * is false where this device offers no confirmed write for it, so it is shown and not offered.
+ */
+export interface RuntimeChannelDeviceSetting {
+  setting: DeviceSettingName;
+  value: boolean | number;
+  labels?: Record<string, string>;
+  writable: boolean;
+}
+
+/** Which device a settings read names. */
+export interface RuntimeChannelDeviceSettingsQuery {
+  serial: string;
+}
+
+/** One requested write: a device, one of {@link DEVICE_SETTINGS}, and the value it is set to. */
+export interface RuntimeChannelDeviceSettingWrite {
+  serial: string;
+  setting: DeviceSettingName;
+  value: boolean | number;
+}
+
+/**
+ * How long a client waits for a settings write, measured from the request.
+ *
+ * A write reaches the device over its station's session, which may first have to be connected, so it outlasts an
+ * ordinary answer.
+ */
+export const RUNTIME_CHANNEL_WRITE_TIMEOUT_MS = 20_000;
+
 /**
  * How long a client waits for a requested stand-down, measured from the request.
  *
@@ -138,14 +190,14 @@ export interface RuntimeChannelRequest {
   v: number;
   id: number;
   path: string;
-  body?: RuntimeChannelAuthorization;
+  body?: RuntimeChannelAuthorization | RuntimeChannelDeviceSettingsQuery | RuntimeChannelDeviceSettingWrite;
 }
 
 /** One answer, correlated by `id`. */
 export interface RuntimeChannelResponse {
   id: number;
   ok: boolean;
-  data?: RuntimeChannelStatus | RuntimeChannelDevice[];
+  data?: RuntimeChannelStatus | RuntimeChannelDevice[] | RuntimeChannelDeviceSetting[];
 }
 
 /** The address the runtime channel is served and consumed on, and what its location implies. */
@@ -298,6 +350,82 @@ export function noticedAuthorization(value: unknown): RuntimeChannelAuthorizatio
   return isSupportCaseId(candidate.supportCaseId) ? { supportCaseId: candidate.supportCaseId } : undefined;
 }
 
+function isDeviceSettingName(value: unknown): value is DeviceSettingName {
+  return typeof value === 'string' && (DEVICE_SETTINGS as readonly string[]).includes(value);
+}
+
+function isSerial(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_SERIAL_LENGTH;
+}
+
+/** Whether a value is one a setting takes: a boolean for the switch, a whole number for an enumeration. */
+function isDeviceSettingValue(setting: DeviceSettingName, value: unknown): value is boolean | number {
+  return setting === 'motionDetection' ? typeof value === 'boolean' : Number.isInteger(value);
+}
+
+/**
+ * Projects an inbound body onto a settings read, or nothing.
+ *
+ * Untrusted input in the process that owns the Eufy session, so it is narrowed to one bounded serial.
+ */
+export function noticedDeviceSettingsQuery(value: unknown): RuntimeChannelDeviceSettingsQuery | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  return isSerial(candidate.serial) ? { serial: candidate.serial } : undefined;
+}
+
+/**
+ * Projects an inbound body onto one settings write, or nothing.
+ *
+ * Narrowed to a bounded serial, a setting of {@link DEVICE_SETTINGS}, and a value of the type that setting takes.
+ */
+export function noticedDeviceSettingWrite(value: unknown): RuntimeChannelDeviceSettingWrite | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (!isSerial(candidate.serial) || !isDeviceSettingName(candidate.setting)) {
+    return undefined;
+  }
+  return isDeviceSettingValue(candidate.setting, candidate.value)
+    ? { serial: candidate.serial, setting: candidate.setting, value: candidate.value }
+    : undefined;
+}
+
+/** Projects one device setting onto the closed set of fields this protocol carries. */
+export function answeredDeviceSetting(setting: RuntimeChannelDeviceSetting): RuntimeChannelDeviceSetting {
+  return {
+    setting: setting.setting,
+    value: setting.value,
+    ...(setting.labels === undefined ? {} : { labels: { ...setting.labels } }),
+    writable: setting.writable,
+  };
+}
+
+/** Whether a value is the device settings this protocol version carries, each with its declared shape. */
+export function areRuntimeChannelDeviceSettings(value: unknown): value is RuntimeChannelDeviceSetting[] {
+  return (
+    Array.isArray(value) &&
+    value.every((entry) => {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        return false;
+      }
+      const candidate = entry as Record<string, unknown>;
+      return (
+        isDeviceSettingName(candidate.setting) &&
+        isDeviceSettingValue(candidate.setting, candidate.value) &&
+        typeof candidate.writable === 'boolean' &&
+        (candidate.labels === undefined ||
+          (typeof candidate.labels === 'object' &&
+            candidate.labels !== null &&
+            Object.values(candidate.labels).every((label) => typeof label === 'string')))
+      );
+    })
+  );
+}
+
 /** Whether a value is the device observations this protocol version carries, each with its declared shape. */
 export function areRuntimeChannelDevices(value: unknown): value is RuntimeChannelDevice[] {
   return (
@@ -350,6 +478,8 @@ interface RuntimeChannelServerOptions {
   version?: string;
   restartable?: boolean;
   restart?: () => boolean;
+  deviceSettings?: (query: RuntimeChannelDeviceSettingsQuery) => RuntimeChannelDeviceSetting[] | undefined;
+  writeDeviceSetting?: (write: RuntimeChannelDeviceSettingWrite) => Promise<boolean>;
 }
 
 /**
@@ -374,6 +504,8 @@ export class RuntimeChannelServer {
   private readonly version?: string;
   private readonly restartable?: boolean;
   private readonly restart?: () => boolean;
+  private readonly deviceSettings?: RuntimeChannelServerOptions['deviceSettings'];
+  private readonly writeDeviceSetting?: RuntimeChannelServerOptions['writeDeviceSetting'];
 
   constructor(
     private readonly endpoint: RuntimeChannelEndpoint,
@@ -389,6 +521,8 @@ export class RuntimeChannelServer {
     this.version = options.version;
     this.restartable = options.restartable;
     this.restart = options.restart;
+    this.deviceSettings = options.deviceSettings;
+    this.writeDeviceSetting = options.writeDeviceSetting;
   }
 
   /** Binds the endpoint, reporting whether it bound. An unbound channel is an absent one. */
@@ -440,10 +574,28 @@ export class RuntimeChannelServer {
    * A provider reaches into the runtime's own registry and manifest evidence, or reads a file and writes a
    * record, any of which may throw. This runs inside a socket's data listener, where a thrown error is an
    * uncaught exception in the process that owns the Eufy session, so no request on this channel may be able to
-   * end it. A refusal is a state every consumer already handles.
+   * end it. A refusal is a state every consumer already handles. A settings write is the one answer that waits
+   * on the device, and a rejected write is refused the same way.
    */
-  private answered(request: RuntimeChannelRequest): RuntimeChannelResponse {
+  private answered(request: RuntimeChannelRequest): RuntimeChannelResponse | Promise<RuntimeChannelResponse> {
     try {
+      if (request.path === RUNTIME_DEVICE_SETTINGS_PATH && this.deviceSettings) {
+        const query = noticedDeviceSettingsQuery(request.body);
+        const settings = query ? this.deviceSettings(query) : undefined;
+        return settings
+          ? { id: request.id, ok: true, data: settings.map(answeredDeviceSetting) }
+          : { id: request.id, ok: false };
+      }
+      if (request.path === RUNTIME_DEVICE_SETTING_WRITE_PATH && this.writeDeviceSetting) {
+        const write = noticedDeviceSettingWrite(request.body);
+        if (!write) {
+          return { id: request.id, ok: false };
+        }
+        return this.writeDeviceSetting(write).then(
+          (ok) => ({ id: request.id, ok }),
+          () => ({ id: request.id, ok: false }),
+        );
+      }
       if (request.path === RUNTIME_STATUS_PATH) {
         return { id: request.id, ok: true, data: answeredStatus(this.status()) };
       }
@@ -516,6 +668,10 @@ export class RuntimeChannelServer {
       connection.destroy();
       return;
     }
-    connection.write(`${JSON.stringify(this.answered(request))}\n`);
+    void Promise.resolve(this.answered(request)).then((response) => {
+      if (!connection.destroyed) {
+        connection.write(`${JSON.stringify(response)}\n`);
+      }
+    });
   }
 }

@@ -5,6 +5,8 @@ import {
   parseAuthenticationStart,
   parseDiagnosticsAuthorization,
   parseDeviceImageRequest,
+  parseDeviceSettingsRequest,
+  parseDeviceSettingWriteRequest,
   parseDiagnosticsUiEvent,
 } from '../../src/ui/server.js';
 
@@ -209,6 +211,37 @@ describe('custom UI device image input', () => {
       } catch (error) {
         expect((error as Error).message).not.toContain(SUBMITTED_SERIAL);
       }
+    }
+  });
+});
+
+describe('custom UI device settings input', () => {
+  /** A settings read names one plausible serial and nothing else. */
+  it('accepts a settings read for one serial only', () => {
+    expect(parseDeviceSettingsRequest({ serial: 'T8000P0000000000' })).toBe('T8000P0000000000');
+    for (const value of [undefined, {}, { serial: '../x' }, { serial: 'T8000P0000000000', extra: true }]) {
+      expect(() => parseDeviceSettingsRequest(value)).toThrow('Invalid device settings request');
+    }
+  });
+
+  /**
+   * A write reaches a real device, so it names exactly a serial, one setting of the closed set and a value of the
+   * type that setting takes, and anything else is refused before it leaves the custom-UI process.
+   */
+  it('accepts a write of one known setting with a value of its type only', () => {
+    expect(
+      parseDeviceSettingWriteRequest({ serial: 'T8000P0000000000', setting: 'motionDetection', value: false }),
+    ).toEqual({ serial: 'T8000P0000000000', setting: 'motionDetection', value: false });
+    for (const value of [
+      undefined,
+      { serial: 'T8000P0000000000', setting: 'motionDetection' },
+      { serial: 'T8000P0000000000', setting: 'motionDetection', value: 1 },
+      { serial: 'T8000P0000000000', setting: 'nightVision', value: 1.5 },
+      { serial: 'T8000P0000000000', setting: 'privacy', value: true },
+      { serial: '../x', setting: 'nightVision', value: 1 },
+      { serial: 'T8000P0000000000', setting: 'nightVision', value: 1, extra: true },
+    ]) {
+      expect(() => parseDeviceSettingWriteRequest(value)).toThrow('Invalid device setting write');
     }
   });
 });

@@ -2,8 +2,10 @@ import { createConnection, type Socket } from 'node:net';
 
 import {
   answeredDevice,
+  answeredDeviceSetting,
   answeredStatus,
   areRuntimeChannelDevices,
+  areRuntimeChannelDeviceSettings,
   FrameReader,
   isRuntimeChannelStatus,
   ownedSocket,
@@ -11,12 +13,18 @@ import {
   RUNTIME_CHANNEL_PROTOCOL,
   RUNTIME_CHANNEL_RESPONSE_TIMEOUT_MS,
   RUNTIME_CHANNEL_STAND_DOWN_TIMEOUT_MS,
+  RUNTIME_CHANNEL_WRITE_TIMEOUT_MS,
+  RUNTIME_DEVICE_SETTING_WRITE_PATH,
+  RUNTIME_DEVICE_SETTINGS_PATH,
   RUNTIME_DEVICES_PATH,
   RUNTIME_DIAGNOSTICS_PATH,
   RUNTIME_RESTART_PATH,
   RUNTIME_STAND_DOWN_PATH,
   RUNTIME_STATUS_PATH,
   type RuntimeChannelDevice,
+  type RuntimeChannelDeviceSetting,
+  type RuntimeChannelDeviceSettingsQuery,
+  type RuntimeChannelDeviceSettingWrite,
   type RuntimeChannelEndpoint,
   type RuntimeChannelGreeting,
   type RuntimeChannelResponse,
@@ -27,6 +35,7 @@ const STATUS_REQUEST = 1;
 const DEVICES_REQUEST = 2;
 const DIAGNOSTICS_REQUEST = 3;
 const DEPARTURE_REQUEST = 4;
+const SETTINGS_REQUEST = 5;
 
 /**
  * One answered read of the live runtime view.
@@ -91,10 +100,22 @@ export interface RuntimeRestartChannel {
   requestRestart(): Promise<boolean>;
 }
 
+/**
+ * A device's eufy settings, read and written through the runtime that holds its session, when a runtime is there.
+ *
+ * Declared beside its consumer. An absent runtime reads as no settings and refuses every write. A write that is
+ * accepted reports that the runtime delivered it, not that the device changed: the next read is what states that.
+ */
+export interface RuntimeDeviceSettingsChannel {
+  readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined>;
+  writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean>;
+}
+
 interface RuntimeChannelClientOptions {
   connectTimeoutMs?: number;
   responseTimeoutMs?: number;
   standDownTimeoutMs?: number;
+  writeTimeoutMs?: number;
 }
 
 /**
@@ -110,11 +131,17 @@ interface RuntimeChannelClientOptions {
  * One connection per operation, its requests correlated by identity, closed once the operation settles.
  */
 export class RuntimeChannelClient
-  implements RuntimeStatusChannel, RuntimeDiagnosticsChannel, RuntimeStandDownChannel, RuntimeRestartChannel
+  implements
+    RuntimeStatusChannel,
+    RuntimeDiagnosticsChannel,
+    RuntimeStandDownChannel,
+    RuntimeRestartChannel,
+    RuntimeDeviceSettingsChannel
 {
   private readonly connectTimeoutMs: number;
   private readonly responseTimeoutMs: number;
   private readonly standDownTimeoutMs: number;
+  private readonly writeTimeoutMs: number;
 
   constructor(
     private readonly endpoint: RuntimeChannelEndpoint,
@@ -123,6 +150,26 @@ export class RuntimeChannelClient
     this.connectTimeoutMs = options.connectTimeoutMs ?? RUNTIME_CHANNEL_CONNECT_TIMEOUT_MS;
     this.responseTimeoutMs = options.responseTimeoutMs ?? RUNTIME_CHANNEL_RESPONSE_TIMEOUT_MS;
     this.standDownTimeoutMs = options.standDownTimeoutMs ?? RUNTIME_CHANNEL_STAND_DOWN_TIMEOUT_MS;
+    this.writeTimeoutMs = options.writeTimeoutMs ?? RUNTIME_CHANNEL_WRITE_TIMEOUT_MS;
+  }
+
+  async readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined> {
+    return this.over(undefined, (connection) =>
+      this.requested(connection, RUNTIME_DEVICE_SETTINGS_PATH, { serial }, this.responseTimeoutMs, (response) =>
+        response.ok && areRuntimeChannelDeviceSettings(response.data)
+          ? response.data.map(answeredDeviceSetting)
+          : undefined,
+      ),
+    );
+  }
+
+  async writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean> {
+    const accepted = await this.over(undefined, (connection) =>
+      this.requested(connection, RUNTIME_DEVICE_SETTING_WRITE_PATH, write, this.writeTimeoutMs, (response) =>
+        response.ok ? true : undefined,
+      ),
+    );
+    return accepted === true;
   }
 
   async read(): Promise<RuntimeChannelReading | undefined> {
@@ -307,6 +354,63 @@ export class RuntimeChannelClient
           const response = parsed as RuntimeChannelResponse;
           if (response?.id === DEPARTURE_REQUEST && !response.ok) {
             conclude(false);
+            return;
+          }
+        }
+      });
+    });
+  }
+
+  /**
+   * Sends one request after the greeting and answers what `accept` makes of its response.
+   *
+   * Undefined is every other outcome: a protocol this client does not speak, which is never sent the request, a
+   * refusal, an answer `accept` does not take, and no answer within `timeoutMs`.
+   */
+  private requested<T>(
+    connection: Socket,
+    path: string,
+    body: RuntimeChannelDeviceSettingsQuery | RuntimeChannelDeviceSettingWrite,
+    timeoutMs: number,
+    accept: (response: RuntimeChannelResponse) => T | undefined,
+  ): Promise<T | undefined> {
+    return new Promise<T | undefined>((resolve) => {
+      const settle = setTimeout(() => resolve(undefined), timeoutMs);
+      settle.unref();
+      const conclude = (value: T | undefined): void => {
+        clearTimeout(settle);
+        resolve(value);
+      };
+      const reader = new FrameReader();
+      let requested = false;
+      connection.once('error', () => conclude(undefined));
+      connection.once('close', () => conclude(undefined));
+      connection.on('data', (chunk) => {
+        const frames = reader.accept(chunk);
+        if (!frames) {
+          conclude(undefined);
+          return;
+        }
+        for (const frame of frames) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(frame);
+          } catch {
+            conclude(undefined);
+            return;
+          }
+          if (!requested) {
+            if ((parsed as RuntimeChannelGreeting)?.protocol !== RUNTIME_CHANNEL_PROTOCOL) {
+              conclude(undefined);
+              return;
+            }
+            requested = true;
+            connection.write(`${JSON.stringify({ v: RUNTIME_CHANNEL_PROTOCOL, id: SETTINGS_REQUEST, path, body })}\n`);
+            continue;
+          }
+          const response = parsed as RuntimeChannelResponse;
+          if (response?.id === SETTINGS_REQUEST) {
+            conclude(accept(response));
             return;
           }
         }
