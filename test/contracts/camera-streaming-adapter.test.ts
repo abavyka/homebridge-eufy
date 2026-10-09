@@ -1543,6 +1543,35 @@ describe('camera streaming bundle adapter', () => {
     }
   });
 
+  /** With HD live video on, a camera advertises only its 720p and 1080p resolutions. */
+  it('advertises only the HD resolutions when HD live video is on', () => {
+    const target = new Accessory(
+      'Synthetic HD camera',
+      uuid.generate('synthetic-camera-hd'),
+    ) as unknown as PlatformAccessory;
+
+    CAMERA_STREAMING_ADAPTER.attach({
+      device: { camera: () => ({ live: vi.fn() }) } as never,
+      evidence: snapshotEvidence(),
+      accessory: target,
+      hap: HAP,
+      liveMedia: { prepare: vi.fn() },
+      hdLiveVideo: true,
+      audioEnabled: true,
+      diagnose: vi.fn(),
+      observed: vi.fn(),
+      persist: vi.fn(),
+    } satisfies AdapterAttachmentContext);
+
+    for (const management of streamManagements(target)) {
+      const advertised = management.getCharacteristic(Characteristic.SupportedVideoStreamConfiguration).value as string;
+      expect(advertisedVideo(advertised).resolutions).toEqual([
+        [1280, 720, 30],
+        [1920, 1080, 30],
+      ]);
+    }
+  });
+
   /**
    * A renegotiated selection is recorded and answered, and nothing about the running media changes.
    *

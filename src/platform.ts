@@ -178,6 +178,7 @@ export function createEufyPlatform(
             recordingMedia,
             mediaBudget,
             stationLiveSessions,
+            configuredConfig.hdLiveVideo,
           );
           this.reconciler.start();
         }

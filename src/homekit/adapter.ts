@@ -132,6 +132,8 @@ export interface AdapterAttachmentContext {
   readonly mediaBudget?: MediaSessionBudget;
   /** Where a live session is recorded, so opportunistic media work elsewhere on its station stands aside. */
   readonly stationLiveSessions?: StationLiveSessionRegistry;
+  /** Whether a camera offers a controller only its HD live resolutions, so no live view is sent below 720p. */
+  readonly hdLiveVideo?: boolean;
   readonly audioEnabled?: boolean;
   readonly securitySystemEnabled?: boolean;
   readonly snapshotMode?: SnapshotMode;
