@@ -77,6 +77,7 @@ const advancedConcurrentMedia = document.querySelector('[data-advanced-concurren
 const advancedFfmpeg = document.querySelector('[data-advanced-ffmpeg]');
 const advancedSmallVideoPackets = document.querySelector('[data-advanced-small-video-packets]');
 const advancedLiveVideoPassthrough = document.querySelector('[data-advanced-live-video-passthrough]');
+const advancedHdLiveVideo = document.querySelector('[data-advanced-hd-live-video]');
 const warmUpAvailable = document.querySelector('[data-warm-up-available]');
 const warmUpChosen = document.querySelector('[data-warm-up-chosen]');
 const warmUpAdd = document.querySelector('[data-warm-up-add]');
@@ -590,6 +591,7 @@ menuAdvanced.addEventListener('click', async () => {
   advancedFfmpeg.value = config.ffmpegPath ?? '';
   advancedSmallVideoPackets.checked = config.smallVideoPackets === true;
   advancedLiveVideoPassthrough.checked = config.liveVideoPassthrough === true;
+  advancedHdLiveVideo.checked = config.hdLiveVideo === true;
   openDashboardPanel(advancedPanel, menuAdvanced);
   /**
    * The panel asks for its own candidates rather than relying on the devices view having been opened first.
@@ -649,6 +651,8 @@ async function updateAdvancedSettings() {
   else delete next.smallVideoPackets;
   if (advancedLiveVideoPassthrough.checked) next.liveVideoPassthrough = true;
   else delete next.liveVideoPassthrough;
+  if (advancedHdLiveVideo.checked) next.hdLiveVideo = true;
+  else delete next.hdLiveVideo;
   // The default is what the plugin applies when the key is absent, so storing it would only pin today's default.
   if (warmUpSelection.length === 1 && warmUpSelection[0] === 'doorbellPress') delete next.warmUpEvents;
   else next.warmUpEvents = [...warmUpSelection];
@@ -666,6 +670,7 @@ advancedConcurrentMedia.addEventListener('change', updateAdvancedSettings);
 advancedFfmpeg.addEventListener('change', updateAdvancedSettings);
 advancedSmallVideoPackets.addEventListener('change', updateAdvancedSettings);
 advancedLiveVideoPassthrough.addEventListener('change', updateAdvancedSettings);
+advancedHdLiveVideo.addEventListener('change', updateAdvancedSettings);
 warmUpAdd.addEventListener('click', () => moveWarmUp('available'));
 warmUpAddAll.addEventListener('click', () => moveWarmUp('available', true));
 warmUpRemove.addEventListener('click', () => moveWarmUp('chosen'));

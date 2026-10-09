@@ -458,7 +458,9 @@ function attachCameraStreaming(context: AdapterAttachmentContext): AttachedAdapt
             profiles: [context.hap.H264Profile.BASELINE, context.hap.H264Profile.MAIN, context.hap.H264Profile.HIGH],
             levels: [context.hap.H264Level.LEVEL3_1, context.hap.H264Level.LEVEL3_2, context.hap.H264Level.LEVEL4_0],
           },
-          resolutions: ADVERTISED_RESOLUTIONS.map((entry) => [...entry] as [number, number, number]),
+          resolutions: ADVERTISED_RESOLUTIONS.filter(([width]) => !context.hdLiveVideo || width >= 1280).map(
+            (entry) => [...entry] as [number, number, number],
+          ),
         },
         ...(context.audioEnabled === false
           ? {}

@@ -165,6 +165,7 @@ describe('V5 configuration', () => {
       ffmpegPath: '/synthetic/ffmpeg',
       smallVideoPackets: true,
       liveVideoPassthrough: true,
+      hdLiveVideo: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {
@@ -190,6 +191,7 @@ describe('V5 configuration', () => {
       ffmpegPath: '/synthetic/ffmpeg',
       smallVideoPackets: true,
       liveVideoPassthrough: true,
+      hdLiveVideo: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {

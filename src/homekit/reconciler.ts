@@ -129,6 +129,7 @@ export class HomeKitReconciler {
     private readonly recordingMedia?: RecordingMediaAdapter,
     private readonly mediaBudget?: MediaSessionBudget,
     private readonly stationLiveSessions?: StationLiveSessionRegistry,
+    private readonly hdLiveVideo = false,
   ) {
     for (const accessory of cachedAccessories) {
       this.accessories.set(accessory.UUID, accessory);
@@ -224,6 +225,7 @@ export class HomeKitReconciler {
           snapshotMedia: this.snapshotMedia,
           ...(this.mediaBudget ? { mediaBudget: this.mediaBudget } : {}),
           ...(this.stationLiveSessions ? { stationLiveSessions: this.stationLiveSessions } : {}),
+          ...(this.hdLiveVideo ? { hdLiveVideo: true } : {}),
           audioEnabled: this.entityPreferences[serial]?.audio !== false,
           securitySystemEnabled: this.entityPreferences[serial]?.securitySystem !== false,
           snapshotMode: this.entityPreferences[serial]?.snapshotMode ?? 'Refresh',
