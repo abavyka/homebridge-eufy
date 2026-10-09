@@ -63,5 +63,8 @@
   "author": "homebridge-eufy",
   "allowScripts": {
     "ffmpeg-for-homebridge@2.2.2": true
+  },
+  "optionalDependencies": {
+    "node-datachannel": "0.33.4"
   }
 }
