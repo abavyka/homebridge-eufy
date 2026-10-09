@@ -9,6 +9,8 @@
   "advancedEyebrow": "Configuration",
   "advancedFfmpegHelp": "Laissez vide pour utiliser l’exécutable FFmpeg fourni avec le plugin.",
   "advancedFfmpegLabel": "Chemin FFmpeg personnalisé",
+  "advancedLiveVideoPassthroughHelp": "Activez cette option si la vidéo en direct ne s’affiche jamais, ou si le journal indique que FFmpeg s’est arrêté avant d’envoyer la vidéo. La vidéo des caméras qui enregistrent en H.264 est alors envoyée telle que la caméra l’a enregistrée, comme dans la version 4, au lieu d’être convertie selon ce que demande l’app Maison.",
+  "advancedLiveVideoPassthroughLabel": "Envoyer la vidéo de la caméra sans conversion",
   "advancedPollingHelp": "Utilisez 0 pour désactiver l’interrogation planifiée. La valeur par défaut est de 10 minutes.",
   "advancedPollingInvalid": "Saisissez un nombre entier de minutes supérieur ou égal à zéro.",
   "advancedPollingLabel": "Intervalle d’interrogation en minutes",

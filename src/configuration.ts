@@ -76,6 +76,7 @@ export interface EufyConfig {
   warmUpEvents: string[];
   ffmpegPath: string | undefined;
   smallVideoPackets: boolean;
+  liveVideoPassthrough: boolean;
   entityPreferences: Record<string, EntityPreference>;
   discardedV4Settings: string[];
   discardedV4Acknowledged: boolean;
@@ -221,6 +222,7 @@ export function parseConfig(value: unknown): EufyConfig {
     warmUpEvents,
     ffmpegPath: configuredFfmpegPath ?? bundledFfmpegPath,
     smallVideoPackets: value.smallVideoPackets === true,
+    liveVideoPassthrough: value.liveVideoPassthrough === true,
     entityPreferences: parseEntityPreferences(value.entityPreferences),
     discardedV4Settings: parseDiscardedV4Settings(value.discardedV4Settings),
     discardedV4Acknowledged: value.discardedV4Acknowledged === true,
@@ -274,6 +276,7 @@ export function serializeConfig(config: EufyConfig): Record<string, unknown> {
     warmUpEvents: [...config.warmUpEvents],
     ffmpegPath: config.ffmpegPath,
     ...(config.smallVideoPackets ? { smallVideoPackets: true } : {}),
+    ...(config.liveVideoPassthrough ? { liveVideoPassthrough: true } : {}),
     entityPreferences: Object.fromEntries(
       Object.entries(config.entityPreferences).map(([serial, preference]) => [serial, { ...preference }]),
     ),

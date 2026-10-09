@@ -276,6 +276,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     private readonly reservePort: MediaPortFactory = reserveMediaPort,
     private readonly createReturnAudioProcess: ReturnAudioProcessFactory = spawnReturnAudioProcess,
     private readonly maxVideoPacketSize = Number.POSITIVE_INFINITY,
+    private readonly copyVideo = false,
   ) {}
 
   /**
@@ -288,6 +289,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     const videoPort = await this.reservePort(transport.addressVersion);
     const targetAddress = transport.addressVersion === 'ipv6' ? `[${transport.targetAddress}]` : transport.targetAddress;
     const maxVideoPacketSize = this.maxVideoPacketSize;
+    const copyVideo = this.copyVideo;
     let audioPort: ReservedMediaPort | undefined;
     try {
       audioPort = transport.audio ? await this.reservePort(transport.addressVersion) : undefined;
@@ -591,7 +593,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         videoSequence = (videoSequence + OUTPUT_SEQUENCE_STEP) & 0xffff;
         const child = this.createProcess(
           this.executable,
-          videoArguments(videoConfig, negotiated.video, targetAddress, transport.video, videoSequence),
+          videoArguments(videoConfig, negotiated.video, targetAddress, transport.video, videoSequence, copyVideo),
         );
         videoProcess = child;
         adaptationDiagnostics?.report({ role: 'live-video', event: 'started', cause: videoCause });
@@ -1025,6 +1027,10 @@ function outputArguments(
  * coded stream can carry a negotiated Main or High profile; `ultrafast` drops CABAC and codes Constrained
  * Baseline whatever `-profile:v` asks for. `-tune zerolatency` pins the same `sliced_threads`, `bframes`
  * and `rc_lookahead` at either preset, so this costs computation rather than frame delay.
+ *
+ * `copy` sends an H.264 source as the camera coded it, with no encoder in the process. Nothing above then holds:
+ * the geometry, frame rate, bit rate, profile and keyframe interval are the camera's own, not the negotiated
+ * selection. Only the RTP output is the negotiated one. An H.265 source is transcoded either way.
  */
 function videoArguments(
   input: LiveVideoConfig,
@@ -1032,7 +1038,17 @@ function videoArguments(
   targetAddress: string,
   target: LiveMediaTarget,
   sequence: number,
+  copy = false,
 ): string[] {
+  if (copy && input.codec === 'h264') {
+    return [
+      ...commonArguments('h264'),
+      '-an',
+      '-c:v',
+      'copy',
+      ...outputArguments(targetAddress, target, selection.payloadType, selection.ssrc, selection.mtu, sequence),
+    ];
+  }
   const budget = videoBudgetInsideCeiling(selection);
   return [
     ...commonArguments(input.codec === 'h265' ? 'hevc' : input.codec),

@@ -9,6 +9,8 @@
   "advancedEyebrow": "Configuration",
   "advancedFfmpegHelp": "Leave blank to use the FFmpeg executable bundled with the plugin.",
   "advancedFfmpegLabel": "Custom FFmpeg path",
+  "advancedLiveVideoPassthroughHelp": "Turn this on if live view never shows, or if the log says FFmpeg stopped before sending video. Live video from cameras that record H.264 is then sent as the camera recorded it, as version 4 did, instead of being converted to what the Home app asked for.",
+  "advancedLiveVideoPassthroughLabel": "Send camera video unchanged",
   "advancedPollingHelp": "Use 0 to disable scheduled polling. The default is 10 minutes.",
   "advancedPollingInvalid": "Enter a whole number of minutes greater than or equal to zero.",
   "advancedPollingLabel": "Polling interval in minutes",
