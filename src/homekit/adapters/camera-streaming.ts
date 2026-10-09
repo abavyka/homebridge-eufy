@@ -1545,6 +1545,7 @@ class LiveCameraDelegate implements CameraStreamingDelegate {
       height: video.height,
       fps: video.fps,
       mtu: video.mtu,
+      maxBitRate: video.maxBitRate,
       addressVersion,
     });
   }

@@ -75,7 +75,7 @@ export interface AdapterEventTrace {
 /** An identity-free account of one live video selection made by a HomeKit controller. */
 export type AdapterLiveVideoTrace = Pick<
   NegotiatedLiveVideo,
-  'profile' | 'level' | 'width' | 'height' | 'fps' | 'mtu'
+  'profile' | 'level' | 'width' | 'height' | 'fps' | 'mtu' | 'maxBitRate'
 > & {
   event: 'live-video-selected';
   operation: 'start' | 'reconfigure';

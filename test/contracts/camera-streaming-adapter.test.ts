@@ -1644,6 +1644,7 @@ describe('camera streaming bundle adapter', () => {
       height: 720,
       fps: 30,
       mtu: 1200,
+      maxBitRate: 300,
       addressVersion: 'ipv4',
     });
 
@@ -1662,6 +1663,7 @@ describe('camera streaming bundle adapter', () => {
       height: 360,
       fps: 15,
       mtu: 1200,
+      maxBitRate: 150,
       addressVersion: 'ipv4',
     });
 
