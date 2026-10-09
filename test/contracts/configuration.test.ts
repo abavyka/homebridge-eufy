@@ -164,6 +164,7 @@ describe('V5 configuration', () => {
       pollingIntervalMinutes: 3,
       ffmpegPath: '/synthetic/ffmpeg',
       smallVideoPackets: true,
+      liveVideoPassthrough: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {
@@ -188,6 +189,7 @@ describe('V5 configuration', () => {
       warmUpEvents: ['doorbellPress'],
       ffmpegPath: '/synthetic/ffmpeg',
       smallVideoPackets: true,
+      liveVideoPassthrough: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {

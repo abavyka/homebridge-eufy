@@ -1247,6 +1247,49 @@ describe('live media adaptation', () => {
     }
   });
 
+  /**
+   * With pass-through on, an H.264 source is copied with no encoder in the process, onto the negotiated RTP
+   * output; an H.265 source is still transcoded.
+   */
+  it('copies H.264 and transcodes H.265 when pass-through is on', async () => {
+    for (const [codec, copied] of [
+      ['h264', true],
+      ['h265', false],
+    ] as const) {
+      const stream = new SyntheticLiveStream();
+      const spawned: string[][] = [];
+      const media = new FfmpegLiveMedia(
+        '/synthetic/ffmpeg',
+        undefined,
+        (_executable: string, args: readonly string[]) => {
+          spawned.push([...args]);
+          return process();
+        },
+        async () => ({ port: 41000, onMessage: vi.fn(), close: vi.fn() }),
+        undefined,
+        undefined,
+        true,
+      );
+      const prepared = await media.prepare({
+        addressVersion: 'ipv4',
+        targetAddress: '192.0.2.10',
+        video: {
+          port: 50100,
+          srtpCryptoSuite: 'AES_CM_128_HMAC_SHA1_80',
+          srtpKey: Buffer.alloc(16, 1),
+          srtpSalt: Buffer.alloc(14, 2),
+        },
+      });
+      await prepared.start({ live: async () => stream }, { video: NEGOTIATED_VIDEO });
+      stream.video({ codec, width: 1280, height: 720, keyframe: true, data: Buffer.from([0, 0, 0, 1, 0x65]) });
+
+      const args = spawned[0]!;
+      expect(args[args.indexOf('-c:v') + 1], codec).toBe(copied ? 'copy' : 'libx264');
+      expect(args, codec).toContain(`srtp://192.0.2.10:50100?rtcpport=50100&pkt_size=${NEGOTIATED_VIDEO.mtu}`);
+      prepared.stop();
+    }
+  });
+
   it('transcodes H.264 when passthrough compliance cannot be proven from SDK frames', async () => {
     const stream = new SyntheticLiveStream();
     const spawned: Array<{ executable: string; args: string[]; process: MediaProcess }> = [];

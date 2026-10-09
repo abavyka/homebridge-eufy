@@ -241,6 +241,7 @@ async function renderUi(
   });
   const advancedFfmpeg = interactiveElement({ value: '' });
   const advancedSmallVideoPackets = interactiveElement({ checked: false });
+  const advancedLiveVideoPassthrough = interactiveElement({ checked: false });
   /**
    * The transfer list the warm-up setting draws into.
    *
@@ -381,6 +382,7 @@ async function renderUi(
           '[data-advanced-concurrent-media]': advancedConcurrentMedia,
           '[data-advanced-ffmpeg]': advancedFfmpeg,
           '[data-advanced-small-video-packets]': advancedSmallVideoPackets,
+          '[data-advanced-live-video-passthrough]': advancedLiveVideoPassthrough,
           '[data-advanced-status]': advancedStatus,
           '[data-warm-up-available]': warmUpAvailable,
           '[data-warm-up-chosen]': warmUpChosen,
@@ -620,6 +622,7 @@ async function renderUi(
     advancedConcurrentMedia,
     advancedFfmpeg,
     advancedSmallVideoPackets,
+    advancedLiveVideoPassthrough,
     advancedStatus,
     legacyAcknowledge,
     legacyNotice,
@@ -932,6 +935,8 @@ describe('packed plugin', () => {
           'advancedFfmpegHelp',
           'advancedFfmpegLabel',
           'advancedPollingHelp',
+          'advancedLiveVideoPassthroughHelp',
+          'advancedLiveVideoPassthroughLabel',
           'advancedPollingLabel',
           'advancedSmallVideoPacketsHelp',
           'advancedSmallVideoPacketsLabel',
@@ -1400,6 +1405,12 @@ describe('packed plugin', () => {
       menuUi.advancedSmallVideoPackets.checked = false;
       await menuUi.advancedSmallVideoPackets.dispatch('change');
       expect(menuUi.updatedConfig?.[0]).not.toHaveProperty('smallVideoPackets');
+      menuUi.advancedLiveVideoPassthrough.checked = true;
+      await menuUi.advancedLiveVideoPassthrough.dispatch('change');
+      expect(menuUi.updatedConfig?.[0]).toMatchObject({ liveVideoPassthrough: true });
+      menuUi.advancedLiveVideoPassthrough.checked = false;
+      await menuUi.advancedLiveVideoPassthrough.dispatch('change');
+      expect(menuUi.updatedConfig?.[0]).not.toHaveProperty('liveVideoPassthrough');
       menuUi.advancedConcurrentMedia.value = '1.5';
       await menuUi.advancedConcurrentMedia.dispatch('change');
       expect(menuUi.advancedConcurrentMedia.validityMessage).toBe(

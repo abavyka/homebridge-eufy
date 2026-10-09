@@ -65,6 +65,12 @@
         "default": false,
         "type": "boolean"
       },
+      "liveVideoPassthrough": {
+        "title": "Send camera video unchanged",
+        "description": "Turn this on if live view never shows, or if the log says FFmpeg stopped before sending video. Live video from cameras that record H.264 is then sent as the camera recorded it, as version 4 did, instead of being converted to what the Home app asked for. Off by default.",
+        "default": false,
+        "type": "boolean"
+      },
       "entityPreferences": {
         "title": "Entity preferences",
         "additionalProperties": false,
