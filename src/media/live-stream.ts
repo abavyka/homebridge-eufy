@@ -264,6 +264,9 @@ export interface ReturnAudioProcess extends MediaProcess {
 export type ReturnAudioProcessFactory = (executable: string, args: readonly string[]) => ReturnAudioProcess;
 export type MediaPortFactory = (addressVersion: 'ipv4' | 'ipv6') => Promise<ReservedMediaPort>;
 
+/** The `libx264` constant rate factor a live adaptation codes at when the negotiated bit rate is ignored. */
+const CONSTANT_QUALITY_CRF = 23;
+
 /** The live video packet size an administrator can choose for networks that drop the negotiated one. */
 export const SMALL_VIDEO_PACKET_SIZE = 1128;
 
@@ -277,6 +280,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     private readonly createReturnAudioProcess: ReturnAudioProcessFactory = spawnReturnAudioProcess,
     private readonly maxVideoPacketSize = Number.POSITIVE_INFINITY,
     private readonly copyVideo = false,
+    private readonly constantQuality = false,
   ) {}
 
   /**
@@ -290,6 +294,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     const targetAddress = transport.addressVersion === 'ipv6' ? `[${transport.targetAddress}]` : transport.targetAddress;
     const maxVideoPacketSize = this.maxVideoPacketSize;
     const copyVideo = this.copyVideo;
+    const constantQuality = this.constantQuality;
     let audioPort: ReservedMediaPort | undefined;
     try {
       audioPort = transport.audio ? await this.reservePort(transport.addressVersion) : undefined;
@@ -593,7 +598,15 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         videoSequence = (videoSequence + OUTPUT_SEQUENCE_STEP) & 0xffff;
         const child = this.createProcess(
           this.executable,
-          videoArguments(videoConfig, negotiated.video, targetAddress, transport.video, videoSequence, copyVideo),
+          videoArguments(
+            videoConfig,
+            negotiated.video,
+            targetAddress,
+            transport.video,
+            videoSequence,
+            copyVideo,
+            constantQuality,
+          ),
         );
         videoProcess = child;
         adaptationDiagnostics?.report({ role: 'live-video', event: 'started', cause: videoCause });
@@ -1031,6 +1044,10 @@ function outputArguments(
  * `copy` sends an H.264 source as the camera coded it, with no encoder in the process. Nothing above then holds:
  * the geometry, frame rate, bit rate, profile and keyframe interval are the camera's own, not the negotiated
  * selection. Only the RTP output is the negotiated one. An H.265 source is transcoded either way.
+ *
+ * `constantQuality` codes at {@link CONSTANT_QUALITY_CRF} with no rate control, so the negotiated bit rate is not
+ * honoured: the output spends what the picture needs. A controller asks 299 kbps for 720p and does not raise it
+ * during a session, which the ceiling above codes as a blurred, then blocky, picture.
  */
 function videoArguments(
   input: LiveVideoConfig,
@@ -1039,6 +1056,7 @@ function videoArguments(
   target: LiveMediaTarget,
   sequence: number,
   copy = false,
+  constantQuality = false,
 ): string[] {
   if (copy && input.codec === 'h264') {
     return [
@@ -1050,6 +1068,9 @@ function videoArguments(
     ];
   }
   const budget = videoBudgetInsideCeiling(selection);
+  const rate = constantQuality
+    ? ['-crf', String(CONSTANT_QUALITY_CRF)]
+    : ['-b:v', `${budget}k`, '-maxrate', `${budget}k`, '-bufsize', `${budget}k`];
   return [
     ...commonArguments(input.codec === 'h265' ? 'hevc' : input.codec),
     '-an',
@@ -1075,12 +1096,7 @@ function videoArguments(
     String(selection.fps * 2),
     '-sc_threshold',
     '0',
-    '-b:v',
-    `${budget}k`,
-    '-maxrate',
-    `${budget}k`,
-    '-bufsize',
-    `${budget}k`,
+    ...rate,
     ...outputArguments(targetAddress, target, selection.payloadType, selection.ssrc, selection.mtu, sequence),
   ];
 }

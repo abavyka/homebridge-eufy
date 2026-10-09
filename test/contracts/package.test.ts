@@ -243,6 +243,7 @@ async function renderUi(
   const advancedSmallVideoPackets = interactiveElement({ checked: false });
   const advancedLiveVideoPassthrough = interactiveElement({ checked: false });
   const advancedHdLiveVideo = interactiveElement({ checked: false });
+  const advancedIgnoreHomeBitRate = interactiveElement({ checked: false });
   /**
    * The transfer list the warm-up setting draws into.
    *
@@ -385,6 +386,7 @@ async function renderUi(
           '[data-advanced-small-video-packets]': advancedSmallVideoPackets,
           '[data-advanced-live-video-passthrough]': advancedLiveVideoPassthrough,
           '[data-advanced-hd-live-video]': advancedHdLiveVideo,
+          '[data-advanced-ignore-home-bit-rate]': advancedIgnoreHomeBitRate,
           '[data-advanced-status]': advancedStatus,
           '[data-warm-up-available]': warmUpAvailable,
           '[data-warm-up-chosen]': warmUpChosen,
@@ -626,6 +628,7 @@ async function renderUi(
     advancedSmallVideoPackets,
     advancedLiveVideoPassthrough,
     advancedHdLiveVideo,
+    advancedIgnoreHomeBitRate,
     advancedStatus,
     legacyAcknowledge,
     legacyNotice,
@@ -942,6 +945,8 @@ describe('packed plugin', () => {
           'advancedLiveVideoPassthroughLabel',
           'advancedHdLiveVideoHelp',
           'advancedHdLiveVideoLabel',
+          'advancedIgnoreHomeBitRateHelp',
+          'advancedIgnoreHomeBitRateLabel',
           'advancedPollingLabel',
           'advancedSmallVideoPacketsHelp',
           'advancedSmallVideoPacketsLabel',
@@ -1422,6 +1427,12 @@ describe('packed plugin', () => {
       menuUi.advancedHdLiveVideo.checked = false;
       await menuUi.advancedHdLiveVideo.dispatch('change');
       expect(menuUi.updatedConfig?.[0]).not.toHaveProperty('hdLiveVideo');
+      menuUi.advancedIgnoreHomeBitRate.checked = true;
+      await menuUi.advancedIgnoreHomeBitRate.dispatch('change');
+      expect(menuUi.updatedConfig?.[0]).toMatchObject({ ignoreHomeBitRate: true });
+      menuUi.advancedIgnoreHomeBitRate.checked = false;
+      await menuUi.advancedIgnoreHomeBitRate.dispatch('change');
+      expect(menuUi.updatedConfig?.[0]).not.toHaveProperty('ignoreHomeBitRate');
       menuUi.advancedConcurrentMedia.value = '1.5';
       await menuUi.advancedConcurrentMedia.dispatch('change');
       expect(menuUi.advancedConcurrentMedia.validityMessage).toBe(

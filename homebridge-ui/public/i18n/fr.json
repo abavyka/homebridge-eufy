@@ -13,6 +13,8 @@
   "advancedLiveVideoPassthroughLabel": "Envoyer la vidéo de la caméra sans conversion",
   "advancedHdLiveVideoHelp": "Activez cette option si la vidéo en direct paraît floue dans l’app Maison. Les caméras ne proposent alors à l’app Maison que du 720p et du 1080p, aussi en données mobiles et dans la grille des caméras, ce qui consomme plus de données.",
   "advancedHdLiveVideoLabel": "Vidéo en direct toujours en HD",
+  "advancedIgnoreHomeBitRateHelp": "Activez cette option si la vidéo en direct est nette quelques secondes, puis floue ou pixelisée. La vidéo est alors convertie à une qualité constante proche de celle de la caméra, au lieu du faible débit demandé par l’app Maison, ce qui utilise plus de bande passante.",
+  "advancedIgnoreHomeBitRateLabel": "Ignorer la limite de débit de l’app Maison",
   "advancedPollingHelp": "Utilisez 0 pour désactiver l’interrogation planifiée. La valeur par défaut est de 10 minutes.",
   "advancedPollingInvalid": "Saisissez un nombre entier de minutes supérieur ou égal à zéro.",
   "advancedPollingLabel": "Intervalle d’interrogation en minutes",

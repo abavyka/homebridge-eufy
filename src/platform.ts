@@ -89,6 +89,7 @@ export function createEufyPlatform(
             undefined,
             configuredConfig.smallVideoPackets ? SMALL_VIDEO_PACKET_SIZE : undefined,
             configuredConfig.liveVideoPassthrough,
+            configuredConfig.ignoreHomeBitRate,
           )
         : undefined;
       const recordingMedia = configuredConfig.ffmpegPath
