@@ -25,13 +25,18 @@ import {
 } from '../diagnostics.js';
 import { PersistedLastSuccessfulImages } from '../media/last-successful-image.js';
 import { readDeviceImage } from './device-image.js';
-import { runtimeChannelEndpointForHost } from '../runtime/channel.js';
+import {
+  noticedDeviceSettingWrite,
+  runtimeChannelEndpointForHost,
+  type RuntimeChannelDeviceSettingWrite,
+} from '../runtime/channel.js';
 import { RuntimeTracker } from '../runtime/tracker.js';
 import { resolveStorageRoot } from '../storage.js';
 import { readDashboard } from './dashboard.js';
 import {
   RuntimeChannelClient,
   type RuntimeDiagnosticsChannel,
+  type RuntimeDeviceSettingsChannel,
   type RuntimeRestartChannel,
   type RuntimeStandDownChannel,
   type RuntimeStatusChannel,
@@ -210,6 +215,39 @@ export function parseDeviceImageRequest(value: unknown): string {
   return serial;
 }
 
+/** Validates a browser-submitted request for one device's eufy settings, which names a serial and nothing else. */
+export function parseDeviceSettingsRequest(value: unknown): string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new RequestError('Invalid device settings request', { status: 400 });
+  }
+  const payload = value as Record<string, unknown>;
+  const serial = requiredString(payload.serial, 64);
+  if (Object.keys(payload).join(',') !== 'serial' || !serial?.match(/^[A-Za-z0-9]{1,64}$/)) {
+    throw new RequestError('Invalid device settings request', { status: 400 });
+  }
+  return serial;
+}
+
+/**
+ * Validates a browser-submitted write of one eufy setting.
+ *
+ * A write reaches a real device, so the request names exactly a serial, one setting of the channel's closed set,
+ * and a value of the type that setting takes, and nothing beside them.
+ */
+export function parseDeviceSettingWriteRequest(value: unknown): RuntimeChannelDeviceSettingWrite {
+  const write = noticedDeviceSettingWrite(value);
+  if (
+    !write ||
+    Object.keys(value as Record<string, unknown>)
+      .sort()
+      .join(',') !== 'serial,setting,value' ||
+    !write.serial.match(/^[A-Za-z0-9]{1,64}$/)
+  ) {
+    throw new RequestError('Invalid device setting write', { status: 400 });
+  }
+  return write;
+}
+
 function parseArchiveReview(value: unknown): string {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new RequestError('Invalid support archive request', { status: 400 });
@@ -256,7 +294,8 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
   private readonly runtimeChannel: RuntimeStatusChannel &
     RuntimeDiagnosticsChannel &
     RuntimeStandDownChannel &
-    RuntimeRestartChannel;
+    RuntimeRestartChannel &
+    RuntimeDeviceSettingsChannel;
   private readonly images: PersistedLastSuccessfulImages;
   private readonly diagnostics: GuidedDiagnostics;
   private startPending = false;
@@ -296,6 +335,13 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     this.onRequest('/device/image', (payload) =>
       readDeviceImage(this.images, this.runtimeChannel, parseDeviceImageRequest(payload)),
     );
+    this.onRequest('/device/settings', async (payload) => {
+      const settings = await this.runtimeChannel.readDeviceSettings(parseDeviceSettingsRequest(payload));
+      return settings ? { available: true, settings } : { available: false };
+    });
+    this.onRequest('/device/settings/write', async (payload) => ({
+      ok: await this.runtimeChannel.writeDeviceSetting(parseDeviceSettingWriteRequest(payload)),
+    }));
     this.onRequest('/diagnostics/status', () => this.diagnostics.status());
     this.onRequest('/diagnostics/authorize', async (payload) => {
       const authorization = parseDiagnosticsAuthorization(payload);

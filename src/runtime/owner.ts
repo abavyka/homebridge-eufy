@@ -30,6 +30,7 @@ import {
   type RuntimeChannelDevice,
   type RuntimeChannelStatus,
 } from './channel.js';
+import { readDeviceSettings, writeDeviceSetting } from './device-settings.js';
 import type { SdkClient, SdkClientFactory, SdkStartResult } from './sdk-client.js';
 import { RuntimeTracker, runtimeStatusFor, type RuntimeTrackerRecord, type RuntimeTrackerUpdate } from './tracker.js';
 
@@ -633,6 +634,14 @@ export class RuntimeOwner {
           version: PLUGIN_VERSION,
           restartable: isChildBridgeTitle(process.title),
           restart: () => this.endForReplacement(),
+          deviceSettings: ({ serial }) => {
+            const device = this.registryView?.registry.get(serial);
+            return device ? readDeviceSettings(device) : undefined;
+          },
+          writeDeviceSetting: async (write) => {
+            const device = this.registryView?.registry.get(write.serial);
+            return device ? writeDeviceSetting(device, write) : false;
+          },
         },
       );
     }
