@@ -957,7 +957,8 @@ describe('diagnostic conditions', () => {
   /**
    * A condition names the remedy that fits its cause. A device HomeKit cannot represent yet is an informational line
    * with nothing to do, an unmapped guard mode points at the mode map, a missing FFmpeg points at the path setting,
-   * and one that cannot be started points at the same setting to check. A control that timed out points at the Eufy
+   * one that cannot be started points at the same setting to check, and one that exits before any output points at
+   * the path setting again. A control that timed out points at the Eufy
    * app rather than a retry. A reason with no remedy of its own keeps the condition's. The retained
    * record carries the same level and action as the console line.
    */
@@ -996,6 +997,13 @@ describe('diagnostic conditions', () => {
         'adaptation-spawn-failed',
         'warn',
         'log.action.checkFfmpegPath',
+      ],
+      [
+        'camera-live-session-failed',
+        { capability: 'camera', member: 'live' },
+        'adaptation-exited-before-output',
+        'warn',
+        'log.action.setFfmpegPath',
       ],
       [
         'camera-live-session-failed',
