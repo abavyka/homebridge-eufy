@@ -13,7 +13,8 @@ Setup, the development workflow, and the pull request process are in
   imports use explicit `.js` specifiers. The target is ES2024 and output goes to `dist/`.
 - Node.js 24.5.0 or newer and Homebridge 2 are required.
 - Runtime dependencies are `@mega-yfue/eufy-sdk`, `@homebridge/plugin-ui-utils`, and
-  `ffmpeg-for-homebridge`. Additions require an explicit maintenance and security justification.
+  `ffmpeg-for-homebridge`, plus the optional `node-datachannel` the SDK needs to drive a HomeBase S1 Pro (T9000).
+  Additions require an explicit maintenance and security justification.
 - Prettier is the formatting gate. There is no ESLint configuration. Vitest exercises hermetic
   contracts without account or network access.
 - `npm run verify` is the repository gate: formatting, the ECS dependency guard, the TypeScript
