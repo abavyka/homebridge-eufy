@@ -78,6 +78,7 @@ export type HomeKitEventTrace = { adapter: string; serial?: string } & (
       height: number;
       fps: number;
       mtu: number;
+      maxBitRate: number;
       addressVersion: 'ipv4' | 'ipv6';
     }
   | {
@@ -2247,6 +2248,8 @@ const MAX_LIVE_VIDEO_FRAME_RATE = 120;
  */
 const MIN_LIVE_VIDEO_MTU = 0;
 const MAX_LIVE_VIDEO_MTU = 65_535;
+/** The bit rate ceiling a controller negotiated, in kbps, bounded to the unsigned 16-bit field that carries it. */
+const MAX_LIVE_VIDEO_BIT_RATE = 65_535;
 /** The two address families HomeKit negotiates a destination in. */
 const HOMEKIT_LIVE_ADDRESS_VERSIONS = new Set(['ipv4', 'ipv6']);
 const HOMEKIT_LIVE_SESSION_STAGES = new Set([
@@ -3141,6 +3144,7 @@ function sanitizeLiveVideoSelection(value: Record<string, unknown>): Record<stri
   const height = boundedInteger(value.height, MAX_LIVE_VIDEO_DIMENSION, MIN_LIVE_VIDEO_DIMENSION);
   const fps = boundedInteger(value.fps, MAX_LIVE_VIDEO_FRAME_RATE, MIN_LIVE_VIDEO_FRAME_RATE);
   const mtu = boundedInteger(value.mtu, MAX_LIVE_VIDEO_MTU, MIN_LIVE_VIDEO_MTU);
+  const maxBitRate = boundedInteger(value.maxBitRate, MAX_LIVE_VIDEO_BIT_RATE, 0);
   const addressVersion = typeof value.addressVersion === 'string' ? value.addressVersion : undefined;
   if (
     !operation ||
@@ -3169,6 +3173,7 @@ function sanitizeLiveVideoSelection(value: Record<string, unknown>): Record<stri
     height,
     fps,
     mtu,
+    ...(maxBitRate === undefined ? {} : { maxBitRate }),
     addressVersion,
     ...(alias === undefined ? {} : { accessory: alias }),
   };

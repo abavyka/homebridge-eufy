@@ -1438,6 +1438,7 @@ describe('diagnostic conditions', () => {
       height: 720,
       fps: 30,
       mtu: 1378,
+      maxBitRate: 299,
       addressVersion: 'ipv4',
       serial: 'T8000P0000000000',
     } as never);
@@ -1453,6 +1454,7 @@ describe('diagnostic conditions', () => {
         height: 1080,
         fps: 30,
         mtu: 1228,
+        maxBitRate: 802,
         addressVersion: 'ipv6',
       },
     );
@@ -1495,6 +1497,7 @@ describe('diagnostic conditions', () => {
         height: 720,
         fps: 30,
         mtu: 1378,
+        maxBitRate: 299,
         addressVersion: 'ipv4',
       }),
     );
@@ -1512,6 +1515,7 @@ describe('diagnostic conditions', () => {
         height: 1080,
         fps: 30,
         mtu: 1228,
+        maxBitRate: 802,
         addressVersion: 'ipv6',
       }),
     );
