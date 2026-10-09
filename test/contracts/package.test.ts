@@ -1875,6 +1875,26 @@ describe('packed plugin', () => {
       expect(migratedUi.legacyNotice.hidden).toBe(true);
       expect(migratedUi.updatedConfig?.[0]).toMatchObject({ discardedV4Acknowledged: true });
 
+      const signedInBlock = {
+        platform: 'HomebridgeEufy',
+        username: 'guest@example.invalid',
+        password: 'old-password',
+        country: 'US',
+        trustedDeviceName: 'Synthetic Homebridge',
+        _bridge: { username: '0E:00:00:00:00:00', port: 51000 },
+        warmUpEvents: ['motion'],
+        maxConcurrentMediaSessions: 2,
+        smallVideoPackets: true,
+        entityPreferences: { 'synthetic-camera': { audio: false } },
+      };
+      const reauthUi = await renderUi(script, [signedInBlock], catalogs, 'en', [], { status: 'restart-required' });
+      reauthUi.password.value = 'new-password';
+      await reauthUi.authForm.dispatch('submit');
+      expect(
+        reauthUi.updatedConfig,
+        'signing in again replaces the account and keeps every other setting, the child bridge included',
+      ).toEqual([{ ...signedInBlock, password: 'new-password' }]);
+
       const dashboardUi = await renderUi(
         script,
         [
