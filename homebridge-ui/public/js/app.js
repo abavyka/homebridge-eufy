@@ -934,21 +934,10 @@ function reportAuthRequestFailure(error) {
 
 authForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  // A sign-in replaces the account and nothing else: every other key of the block, the child bridge included, is kept.
   const existing = pluginConfig.find((block) => block.platform === 'HomebridgeEufy') ?? {};
-  const retained = Object.fromEntries(
-    [
-      'pollingIntervalMinutes',
-      'sessionWarmUp',
-      'ffmpegPath',
-      'entityPreferences',
-      'discardedV4Settings',
-      'discardedV4Acknowledged',
-    ]
-      .filter((key) => Object.hasOwn(existing, key))
-      .map((key) => [key, existing[key]]),
-  );
   pendingConfig = {
-    ...retained,
+    ...existing,
     platform: 'HomebridgeEufy',
     username: accountInput.value.trim(),
     password: passwordInput.value,
