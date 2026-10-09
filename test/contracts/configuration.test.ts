@@ -166,6 +166,7 @@ describe('V5 configuration', () => {
       smallVideoPackets: true,
       liveVideoPassthrough: true,
       hdLiveVideo: true,
+      ignoreHomeBitRate: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {
@@ -192,6 +193,7 @@ describe('V5 configuration', () => {
       smallVideoPackets: true,
       liveVideoPassthrough: true,
       hdLiveVideo: true,
+      ignoreHomeBitRate: true,
       maxConcurrentMediaSessions: 4,
       entityPreferences: {
         [absentSerial]: {

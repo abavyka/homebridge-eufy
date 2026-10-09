@@ -78,6 +78,7 @@ const advancedFfmpeg = document.querySelector('[data-advanced-ffmpeg]');
 const advancedSmallVideoPackets = document.querySelector('[data-advanced-small-video-packets]');
 const advancedLiveVideoPassthrough = document.querySelector('[data-advanced-live-video-passthrough]');
 const advancedHdLiveVideo = document.querySelector('[data-advanced-hd-live-video]');
+const advancedIgnoreHomeBitRate = document.querySelector('[data-advanced-ignore-home-bit-rate]');
 const warmUpAvailable = document.querySelector('[data-warm-up-available]');
 const warmUpChosen = document.querySelector('[data-warm-up-chosen]');
 const warmUpAdd = document.querySelector('[data-warm-up-add]');
@@ -592,6 +593,7 @@ menuAdvanced.addEventListener('click', async () => {
   advancedSmallVideoPackets.checked = config.smallVideoPackets === true;
   advancedLiveVideoPassthrough.checked = config.liveVideoPassthrough === true;
   advancedHdLiveVideo.checked = config.hdLiveVideo === true;
+  advancedIgnoreHomeBitRate.checked = config.ignoreHomeBitRate === true;
   openDashboardPanel(advancedPanel, menuAdvanced);
   /**
    * The panel asks for its own candidates rather than relying on the devices view having been opened first.
@@ -653,6 +655,8 @@ async function updateAdvancedSettings() {
   else delete next.liveVideoPassthrough;
   if (advancedHdLiveVideo.checked) next.hdLiveVideo = true;
   else delete next.hdLiveVideo;
+  if (advancedIgnoreHomeBitRate.checked) next.ignoreHomeBitRate = true;
+  else delete next.ignoreHomeBitRate;
   // The default is what the plugin applies when the key is absent, so storing it would only pin today's default.
   if (warmUpSelection.length === 1 && warmUpSelection[0] === 'doorbellPress') delete next.warmUpEvents;
   else next.warmUpEvents = [...warmUpSelection];
@@ -671,6 +675,7 @@ advancedFfmpeg.addEventListener('change', updateAdvancedSettings);
 advancedSmallVideoPackets.addEventListener('change', updateAdvancedSettings);
 advancedLiveVideoPassthrough.addEventListener('change', updateAdvancedSettings);
 advancedHdLiveVideo.addEventListener('change', updateAdvancedSettings);
+advancedIgnoreHomeBitRate.addEventListener('change', updateAdvancedSettings);
 warmUpAdd.addEventListener('click', () => moveWarmUp('available'));
 warmUpAddAll.addEventListener('click', () => moveWarmUp('available', true));
 warmUpRemove.addEventListener('click', () => moveWarmUp('chosen'));

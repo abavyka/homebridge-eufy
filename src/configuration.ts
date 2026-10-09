@@ -78,6 +78,7 @@ export interface EufyConfig {
   smallVideoPackets: boolean;
   liveVideoPassthrough: boolean;
   hdLiveVideo: boolean;
+  ignoreHomeBitRate: boolean;
   entityPreferences: Record<string, EntityPreference>;
   discardedV4Settings: string[];
   discardedV4Acknowledged: boolean;
@@ -225,6 +226,7 @@ export function parseConfig(value: unknown): EufyConfig {
     smallVideoPackets: value.smallVideoPackets === true,
     liveVideoPassthrough: value.liveVideoPassthrough === true,
     hdLiveVideo: value.hdLiveVideo === true,
+    ignoreHomeBitRate: value.ignoreHomeBitRate === true,
     entityPreferences: parseEntityPreferences(value.entityPreferences),
     discardedV4Settings: parseDiscardedV4Settings(value.discardedV4Settings),
     discardedV4Acknowledged: value.discardedV4Acknowledged === true,
@@ -280,6 +282,7 @@ export function serializeConfig(config: EufyConfig): Record<string, unknown> {
     ...(config.smallVideoPackets ? { smallVideoPackets: true } : {}),
     ...(config.liveVideoPassthrough ? { liveVideoPassthrough: true } : {}),
     ...(config.hdLiveVideo ? { hdLiveVideo: true } : {}),
+    ...(config.ignoreHomeBitRate ? { ignoreHomeBitRate: true } : {}),
     entityPreferences: Object.fromEntries(
       Object.entries(config.entityPreferences).map(([serial, preference]) => [serial, { ...preference }]),
     ),

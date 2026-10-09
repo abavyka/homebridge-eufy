@@ -1290,6 +1290,44 @@ describe('live media adaptation', () => {
     }
   });
 
+  /** Ignoring the negotiated bit rate codes at a constant quality, with no rate control left in the arguments. */
+  it('codes at a constant quality when the negotiated bit rate is ignored', async () => {
+    const stream = new SyntheticLiveStream();
+    const spawned: string[][] = [];
+    const media = new FfmpegLiveMedia(
+      '/synthetic/ffmpeg',
+      undefined,
+      (_executable: string, args: readonly string[]) => {
+        spawned.push([...args]);
+        return process();
+      },
+      async () => ({ port: 41000, onMessage: vi.fn(), close: vi.fn() }),
+      undefined,
+      undefined,
+      false,
+      true,
+    );
+    const prepared = await media.prepare({
+      addressVersion: 'ipv4',
+      targetAddress: '192.0.2.10',
+      video: {
+        port: 50100,
+        srtpCryptoSuite: 'AES_CM_128_HMAC_SHA1_80',
+        srtpKey: Buffer.alloc(16, 1),
+        srtpSalt: Buffer.alloc(14, 2),
+      },
+    });
+    await prepared.start({ live: async () => stream }, { video: NEGOTIATED_VIDEO });
+    stream.video({ codec: 'h264', width: 1280, height: 720, keyframe: true, data: Buffer.from([0, 0, 0, 1, 0x65]) });
+
+    const args = spawned[0]!;
+    expect(args[args.indexOf('-crf') + 1]).toBe('23');
+    expect(args).not.toContain('-b:v');
+    expect(args).not.toContain('-maxrate');
+    expect(args).not.toContain('-bufsize');
+    prepared.stop();
+  });
+
   it('transcodes H.264 when passthrough compliance cannot be proven from SDK frames', async () => {
     const stream = new SyntheticLiveStream();
     const spawned: Array<{ executable: string; args: string[]; process: MediaProcess }> = [];
