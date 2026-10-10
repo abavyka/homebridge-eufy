@@ -1,10 +1,4 @@
-import type {
-  LiveAudioFrame,
-  LiveStreamConsumer,
-  LiveVideoConfig,
-  LiveVideoFrame,
-  TalkbackHandle,
-} from '@mega-yfue/eufy-sdk';
+import type { LiveAudioFrame, LiveStreamConsumer, LiveVideoConfig, LiveVideoFrame, TalkbackHandle } from '@mega-yfue/eufy-sdk';
 import { LiveStreamStartError, StationKeyUnavailableError, StationUnreachableError } from '@mega-yfue/eufy-sdk';
 import { createSocket } from 'node:dgram';
 import { execFile, spawn } from 'node:child_process';
@@ -324,8 +318,6 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     let returnAudioProcess: ReturnAudioProcess | undefined;
     let talkbackHandle: TalkbackHandle | undefined;
     let talkbackSink: Writable | undefined;
-    let talkbackCodec: TalkbackHandle['codec'] | undefined;
-    let eldHeld = false;
     let talkbackStarting = false;
     let talkbackEnded = false;
     let negotiated: NegotiatedLiveMedia | undefined;
@@ -745,7 +737,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         return;
       }
       if (talkbackSink) {
-        if (talkbackCodec === 'aac-eld') {
+        if (talkbackHandle?.codec === 'aac-eld') {
           return;
         }
         try {
@@ -782,7 +774,6 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           }
           talkbackHandle = handle;
           try {
-            talkbackCodec = handle.codec;
             const sink = handle.writable();
             talkbackSink = sink;
             handle.on('budget', (notice) => {
@@ -843,11 +834,9 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           if (stopped || talkbackEnded || talkbackSink !== sink) {
             return;
           }
-          if (!sink.write(data) && !eldHeld) {
-            eldHeld = true;
+          if (!sink.write(data) && !child.eld.isPaused()) {
             child.eld.pause();
             sink.once('drain', () => {
-              eldHeld = false;
               if (!stopped && !talkbackEnded) {
                 child.eld.resume();
               }
@@ -1222,26 +1211,20 @@ function flvAacAccessUnit(accessUnit: Buffer): Buffer {
  */
 class FlvAacReader {
   private held = Buffer.alloc(0);
-  private bodyStart: number | undefined;
+  private headerSkipped = false;
 
   /** Feed the next bytes of the stream and return the access units they complete. */
   push(chunk: Buffer): Buffer[] {
     const bytes = this.held.length ? Buffer.concat([this.held, chunk]) : chunk;
     let at = 0;
-    if (this.bodyStart === undefined) {
-      if (bytes.length < 9) {
+    if (!this.headerSkipped) {
+      // FFmpeg's flv muxer opens with the 9-byte file header and the 4-byte PreviousTagSize0.
+      if (bytes.length < 13) {
         this.held = Buffer.from(bytes);
         return [];
       }
-      this.bodyStart = bytes.readUInt32BE(5) + 4;
-    }
-    if (at < this.bodyStart) {
-      if (bytes.length < this.bodyStart) {
-        this.held = Buffer.from(bytes);
-        return [];
-      }
-      at = this.bodyStart;
-      this.bodyStart = 0;
+      at = 13;
+      this.headerSkipped = true;
     }
     const units: Buffer[] = [];
     while (bytes.length - at >= 11) {
@@ -1250,11 +1233,8 @@ class FlvAacReader {
       if (bytes.length < end) {
         break;
       }
-      const body = bytes.subarray(at + 11, at + 11 + size);
-      if (bytes[at] === AUDIO_TAG && body.length > 2 && body[0] === AAC_SOUND_FLAGS) {
-        if (body[1] === AAC_RAW) {
-          units.push(Buffer.from(body.subarray(2)));
-        }
+      if (bytes[at] === AUDIO_TAG && size > 2 && bytes[at + 11] === AAC_SOUND_FLAGS && bytes[at + 12] === AAC_RAW) {
+        units.push(Buffer.from(bytes.subarray(at + 13, at + 11 + size)));
       }
       at = end;
     }

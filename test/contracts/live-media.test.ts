@@ -2108,25 +2108,6 @@ describe('isolated return-audio adaptation', () => {
     session.prepared.stop();
   });
 
-  it('waits for one drain however many access units a backlog read refuses', async () => {
-    const handle = new SyntheticTalkback('aac-eld');
-    handle.sink.pause();
-    const session = await talkbackSession(async () => handle);
-    const child = session.returned[0]!;
-    child.stdout.write(Buffer.from([0xff, 0xf1]));
-    await settle();
-    child.eld.write(
-      flvStream(
-        ELD_TALKBACK_CONFIG,
-        Array.from({ length: 133 }, () => Buffer.alloc(100, 3)),
-      ),
-    );
-    await settle();
-    expect(child.eld.isPaused()).toBe(true);
-    expect(handle.sink.listenerCount('drain')).toBeLessThanOrEqual(1);
-    session.prepared.stop();
-  });
-
   it('fails the talkback once, without throwing, when an ELD unit is refused with a synchronous error', async () => {
     const handle = new SyntheticTalkback('aac-eld');
     const refusing = new Writable({
@@ -2176,7 +2157,7 @@ describe('isolated return-audio adaptation', () => {
     expect(child.eld.destroyed).toBe(true);
   });
 
-  it('holds the ELD output while the SDK refuses more frames', async () => {
+  it('holds the ELD output, with one drain wait, while the SDK refuses more frames', async () => {
     const handle = new SyntheticTalkback('aac-eld');
     handle.sink.pause();
     const session = await talkbackSession(async () => handle);
@@ -2186,11 +2167,12 @@ describe('isolated return-audio adaptation', () => {
     child.eld.write(
       flvStream(
         ELD_TALKBACK_CONFIG,
-        Array.from({ length: 12 }, () => Buffer.alloc(100, 3)),
+        Array.from({ length: 133 }, () => Buffer.alloc(100, 3)),
       ),
     );
     await settle();
     expect(child.eld.isPaused()).toBe(true);
+    expect(handle.sink.listenerCount('drain')).toBeLessThanOrEqual(1);
     handle.sink.resume();
     await settle();
     expect(child.eld.isPaused()).toBe(false);
