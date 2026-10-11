@@ -65,6 +65,8 @@ export interface DashboardDevice {
    * does one on a runtime that is not running.
    */
   battery?: number;
+  /** The serial of the HomeBase this device hangs off, as the running plugin states it. */
+  station?: string;
 }
 
 export interface DashboardSnapshot {

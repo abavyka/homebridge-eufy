@@ -718,7 +718,14 @@ export class RuntimeOwner {
       availability: this.currentAvailability(manifest.sn)?.availability,
       enabled: this.observedEnablement(view.registry.get(manifest.sn), manifest),
       battery: this.observedBattery(view.registry.get(manifest.sn), manifest),
+      station: this.attachedStation(view.registry.get(manifest.sn)),
     }));
+  }
+
+  /** The HomeBase a device hangs off, or nothing for a device that is its own station. */
+  private attachedStation(device: Device | undefined): string | undefined {
+    const station = device?.stationSn;
+    return station && station !== device.sn ? station : undefined;
   }
 
   /**

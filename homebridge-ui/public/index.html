@@ -72,6 +72,9 @@
           <span class="diagnostics-name" data-i18n="menuDiagnostics"></span>
           <span class="diagnostics-capturing" data-i18n="diagnosticsCapturing"></span>
         </button>
+        <button type="button" class="dashboard-action" data-menu-wizard data-i18n-aria-label="menuWizard">
+          <img src="assets/icons/auto_fix_high.svg" alt="" />
+        </button>
         <button type="button" class="dashboard-action" data-menu-advanced data-i18n-aria-label="menuAdvanced">
           <img src="assets/icons/settings.svg" alt="" />
         </button>
@@ -189,6 +192,59 @@
       </div>
       <p class="advanced-device-help" data-i18n="advancedDeviceHelp"></p>
       <p class="advanced-status" role="status" aria-live="polite" data-advanced-status></p>
+    </section>
+
+    <section class="dashboard-panel wizard-panel" data-setup-wizard hidden aria-labelledby="wizard-title">
+      <div class="dashboard-panel-header">
+        <button type="button" class="dashboard-page-back" data-wizard-close data-i18n-aria-label="closeWizard">
+          <span aria-hidden="true">←</span>
+        </button>
+        <img class="dashboard-page-icon" src="assets/icons/auto_fix_high.svg" alt="" />
+        <div>
+          <p class="eyebrow" data-wizard-progress></p>
+          <h2 id="wizard-title" data-wizard-title></h2>
+          <p class="summary" data-wizard-eyebrow></p>
+        </div>
+      </div>
+      <p class="summary" data-wizard-restart hidden data-i18n="wizardRestartSummary"></p>
+      <nav class="wizard-map" data-wizard-map data-i18n-aria-label="wizardMapLabel"></nav>
+      <div class="wizard-stage" data-wizard-stage>
+        <button type="button" class="wizard-arrow" data-wizard-back data-i18n-aria-label="wizardBack">
+          <img src="assets/icons/keyboard_arrow_left.svg" alt="" />
+        </button>
+        <div class="wizard-live" data-wizard-live>
+          <img data-wizard-live-image alt="" hidden />
+          <button type="button" class="wizard-live-play" data-wizard-live-play data-i18n-aria-label="wizardLivePlay">
+            <img src="assets/icons/play_arrow.svg" alt="" />
+          </button>
+          <button
+            type="button"
+            class="wizard-live-play wizard-live-stop"
+            data-wizard-live-stop
+            hidden
+            data-i18n-aria-label="wizardLiveStop"
+          >
+            <img src="assets/icons/stop.svg" alt="" />
+          </button>
+          <p class="wizard-live-status" role="status" aria-live="polite" data-wizard-live-status></p>
+        </div>
+        <button type="button" class="wizard-arrow" data-wizard-next data-i18n-aria-label="wizardNext">
+          <img src="assets/icons/keyboard_arrow_right.svg" alt="" />
+        </button>
+      </div>
+      <section class="wizard-card" data-wizard-homekit aria-labelledby="wizard-homekit-title">
+        <h3 id="wizard-homekit-title" data-i18n="wizardHomeKitTitle"></h3>
+        <p class="preference-note" data-i18n="wizardHomeKitHelp"></p>
+        <div class="preference-grid" data-wizard-controls></div>
+      </section>
+      <section class="wizard-card" data-wizard-eufy hidden aria-labelledby="wizard-eufy-title">
+        <h3 id="wizard-eufy-title" data-i18n="wizardEufySettings"></h3>
+        <p class="preference-note" data-i18n="wizardEufyHelp"></p>
+        <div class="preference-grid" data-wizard-settings></div>
+      </section>
+      <div class="wizard-nav">
+        <button type="button" data-wizard-finish></button>
+      </div>
     </section>
   </section>
 
@@ -383,4 +439,5 @@
 <script src="js/dashboard.js"></script>
 <script src="js/legacy-settings.js"></script>
 <script src="js/profile-wizard.js"></script>
+<script src="js/setup-wizard.js"></script>
 <script src="js/app.js"></script>

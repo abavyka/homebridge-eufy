@@ -86,6 +86,27 @@ const warmUpAddAll = document.querySelector('[data-warm-up-add-all]');
 const warmUpRemove = document.querySelector('[data-warm-up-remove]');
 const warmUpRemoveAll = document.querySelector('[data-warm-up-remove-all]');
 const advancedStatus = document.querySelector('[data-advanced-status]');
+const menuWizard = document.querySelector('[data-menu-wizard]');
+const wizardPanel = document.querySelector('[data-setup-wizard]');
+const wizardClose = document.querySelector('[data-wizard-close]');
+const wizardProgress = document.querySelector('[data-wizard-progress]');
+const wizardTitle = document.querySelector('[data-wizard-title]');
+const wizardEyebrow = document.querySelector('[data-wizard-eyebrow]');
+const wizardRestart = document.querySelector('[data-wizard-restart]');
+const wizardLive = document.querySelector('[data-wizard-live]');
+const wizardLiveImage = document.querySelector('[data-wizard-live-image]');
+const wizardLiveStatus = document.querySelector('[data-wizard-live-status]');
+const wizardLivePlay = document.querySelector('[data-wizard-live-play]');
+const wizardLiveStop = document.querySelector('[data-wizard-live-stop]');
+const wizardSettings = document.querySelector('[data-wizard-settings]');
+const wizardControls = document.querySelector('[data-wizard-controls]');
+const wizardBack = document.querySelector('[data-wizard-back]');
+const wizardNext = document.querySelector('[data-wizard-next]');
+const wizardFinish = document.querySelector('[data-wizard-finish]');
+const wizardMap = document.querySelector('[data-wizard-map]');
+const wizardStage = document.querySelector('[data-wizard-stage]');
+const wizardHomeKit = document.querySelector('[data-wizard-homekit]');
+const wizardEufy = document.querySelector('[data-wizard-eufy]');
 
 let messages = {};
 let pluginConfig = [];
@@ -109,6 +130,7 @@ let dashboardPanelTrigger;
 const dashboardView = window.HomebridgeEufyDashboard;
 const legacySettingsView = window.HomebridgeEufyLegacySettings;
 const diagnosticsWizard = window.HomebridgeEufyDiagnosticsWizard;
+const setupWizard = window.HomebridgeEufySetupWizard;
 const dashboardElements = {
   dashboard,
   title: dashboardTitle,
@@ -118,6 +140,7 @@ const dashboardElements = {
   deviceSettingsTitle,
   deviceSettingsEyebrow,
   deviceSettingsControls,
+  preferenceContainers: [deviceSettingsControls, wizardControls],
   updatePending,
   updatePendingSummary,
   updatePendingVersion,
@@ -512,7 +535,7 @@ function openDashboardPanel(panel, trigger) {
   dashboardState.hidden = insideDashboard;
   dashboardSummary.hidden = insideDashboard;
   deviceGroups.hidden = insideDashboard;
-  for (const other of [diagnosticsPanel, advancedPanel, devicePanel]) {
+  for (const other of [diagnosticsPanel, advancedPanel, devicePanel, wizardPanel]) {
     other.hidden = other !== panel;
   }
   panel.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
@@ -524,6 +547,8 @@ function closeDashboardPanel() {
   diagnosticsPanel.hidden = true;
   advancedPanel.hidden = true;
   devicePanel.hidden = true;
+  wizardPanel.hidden = true;
+  stopWizardLive();
   dashboardState.hidden = false;
   dashboardSummary.hidden = false;
   deviceGroups.hidden = false;
@@ -807,9 +832,281 @@ dashboardView.bindPreferences(dashboardElements, configuredBlock, updateConfig, 
   openDashboardPanel(devicePanel, trigger);
 });
 
+/*
+ * The setup wizard walks every device once a sign-in has a running plugin to show it: each camera live, the eufy
+ * settings the plugin can change, and the HomeKit choices. A sign-in always leaves Homebridge to restart, so it
+ * marks the wizard pending in this browser and the next page opened on a ready plugin starts it.
+ */
+let dashboardPluginState;
+let wizardSteps = [];
+let wizardIndex = 0;
+let wizardLiveSerial;
+let wizardLivePictures = 0;
+const wizardElements = {
+  deviceSettingsTitle: wizardTitle,
+  deviceSettingsEyebrow: wizardEyebrow,
+  deviceSettingsControls: wizardControls,
+};
+/** The eufy settings the wizard offers, each with the label its control is named by. */
+const EUFY_SETTING_LABELS = {
+  motionDetection: 'wizardMotionDetection',
+  nightVision: 'wizardNightVision',
+  notificationStyle: 'wizardNotificationStyle',
+};
+
+/** Whether a plugin is running to stream and change settings: a degraded one still holds its devices. */
+function wizardPluginUp() {
+  return dashboardPluginState === 'ready' || dashboardPluginState === 'degraded';
+}
+
+function wizardPending(pending) {
+  try {
+    if (pending === undefined) return localStorage.getItem(setupWizard.PENDING_KEY) === 'pending';
+    if (pending) localStorage.setItem(setupWizard.PENDING_KEY, 'pending');
+    else localStorage.removeItem(setupWizard.PENDING_KEY);
+  } catch {
+    return false;
+  }
+  return pending;
+}
+
+async function openSetupWizard(trigger) {
+  wizardSteps = setupWizard.steps(dashboardDevices);
+  wizardIndex = 0;
+  openDashboardPanel(wizardPanel, trigger);
+  await renderWizardStep();
+}
+
+function stopWizardLive() {
+  if (!wizardLiveSerial) return;
+  wizardLiveSerial = undefined;
+  wizardLivePictures = 0;
+  wizardLivePlay.hidden = false;
+  wizardLiveStop.hidden = true;
+  wizardLiveStatus.textContent = '';
+  void requestWithinDeadline('/device/live/stop', {}, 12000).catch(() => undefined);
+}
+
+/**
+ * Shows a camera's box with its last picture behind the play button, so the step costs nothing until asked.
+ * A camera with no picture yet shows the empty box.
+ */
+async function showWizardCamera(serial) {
+  wizardLive.hidden = false;
+  wizardLiveImage.hidden = true;
+  wizardLivePlay.hidden = false;
+  wizardLiveStatus.textContent = '';
+  let answer;
+  try {
+    answer = await requestWithinDeadline('/device/image', { serial }, 12000);
+  } catch {
+    answer = undefined;
+  }
+  if (!answer?.image || wizardSteps[wizardIndex]?.serial !== serial || wizardLiveSerial) return;
+  wizardLiveImage.src = `data:image/jpeg;base64,${answer.image}`;
+  wizardLiveImage.hidden = false;
+}
+
+function startWizardLive(serial) {
+  stopWizardLive();
+  wizardLiveSerial = serial;
+  wizardLivePlay.hidden = true;
+  wizardLiveStop.hidden = false;
+  wizardLiveStatus.textContent = messages.wizardLiveStarting ?? '';
+  void requestWithinDeadline('/device/live/start', { serial }, 12000).catch(() => endWizardLive(serial));
+}
+
+function endWizardLive(serial) {
+  if (serial !== wizardLiveSerial) return;
+  const watched = wizardLivePictures > 0;
+  wizardLiveSerial = undefined;
+  wizardLivePictures = 0;
+  wizardLiveStatus.textContent = watched ? '' : (messages.wizardLiveFailed ?? '');
+  wizardLivePlay.hidden = false;
+  wizardLiveStop.hidden = true;
+}
+
+homebridge.addEventListener('device-live', (event) => {
+  if (!event.data || event.data.serial !== wizardLiveSerial) return;
+  wizardLivePictures += 1;
+  wizardLiveImage.src = `data:image/jpeg;base64,${event.data.image}`;
+  wizardLiveImage.hidden = false;
+  wizardLiveStatus.textContent = '';
+});
+homebridge.addEventListener('device-live-end', (event) => endWizardLive(event.data?.serial));
+
+/** One control per eufy setting the device states and can change, named and valued the way the camera describes it. */
+function eufySettingControl(setting) {
+  const label = messages[EUFY_SETTING_LABELS[setting.setting]] ?? setting.setting;
+  const wrapper = document.createElement('label');
+  wrapper.className = 'preference';
+  const name = document.createElement('span');
+  name.textContent = label;
+  let control;
+  if (typeof setting.value === 'boolean') {
+    control = document.createElement('input');
+    control.type = 'checkbox';
+    control.checked = setting.value;
+    wrapper.append(control, name);
+  } else {
+    control = document.createElement('select');
+    for (const [value, text] of Object.entries(setting.labels ?? { [setting.value]: String(setting.value) })) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      option.selected = Number(value) === setting.value;
+      control.append(option);
+    }
+    wrapper.append(name, control);
+  }
+  control.dataset.eufySetting = setting.setting;
+  return wrapper;
+}
+
+async function renderWizardSettings(serial) {
+  let answer;
+  try {
+    answer = await requestWithinDeadline('/device/settings', { serial }, 12000);
+  } catch {
+    answer = undefined;
+  }
+  if (wizardSteps[wizardIndex]?.serial !== serial) return;
+  const writable = (answer?.settings ?? []).filter((setting) => setting.writable);
+  if (writable.length === 0) return;
+  const status = document.createElement('p');
+  status.className = 'preference-note';
+  status.setAttribute('role', 'status');
+  status.dataset.wizardSettingsStatus = '';
+  wizardSettings.replaceChildren(...writable.map(eufySettingControl), status);
+  wizardEufy.hidden = false;
+}
+
+/** One device on the map: a button that opens its step, marked as the current one where it is. */
+function wizardMapEntry(device, current) {
+  const entry = document.createElement('button');
+  entry.type = 'button';
+  entry.className = 'wizard-map-device';
+  entry.textContent = device.name;
+  entry.dataset.serial = device.serial;
+  if (device.serial === current) entry.setAttribute('aria-current', 'step');
+  return entry;
+}
+
+/**
+ * Draws the household: each HomeBase with the devices that hang off it, then the cameras that stand alone. A base
+ * is a step too where it has HomeKit choices, so its name opens it like any other device.
+ */
+function renderWizardMap(current) {
+  const { bases, standalone } = setupWizard.topology(wizardSteps, dashboardDevices);
+  const group = (title, members, base) => {
+    const section = document.createElement('div');
+    section.className = 'wizard-map-group';
+    const heading = base && wizardSteps.includes(base) ? wizardMapEntry(base, current) : document.createElement('p');
+    heading.classList?.add('wizard-map-base');
+    heading.textContent = title;
+    const list = document.createElement('div');
+    list.className = 'wizard-map-members';
+    list.append(...members.map((device) => wizardMapEntry(device, current)));
+    section.append(heading, list);
+    return section;
+  };
+  wizardMap.replaceChildren(
+    ...bases.map(({ base, members }) => group(base?.name ?? messages.wizardMapBase ?? '', members, base)),
+    ...(standalone.length > 0 ? [group(messages.wizardMapStandalone ?? '', standalone)] : []),
+  );
+}
+
+wizardSettings.addEventListener('change', async (event) => {
+  const control = event.target;
+  const setting = control?.dataset?.eufySetting;
+  const device = wizardSteps[wizardIndex];
+  if (!setting || !device) return;
+  const value = control.type === 'checkbox' ? control.checked : Number(control.value);
+  const status = wizardSettings.querySelector('[data-wizard-settings-status]');
+  control.disabled = true;
+  status.textContent = messages.wizardSettingSending ?? '';
+  try {
+    const answer = await requestWithinDeadline('/device/settings/write', { serial: device.serial, setting, value }, 30000);
+    // A write that reached the camera is not yet a camera that changed, so the step says sent rather than done.
+    status.textContent = answer?.ok ? (messages.wizardSettingSent ?? '') : (messages.wizardSettingFailed ?? '');
+  } catch {
+    status.textContent = messages.wizardSettingFailed ?? '';
+  } finally {
+    control.disabled = false;
+  }
+});
+
+/** A device that is not a camera shows its product picture in the box, with nothing to play. */
+function showWizardArtwork(device) {
+  wizardLivePlay.hidden = true;
+  wizardLiveStop.hidden = true;
+  wizardLiveStatus.textContent = '';
+  wizardLiveImage.hidden = !device.artwork;
+  if (device.artwork) wizardLiveImage.src = device.artwork;
+}
+
+async function renderWizardStep() {
+  stopWizardLive();
+  wizardSettings.replaceChildren();
+  wizardControls.replaceChildren();
+  wizardEufy.hidden = true;
+  const restart = !wizardPluginUp();
+  const empty = restart || wizardSteps.length === 0;
+  wizardRestart.hidden = !restart;
+  wizardMap.hidden = empty;
+  wizardStage.hidden = empty;
+  wizardHomeKit.hidden = empty;
+  wizardFinish.textContent = restart ? (messages.wizardClose ?? '') : (messages.wizardFinish ?? '');
+  if (empty) {
+    wizardProgress.textContent = '';
+    wizardTitle.textContent = messages.wizardTitle ?? '';
+    wizardEyebrow.textContent = '';
+    return;
+  }
+  const device = wizardSteps[wizardIndex];
+  renderWizardMap(device.serial);
+  dashboardView.renderDeviceSettings(device, configuredBlock() ?? {}, messages, wizardElements);
+  wizardHomeKit.hidden = !(device.preferences?.length > 0);
+  wizardProgress.textContent = setupWizard.progress(messages.wizardProgress, wizardIndex, wizardSteps.length);
+  wizardBack.disabled = wizardIndex === 0;
+  wizardNext.disabled = wizardIndex === wizardSteps.length - 1;
+  if (device.deviceClass === 'camera') void showWizardCamera(device.serial);
+  else showWizardArtwork(device);
+  await renderWizardSettings(device.serial);
+}
+
+function goToWizardStep(index) {
+  if (index < 0 || index >= wizardSteps.length || index === wizardIndex) return;
+  wizardIndex = index;
+  void renderWizardStep();
+}
+
+menuWizard.addEventListener('click', () => openSetupWizard(menuWizard));
+wizardClose.addEventListener('click', () => closeDashboardPanel());
+wizardLiveStop.addEventListener('click', () => stopWizardLive());
+wizardLivePlay.addEventListener('click', () => {
+  const device = wizardSteps[wizardIndex];
+  if (device) startWizardLive(device.serial);
+});
+wizardBack.addEventListener('click', () => goToWizardStep(wizardIndex - 1));
+wizardNext.addEventListener('click', () => goToWizardStep(wizardIndex + 1));
+wizardMap.addEventListener('click', (event) => {
+  const serial = event.target?.closest?.('[data-serial]')?.dataset?.serial;
+  goToWizardStep(wizardSteps.findIndex((device) => device.serial === serial));
+});
+// Closing a wizard that waits for a restart keeps it due; finishing one that walked the devices does not.
+wizardFinish.addEventListener('click', () => {
+  if (wizardPluginUp()) wizardPending(false);
+  closeDashboardPanel();
+});
+window.addEventListener?.('pagehide', () => stopWizardLive());
+
 function openAuthentication() {
   diagnosticsPanel.hidden = true;
   advancedPanel.hidden = true;
+  devicePanel.hidden = true;
+  wizardPanel.hidden = true;
+  stopWizardLive();
   dashboard.hidden = true;
   setupContent.hidden = false;
   masthead.hidden = false;
@@ -878,6 +1175,7 @@ async function showDashboard() {
     warmUpCandidates = Array.isArray(snapshot.warmUpCandidates) ? snapshot.warmUpCandidates : [];
     // Kept beside the render that drew them, so opening a tile finds the device that tile stands for.
     dashboardDevices = snapshot.devices ?? [];
+    dashboardPluginState = snapshot.state;
     dashboardAttention = dashboardView.render(snapshot, configuredBlock() ?? {}, messages, dashboardElements);
     if (snapshot.state === 'authentication-required' && snapshot.devices?.length > 0 && !reauthDialog.open) {
       reauthDialog.showModal?.();
@@ -933,8 +1231,11 @@ async function handleResult(result) {
     authForm.hidden = true;
     authStatus.textContent = messages.authSuccess ?? '';
     // The devices this sign-in discovered are already recorded, so the flow ends on them rather than on a notice.
-    if (await saveAuthenticatedConfig()) await showDashboard();
-    else authStatus.textContent = messages.authSaveFailed ?? '';
+    if (await saveAuthenticatedConfig()) {
+      await showDashboard();
+      wizardPending(true);
+      await openSetupWizard();
+    } else authStatus.textContent = messages.authSaveFailed ?? '';
   } else {
     authForm.hidden = false;
     authStatus.textContent = messages[AUTH_OUTCOMES[result.status] ?? 'authFailed'] ?? '';
@@ -1053,5 +1354,6 @@ homebridge.addEventListener('ready', async () => {
   trustedDeviceInput.value = configured?.trustedDeviceName ?? 'Homebridge Eufy';
   if (configured) {
     await showDashboard();
+    if (wizardPending() && wizardPluginUp()) await openSetupWizard();
   }
 });

@@ -168,13 +168,15 @@ export interface RuntimeChannelStatus {
  * unknown rather than switched off, and publishing unknown as off would withdraw a working camera. The serial
  * is the key an observation is attached by, and every serial already reaches a consumer in the published
  * inventory. `battery` is a percentage, present only where the device reports one, which is the same evidence
- * that proves it runs on a battery at all.
+ * that proves it runs on a battery at all. `station` is the serial of the HomeBase the device hangs off, absent for
+ * a device that is its own station.
  */
 export interface RuntimeChannelDevice {
   serial: string;
   availability?: 'available' | 'unavailable';
   enabled?: boolean;
   battery?: number;
+  station?: string;
 }
 
 /**
@@ -341,6 +343,7 @@ export function answeredDevice(device: RuntimeChannelDevice): RuntimeChannelDevi
     ...(device.availability === undefined ? {} : { availability: device.availability }),
     ...(device.enabled === undefined ? {} : { enabled: device.enabled }),
     ...(device.battery === undefined ? {} : { battery: device.battery }),
+    ...(device.station === undefined ? {} : { station: device.station }),
   };
 }
 
@@ -450,7 +453,8 @@ export function areRuntimeChannelDevices(value: unknown): value is RuntimeChanne
           candidate.availability === 'available' ||
           candidate.availability === 'unavailable') &&
         (candidate.enabled === undefined || typeof candidate.enabled === 'boolean') &&
-        (candidate.battery === undefined || isBatteryLevel(candidate.battery))
+        (candidate.battery === undefined || isBatteryLevel(candidate.battery)) &&
+        (candidate.station === undefined || isSerial(candidate.station))
       );
     })
   );
