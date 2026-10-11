@@ -807,28 +807,6 @@ dashboardView.bindPreferences(dashboardElements, configuredBlock, updateConfig, 
   openDashboardPanel(devicePanel, trigger);
 });
 
-// A fresh still waits on the camera, so the button stays disabled until it is answered either way.
-deviceSettingsControls.addEventListener('click', async (event) => {
-  const button = event.target.closest?.('[data-device-preview]');
-  if (!button) return;
-  const panel = button.closest('.device-preview');
-  const status = panel.querySelector('[data-device-preview-status]');
-  const image = panel.querySelector('[data-device-preview-image]');
-  button.disabled = true;
-  status.textContent = messages.devicePreviewTaking ?? '';
-  try {
-    const answer = await requestWithinDeadline('/device/preview', { serial: button.dataset.serial }, 30000);
-    if (!answer?.image) throw new Error('no preview');
-    image.src = `data:image/jpeg;base64,${answer.image}`;
-    image.hidden = false;
-    status.textContent = '';
-  } catch {
-    status.textContent = messages.devicePreviewFailed ?? '';
-  } finally {
-    button.disabled = false;
-  }
-});
-
 function openAuthentication() {
   diagnosticsPanel.hidden = true;
   advancedPanel.hidden = true;

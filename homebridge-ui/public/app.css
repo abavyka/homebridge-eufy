@@ -2171,9 +2171,3 @@ input:focus-visible {
 .shell[data-theme='dark'] .eufy-logo .logo-dark {
   display: block;
 }
-
-.device-preview img {
-  display: block;
-  width: 100%;
-  border-radius: 8px;
-}

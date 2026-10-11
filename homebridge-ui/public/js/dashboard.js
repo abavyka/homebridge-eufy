@@ -454,11 +454,7 @@
       device.deviceClass === 'camera' && (device.representation ?? []).includes('arming.security-system')
         ? `<p class="preference-note">${escapeHtml(messages.cameraOwnArming)}</p>`
         : '';
-    const preview =
-      device.deviceClass === 'camera'
-        ? `<div class="device-preview"><button type="button" data-device-preview data-serial="${escapeHtml(device.serial)}">${escapeHtml(messages.devicePreviewAction)}</button><p class="preference-note" data-device-preview-status role="status"></p><img data-device-preview-image alt="${escapeHtml(messages.devicePreviewAlt)}" hidden></div>`
-        : '';
-    elements.deviceSettingsControls.innerHTML = `${preview}${representationLine(device, messages)}${ownArming}${controls}`;
+    elements.deviceSettingsControls.innerHTML = `${representationLine(device, messages)}${ownArming}${controls}`;
   }
 
   /**
