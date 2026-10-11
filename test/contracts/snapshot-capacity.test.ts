@@ -52,20 +52,6 @@ describe('snapshot acquisition under a declared ceiling', () => {
     expect(source.snapshotLive).toHaveBeenCalledOnce();
   });
 
-  /** A preview is a fresh still or nothing: the retained image never stands in for one the host had no room for. */
-  it('refuses a preview it has no room for rather than answering with the retained image', async () => {
-    const budget = new DeclaredMediaSessionBudget(1);
-    const acquisition = new SnapshotAcquisition(retainedImages([[SERIAL, jpeg('retained')]]), budget);
-    const source = camera('fresh');
-    const held = budget.claim();
-
-    await expect(acquisition.preview(scope(), source)).rejects.toThrow();
-    expect(source.snapshotLive).not.toHaveBeenCalled();
-
-    held!.release();
-    await expect(acquisition.preview(scope(), source)).resolves.toEqual(jpeg('fresh'));
-  });
-
   it('names the ceiling as the reason a camera with nothing retained went unanswered', async () => {
     const budget = new DeclaredMediaSessionBudget(1);
     const acquisition = new SnapshotAcquisition(retainedImages([]), budget);

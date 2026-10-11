@@ -297,6 +297,8 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     RuntimeRestartChannel &
     RuntimeDeviceSettingsChannel;
   private readonly images: PersistedLastSuccessfulImages;
+  /** The one live preview this page is watching, so starting another or leaving the step stops it. */
+  private live?: AbortController;
   private readonly diagnostics: GuidedDiagnostics;
   private startPending = false;
   private flowGeneration = 0;
@@ -342,9 +344,23 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     this.onRequest('/device/settings/write', async (payload) => ({
       ok: await this.runtimeChannel.writeDeviceSetting(parseDeviceSettingWriteRequest(payload)),
     }));
-    this.onRequest('/device/preview', async (payload) => ({
-      image: (await this.runtimeChannel.previewDevice(parseDeviceSettingsRequest(payload))) ?? null,
-    }));
+    this.onRequest('/device/live/start', (payload) => {
+      const serial = parseDeviceSettingsRequest(payload);
+      this.live?.abort();
+      const live = new AbortController();
+      this.live = live;
+      void this.runtimeChannel
+        .liveDevice(serial, (image) => this.pushEvent('device-live', { serial, image }), live.signal)
+        .finally(() => {
+          if (!live.signal.aborted) this.pushEvent('device-live-end', { serial });
+        });
+      return { started: true };
+    });
+    this.onRequest('/device/live/stop', () => {
+      this.live?.abort();
+      this.live = undefined;
+      return { stopped: true };
+    });
     this.onRequest('/diagnostics/status', () => this.diagnostics.status());
     this.onRequest('/diagnostics/authorize', async (payload) => {
       const authorization = parseDiagnosticsAuthorization(payload);

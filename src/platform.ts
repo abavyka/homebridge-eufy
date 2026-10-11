@@ -21,6 +21,7 @@ import type { AdaptationDiagnostics } from './media/contracts.js';
 import { FfmpegLiveMedia, resolveFfmpegIdentity, SMALL_VIDEO_PACKET_SIZE } from './media/live-stream.js';
 import { FfmpegRecordingMedia } from './media/recording.js';
 import { PersistedLastSuccessfulImages } from './media/last-successful-image.js';
+import { startLivePreview } from './media/live-preview.js';
 import { SnapshotAcquisition } from './media/snapshot.js';
 import { DeclaredMediaSessionBudget } from './media/session-budget.js';
 import { StationLiveSessions } from './media/station-live-sessions.js';
@@ -113,17 +114,19 @@ export function createEufyPlatform(
         storageRoot,
         shutdownTimeoutMs,
         conditions: () => diagnostics.current(),
-        preview: (device) => {
+        livePreview: (device, onPicture, onEnd) => {
           const camera = device.camera?.();
-          if (!camera?.snapshotLive) {
-            return Promise.reject(new Error('camera live snapshot is unavailable'));
-          }
-          const scope = {
-            identity: {},
-            serial: device.sn,
-            ...(device.stationSn ? { stationSn: device.stationSn } : {}),
-          };
-          return snapshotMedia.preview(scope, { snapshotLive: camera.snapshotLive.bind(camera) });
+          const ffmpegPath = configuredConfig.ffmpegPath;
+          if (!ffmpegPath || typeof camera?.live !== 'function') return undefined;
+          const live = camera.live.bind(camera);
+          const claim = mediaBudget.claim();
+          if (!claim) return undefined;
+          const releaseStation = stationLiveSessions.hold(device.stationSn, device.sn, 'live');
+          return startLivePreview(ffmpegPath, { live }, onPicture, () => {
+            claim.release();
+            releaseStation();
+            onEnd();
+          });
         },
       });
       this.runtime.subscribeState((state) => diagnostics.reportRuntimeState(state));
