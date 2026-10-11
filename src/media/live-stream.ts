@@ -790,7 +790,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
             sink.on('error', () => failTalkback('device-audio-failed'));
             if (handle.codec === 'aac-eld') {
               const reader = new FlvAacReader();
-              child.eld.on('data', (eldChunk: Buffer) => writeReturnFrames(child, reader, eldChunk));
+              child.eld.on('data', (eldChunk: Buffer) => writeReturnFrames(child, reader, sink, eldChunk));
               child.stdout.resume();
               transport.onTalkbackOutcome?.({ outcome: 'talking' });
               return;
@@ -824,14 +824,10 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
      * bounded pacing queue and at most the rest of the one read that was in hand. A write that fails or
      * ends the talkback stops the loop.
      */
-    const writeReturnFrames = (child: ReturnAudioProcess, reader: FlvAacReader, chunk: Buffer): void => {
-      const sink = talkbackSink;
-      if (stopped || talkbackEnded || !sink) {
-        return;
-      }
+    const writeReturnFrames = (child: ReturnAudioProcess, reader: FlvAacReader, sink: Writable, chunk: Buffer): void => {
       try {
         for (const data of reader.push(chunk)) {
-          if (stopped || talkbackEnded || talkbackSink !== sink) {
+          if (stopped || talkbackEnded) {
             return;
           }
           if (!sink.write(data) && !child.eld.isPaused()) {
@@ -873,28 +869,19 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         const stderr = new AdaptationStderr();
         let producedOutput = false;
         child.stderr.on('data', (chunk: Buffer) => stderr.observe(chunk));
-        child.stdin.on('error', () => {
+        const failInput = (): void => {
           if (!stopped && !talkbackEnded && !stoppingProcesses.has(child)) {
             reportAdaptation('return-audio', 'input-failed', stderr);
             failTalkback('adaptation-failed');
           }
-        });
+        };
+        child.stdin.on('error', failInput);
         child.stdout.on('data', (chunk: Buffer) => {
           producedOutput = true;
           writeReturnAudio(camera, child, chunk);
         });
-        child.stdout.on('error', () => {
-          if (!stopped && !talkbackEnded && !stoppingProcesses.has(child)) {
-            reportAdaptation('return-audio', 'input-failed', stderr);
-            failTalkback('adaptation-failed');
-          }
-        });
-        child.eld.on('error', () => {
-          if (!stopped && !talkbackEnded && !stoppingProcesses.has(child)) {
-            reportAdaptation('return-audio', 'input-failed', stderr);
-            failTalkback('adaptation-failed');
-          }
-        });
+        child.stdout.on('error', failInput);
+        child.eld.on('error', failInput);
         child.on('error', () => {
           if (!stoppingProcesses.has(child)) {
             reportAdaptation('return-audio', producedOutput ? 'exited-while-streaming' : 'spawn-failed', stderr);
@@ -1192,12 +1179,11 @@ class FlvAacReader {
     const bytes = this.held.length ? Buffer.concat([this.held, chunk]) : chunk;
     let at = 0;
     if (!this.headerSkipped) {
-      // FFmpeg's flv muxer opens with the 9-byte file header and the 4-byte PreviousTagSize0.
-      if (bytes.length < 13) {
+      if (bytes.length < FLV_FILE_HEADER.length) {
         this.held = Buffer.from(bytes);
         return [];
       }
-      at = 13;
+      at = FLV_FILE_HEADER.length;
       this.headerSkipped = true;
     }
     const units: Buffer[] = [];

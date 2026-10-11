@@ -2268,8 +2268,8 @@ describe('isolated return-audio adaptation', () => {
    * says so on the pipe rather than in an exit status. It is reported in its own right, because the exit that
    * follows is the one this session asked for and carries no cause of its own.
    */
-  it('reports a return-audio adaptation that stops accepting media, on either of its pipes', async () => {
-    for (const pipe of ['stdin', 'stdout'] as const) {
+  it('reports a return-audio adaptation that stops accepting media, on any of its pipes', async () => {
+    for (const pipe of ['stdin', 'stdout', 'eld'] as const) {
       const session = await talkbackSession(vi.fn(async () => new SyntheticTalkback()));
       session.stream.video(KEYFRAME);
       session.returned[0]!.stderr.write('Error during demuxing: Broken pipe\n');
