@@ -14,6 +14,7 @@ import {
   RUNTIME_CHANNEL_RESPONSE_TIMEOUT_MS,
   RUNTIME_CHANNEL_STAND_DOWN_TIMEOUT_MS,
   RUNTIME_CHANNEL_WRITE_TIMEOUT_MS,
+  RUNTIME_DEVICE_PREVIEW_PATH,
   RUNTIME_DEVICE_SETTING_WRITE_PATH,
   RUNTIME_DEVICE_SETTINGS_PATH,
   RUNTIME_DEVICES_PATH,
@@ -109,6 +110,8 @@ export interface RuntimeRestartChannel {
 export interface RuntimeDeviceSettingsChannel {
   readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined>;
   writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean>;
+  /** A fresh live still of one camera as base64 JPEG, or nothing where none could be taken. */
+  previewDevice(serial: string): Promise<string | undefined>;
 }
 
 interface RuntimeChannelClientOptions {
@@ -170,6 +173,14 @@ export class RuntimeChannelClient
       ),
     );
     return accepted === true;
+  }
+
+  async previewDevice(serial: string): Promise<string | undefined> {
+    return this.over(undefined, (connection) =>
+      this.requested(connection, RUNTIME_DEVICE_PREVIEW_PATH, { serial }, this.writeTimeoutMs, (response) =>
+        response.ok && typeof response.data === 'string' && response.data.length > 0 ? response.data : undefined,
+      ),
+    );
   }
 
   async read(): Promise<RuntimeChannelReading | undefined> {

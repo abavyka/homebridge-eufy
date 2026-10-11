@@ -113,6 +113,18 @@ export function createEufyPlatform(
         storageRoot,
         shutdownTimeoutMs,
         conditions: () => diagnostics.current(),
+        preview: (device) => {
+          const camera = device.camera?.();
+          if (!camera?.snapshotLive) {
+            return Promise.reject(new Error('camera live snapshot is unavailable'));
+          }
+          const scope = {
+            identity: {},
+            serial: device.sn,
+            ...(device.stationSn ? { stationSn: device.stationSn } : {}),
+          };
+          return snapshotMedia.preview(scope, { snapshotLive: camera.snapshotLive.bind(camera) });
+        },
       });
       this.runtime.subscribeState((state) => diagnostics.reportRuntimeState(state));
       if (storageRoot) {

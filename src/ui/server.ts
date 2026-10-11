@@ -342,6 +342,9 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     this.onRequest('/device/settings/write', async (payload) => ({
       ok: await this.runtimeChannel.writeDeviceSetting(parseDeviceSettingWriteRequest(payload)),
     }));
+    this.onRequest('/device/preview', async (payload) => ({
+      image: (await this.runtimeChannel.previewDevice(parseDeviceSettingsRequest(payload))) ?? null,
+    }));
     this.onRequest('/diagnostics/status', () => this.diagnostics.status());
     this.onRequest('/diagnostics/authorize', async (payload) => {
       const authorization = parseDiagnosticsAuthorization(payload);

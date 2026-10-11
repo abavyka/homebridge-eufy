@@ -72,6 +72,9 @@ export const RUNTIME_DEVICE_SETTINGS_PATH = '/runtime/device-settings';
 /** The path one eufy setting of one device is written on. */
 export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write';
 
+/** The path a fresh live still of one camera is taken on, answered as base64 JPEG. */
+export const RUNTIME_DEVICE_PREVIEW_PATH = '/runtime/device-preview';
+
 /**
  * The eufy settings this channel reads and writes, and nothing else.
  *
@@ -81,6 +84,9 @@ export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write
 export const DEVICE_SETTINGS = ['motionDetection', 'nightVision', 'notificationStyle'] as const;
 
 export type DeviceSettingName = (typeof DEVICE_SETTINGS)[number];
+
+/** Room a preview answer leaves in its frame for the envelope around the image. */
+const PREVIEW_FRAME_MARGIN = 1024;
 
 /** The longest serial a settings request may name, which bounds what an inbound body can carry. */
 const MAX_SERIAL_LENGTH = 64;
@@ -197,7 +203,7 @@ export interface RuntimeChannelRequest {
 export interface RuntimeChannelResponse {
   id: number;
   ok: boolean;
-  data?: RuntimeChannelStatus | RuntimeChannelDevice[] | RuntimeChannelDeviceSetting[];
+  data?: RuntimeChannelStatus | RuntimeChannelDevice[] | RuntimeChannelDeviceSetting[] | string;
 }
 
 /** The address the runtime channel is served and consumed on, and what its location implies. */
@@ -480,6 +486,7 @@ interface RuntimeChannelServerOptions {
   restart?: () => boolean;
   deviceSettings?: (query: RuntimeChannelDeviceSettingsQuery) => RuntimeChannelDeviceSetting[] | undefined;
   writeDeviceSetting?: (write: RuntimeChannelDeviceSettingWrite) => Promise<boolean>;
+  devicePreview?: (query: RuntimeChannelDeviceSettingsQuery) => Promise<Buffer> | undefined;
 }
 
 /**
@@ -506,6 +513,7 @@ export class RuntimeChannelServer {
   private readonly restart?: () => boolean;
   private readonly deviceSettings?: RuntimeChannelServerOptions['deviceSettings'];
   private readonly writeDeviceSetting?: RuntimeChannelServerOptions['writeDeviceSetting'];
+  private readonly devicePreview?: RuntimeChannelServerOptions['devicePreview'];
 
   constructor(
     private readonly endpoint: RuntimeChannelEndpoint,
@@ -523,6 +531,7 @@ export class RuntimeChannelServer {
     this.restart = options.restart;
     this.deviceSettings = options.deviceSettings;
     this.writeDeviceSetting = options.writeDeviceSetting;
+    this.devicePreview = options.devicePreview;
   }
 
   /** Binds the endpoint, reporting whether it bound. An unbound channel is an absent one. */
@@ -574,8 +583,8 @@ export class RuntimeChannelServer {
    * A provider reaches into the runtime's own registry and manifest evidence, or reads a file and writes a
    * record, any of which may throw. This runs inside a socket's data listener, where a thrown error is an
    * uncaught exception in the process that owns the Eufy session, so no request on this channel may be able to
-   * end it. A refusal is a state every consumer already handles. A settings write is the one answer that waits
-   * on the device, and a rejected write is refused the same way.
+   * end it. A refusal is a state every consumer already handles. A settings write and a preview are the answers
+   * that wait on the device, and a rejected one is refused the same way.
    */
   private answered(request: RuntimeChannelRequest): RuntimeChannelResponse | Promise<RuntimeChannelResponse> {
     try {
@@ -593,6 +602,22 @@ export class RuntimeChannelServer {
         }
         return this.writeDeviceSetting(write).then(
           (ok) => ({ id: request.id, ok }),
+          () => ({ id: request.id, ok: false }),
+        );
+      }
+      if (request.path === RUNTIME_DEVICE_PREVIEW_PATH && this.devicePreview) {
+        const query = noticedDeviceSettingsQuery(request.body);
+        const preview = query ? this.devicePreview(query) : undefined;
+        if (!preview) {
+          return { id: request.id, ok: false };
+        }
+        return preview.then(
+          (jpeg) => {
+            const data = jpeg.toString('base64');
+            return data.length > this.frameBytes - PREVIEW_FRAME_MARGIN
+              ? { id: request.id, ok: false }
+              : { id: request.id, ok: true, data };
+          },
           () => ({ id: request.id, ok: false }),
         );
       }

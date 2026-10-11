@@ -252,6 +252,16 @@ export class SnapshotAcquisition implements SnapshotMediaAdapter {
     }
   }
 
+  /**
+   * One fresh live still, retained like any other, under the same ceiling and station hold as a `Live` request.
+   *
+   * Nothing stands in for it: no retained, offline or placeholder image, so a still that could not be taken
+   * rejects.
+   */
+  preview(scope: SnapshotAcquisitionScope, source: SnapshotMediaSource): Promise<Buffer> {
+    return this.acquired(scope, source, 'Live', {});
+  }
+
   discard(serial: string): void {
     this.retentionGenerations.set(serial, this.retentionGeneration(serial) + 1);
     this.failedLive.delete(serial);

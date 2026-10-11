@@ -108,6 +108,8 @@ export interface RuntimeOwnerOptions {
   channel?: RuntimeChannelHost;
   /** The diagnostic conditions active now, which the live channel answers with the status. */
   conditions?: () => ActiveCondition[];
+  /** A fresh live still of one camera, which the live channel answers a preview with. */
+  preview?: (device: Device) => Promise<Buffer>;
 }
 
 export interface RuntimeRegistryView {
@@ -157,6 +159,7 @@ export class RuntimeOwner {
   private readonly storageRoot?: string;
   private readonly persistence?: RuntimePersistence;
   private readonly conditions?: () => ActiveCondition[];
+  private readonly preview?: (device: Device) => Promise<Buffer>;
   private readonly shutdownTimeoutMs: number;
   private readonly rearmWindowMs: number;
   private readonly rearmIntervalMs: number;
@@ -182,6 +185,7 @@ export class RuntimeOwner {
     this.statusPublisher = options.statusPublisher;
     this.channel = options.channel;
     this.conditions = options.conditions;
+    this.preview = options.preview;
     if (this.storageRoot) {
       this.persistence = options.persistence ?? new AccountSessionPersistence(join(this.storageRoot, 'accounts'));
     } else {
@@ -641,6 +645,10 @@ export class RuntimeOwner {
           writeDeviceSetting: async (write) => {
             const device = this.registryView?.registry.get(write.serial);
             return device ? writeDeviceSetting(device, write) : false;
+          },
+          devicePreview: ({ serial }) => {
+            const device = this.registryView?.registry.get(serial);
+            return device && this.preview ? this.preview(device) : undefined;
           },
         },
       );

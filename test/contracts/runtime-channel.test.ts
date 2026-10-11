@@ -335,6 +335,32 @@ describe('runtime channel round trip', () => {
   });
 
   /**
+   * A camera's fresh still crosses the channel as base64 JPEG. A still that could not be taken, one too large for a
+   * frame, a device the runtime does not hold, and an older runtime that does not serve the path all read as none.
+   */
+  it('answers a fresh camera still, or none', async () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const client = await serve(() => status(), {
+      frameBytes: 4096,
+      devicePreview: ({ serial }) => {
+        if (serial === 'T8000P0000000000') return Promise.resolve(jpeg);
+        if (serial === 'T8000P0000000001') return Promise.reject(new Error('synthetic no keyframe'));
+        if (serial === 'T8000P0000000002') return Promise.resolve(Buffer.alloc(4096));
+        return undefined;
+      },
+    });
+
+    await expect(client.previewDevice('T8000P0000000000')).resolves.toBe(jpeg.toString('base64'));
+    await expect(client.previewDevice('T8000P0000000001')).resolves.toBeUndefined();
+    await expect(client.previewDevice('T8000P0000000002')).resolves.toBeUndefined();
+    await expect(client.previewDevice('T8000P0000000003')).resolves.toBeUndefined();
+
+    const older = await serve(() => status());
+
+    await expect(older.previewDevice('T8000P0000000000')).resolves.toBeUndefined();
+  });
+
+  /**
    * The channel answers the live runtime state, which is the one thing the persisted tracker can be a
    * heartbeat behind, so a read that reaches the runtime is distinguishable from one that read the file.
    */
