@@ -550,7 +550,11 @@ async function renderUi(
       },
       updatePluginConfig: async (config: Array<Record<string, unknown>>) => {
         if (configWritesFail) throw new Error('synthetic update failure');
-        updatedConfig = config;
+        const held = updatedConfig ?? pluginConfig;
+        const merged = config.map((block, index) =>
+          held[index]?.platform === block.platform ? Object.assign({ ...held[index] }, block) : block,
+        );
+        updatedConfig = JSON.parse(JSON.stringify(merged));
         return config;
       },
       userCurrentLightingMode: async () => 'dark',
