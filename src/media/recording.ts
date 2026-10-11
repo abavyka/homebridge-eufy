@@ -538,6 +538,9 @@ class Fmp4OutputReader {
  *
  * `superfast` is the cheapest `libx264` preset that retains CABAC, and therefore the cheapest one whose
  * coded stream can carry a negotiated Main or High profile.
+ *
+ * A recorded audio track is decoded by `libfdk_aac`: the source's fragments carry AAC-LC or AAC-ELD, and FFmpeg's
+ * built-in AAC decoder fails on AAC-ELD in the config the SDK declares, which `libfdk_aac` decodes.
  */
 function recordingArguments(negotiated: NegotiatedRecording): string[] {
   const frameInterval = 1 / Math.max(negotiated.fps, 1);
@@ -551,6 +554,7 @@ function recordingArguments(negotiated: NegotiatedRecording): string[] {
     '-nostats',
     '-f',
     'mp4',
+    ...(negotiated.audio ? ['-c:a', 'libfdk_aac'] : []),
     '-i',
     'pipe:0',
     '-map',
