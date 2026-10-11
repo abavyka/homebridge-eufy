@@ -7,7 +7,7 @@ import { MOTION_EVENT_REQUIREMENTS } from '../homekit/adapters/motion.js';
 import { DOORBELL_PRESS_EVENT } from '../homekit/adapters/doorbell.js';
 import type { RuntimeTrackerRecord } from '../runtime/tracker.js';
 import type { RuntimeChannelDevice } from '../runtime/channel.js';
-import { PLUGIN_VERSION, type ActiveCondition } from '../diagnostics.js';
+import { PLUGIN_BUILD, PLUGIN_VERSION, type ActiveCondition } from '../diagnostics.js';
 import type { RuntimeChannelReading, RuntimeStatusChannel } from './runtime-channel-client.js';
 
 const DASHBOARD_FRESH_THRESHOLD_MS = 90_000;
@@ -251,7 +251,10 @@ function stateOf(evidence: Pick<RuntimeTrackerRecord, 'state' | 'status' | 'comp
  * action rather than a maybe.
  */
 function superseded(live: RuntimeChannelReading): { runningVersion?: string; restartable?: boolean } {
-  if (live.version === undefined || live.version === PLUGIN_VERSION) {
+  const agrees =
+    live.version === undefined ||
+    (live.version === PLUGIN_VERSION && (live.build === undefined || live.build === PLUGIN_BUILD));
+  if (agrees) {
     return {};
   }
   return { runningVersion: live.version, restartable: live.restartable === true };
