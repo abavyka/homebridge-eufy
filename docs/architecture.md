@@ -748,13 +748,12 @@ neither. Only raw A-law has to be told the 16 kHz mono assumption every Eufy cli
 demuxer the same thing fails the process before it reads a byte.
 
 A source whose access units carry no framing of their own, which the SDK reports for AAC-ELD, arrives with the
-decoder config the SDK attaches to each frame. ADTS cannot describe ELD, and fed as ADTS those access units
-failed before the first frame: in one measured minute 1944 audio adaptations started and none produced output.
-Such a stream is therefore written to its adaptation as FLV, which carries the AudioSpecificConfig once in a
+decoder config the SDK attaches to each frame. ADTS cannot describe ELD, so such a stream is written to its
+adaptation as FLV, which carries the AudioSpecificConfig once in a
 sequence-header tag, frames each access unit in a tag of its own, and is read by FFmpeg from a pipe. The tags
 carry no timestamps, so the input is read on the arrival clock like every other. It is decoded by
-`libfdk_aac`, because FFmpeg's built-in AAC decoder does not implement the LD-SBR in the config the SDK
-declares for ELD. The input format is chosen by whether a frame carries a config, never by the codec name, so
+`libfdk_aac`, because FFmpeg's built-in AAC decoder fails on AAC-ELD in the config the SDK declares. The input
+format is chosen by whether a frame carries a config, never by the codec name, so
 the choice depends on no fact about ELD.
 
 Return audio is the exception, and deliberately so. It carries an RTP timeline the controller supplied and
@@ -949,8 +948,8 @@ profile, level, geometry, frame rate and keyframe cadence unchanged, so no negot
 be satisfied without recoding.
 
 A recorded audio track is decoded by `libfdk_aac` whatever its profile. The fragments carry AAC-LC or AAC-ELD,
-the plugin cannot know which before FFmpeg reads the init segment, and FFmpeg's built-in decoder cannot read
-the LD-SBR in the config the SDK declares for ELD. The output encoder already requires a `libfdk_aac` build.
+the plugin cannot know which before FFmpeg reads the init segment, and FFmpeg's built-in decoder fails on
+AAC-ELD in the config the SDK declares. The output encoder already requires a `libfdk_aac` build.
 
 Fragmentation is driven only by keyframes. A HomeKit fragment must open on one and must not be longer than
 the selected fragment length, and a duration-driven cut is free to land between keyframes, so a

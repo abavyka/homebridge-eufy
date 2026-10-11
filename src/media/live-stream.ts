@@ -1129,8 +1129,8 @@ function flvAacTag(packetType: 0 | 1, payload: Buffer): Buffer {
  * The FFmpeg input format and input options for one source audio stream.
  *
  * A stream whose decoder config travels apart from its access units is framed as FLV, which states that config
- * once ahead of them, and is decoded by `libfdk_aac`, which reads AAC-LC, HE-AAC, AAC-LD and AAC-ELD including its
- * LD-SBR. Outside such a config the SDK reports no sample rate or channel count, because a station sends neither;
+ * once ahead of them, and is decoded by `libfdk_aac`, which decodes AAC-ELD in the config the SDK declares. Outside
+ * such a config the SDK reports no sample rate or channel count, because a station sends neither;
  * 16 kHz mono is the assumption every Eufy client applies. Raw A-law carries nothing at all and must be told that
  * assumption, while an ADTS input states its own rate in every frame header and rejects the option outright, which
  * fails the process before it reads a byte.
