@@ -945,8 +945,10 @@ homebridge.addEventListener('device-live-end', (event) => endWizardLive(event.da
 function eufySettingControl(setting) {
   const label = messages[EUFY_SETTING_LABELS[setting.setting]] ?? setting.setting;
   const wrapper = document.createElement('label');
-  wrapper.className = 'preference';
+  wrapper.className = typeof setting.value === 'boolean' ? 'toggle' : 'wizard-setting';
+  wrapper.dataset.setting = '';
   const name = document.createElement('span');
+  name.className = 'setting-label';
   name.textContent = label;
   let control;
   if (typeof setting.value === 'boolean') {

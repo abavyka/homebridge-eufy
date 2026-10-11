@@ -2341,3 +2341,14 @@ input:focus-visible {
     animation-duration: 2.4s;
   }
 }
+
+.wizard-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wizard-setting select {
+  min-width: 160px;
+}
