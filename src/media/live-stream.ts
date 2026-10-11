@@ -661,7 +661,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         );
         audioProcess = child;
         if (frame.config) {
-          writeToAdaptation(child.stdin, flvAacHeader(frame.config));
+          writeToAdaptation(child.stdin, Buffer.concat([FLV_FILE_HEADER, flvAacTag(0, frame.config)]));
         }
         adaptationDiagnostics?.report({ role: 'live-audio', event: 'started' });
         const stderr = new AdaptationStderr();
@@ -719,7 +719,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         writeAudio(frame);
         return;
       }
-      writeToAdaptation(audioProcess.stdin, frame.config ? flvAacAccessUnit(frame.data) : frame.data);
+      writeToAdaptation(audioProcess.stdin, frame.config ? flvAacTag(1, frame.data) : frame.data);
     };
 
     /**
@@ -1107,48 +1107,22 @@ function videoArguments(
 /** FLV signature, version 1, the audio-only flag, header size 9, and the zero size of the tag before the first. */
 const FLV_FILE_HEADER = Buffer.from([0x46, 0x4c, 0x56, 0x01, 0x04, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00]);
 
-/** Tag type of an FLV audio tag. */
-const AUDIO_TAG = 8;
-
 /**
- * Sound flags of an AAC tag: format 10, with the rate, size, and type fields set to the 44 kHz, 16-bit, stereo values
- * the format fixes. An AAC decoder takes the real parameters from the AudioSpecificConfig, never from these fields.
+ * One FLV audio tag of an AAC elementary stream and its trailing size. The body is the AAC sound flags 0xaf, the AAC
+ * packet type (0 for the AudioSpecificConfig, 1 for one access unit) and `payload` unchanged. The sound flags fix the
+ * 44 kHz, 16-bit, stereo values the format requires; an AAC decoder takes the real parameters from the
+ * AudioSpecificConfig. The timestamp, its extension and the stream id are zero: the stream carries no timeline of its
+ * own, because its reader stamps every tag with the instant it arrived.
  */
-const AAC_SOUND_FLAGS = 0xaf;
-
-/** AAC packet type of the tag that carries the AudioSpecificConfig. */
-const AAC_SEQUENCE_HEADER = 0;
-
-/** AAC packet type of a tag that carries one access unit. */
-const AAC_RAW = 1;
-
-/**
- * One audio tag around `body` and its trailing size. The timestamp, its extension and the stream id are zero: the
- * stream carries no timeline of its own, because its reader stamps every tag with the instant it arrived.
- */
-function audioTag(body: Buffer): Buffer {
-  const header = Buffer.alloc(11);
-  header[0] = AUDIO_TAG;
-  header.writeUIntBE(body.length, 1, 3);
+function flvAacTag(packetType: 0 | 1, payload: Buffer): Buffer {
+  const header = Buffer.alloc(13);
+  header[0] = 8;
+  header.writeUIntBE(payload.length + 2, 1, 3);
+  header[11] = 0xaf;
+  header[12] = packetType;
   const previousTagSize = Buffer.alloc(4);
-  previousTagSize.writeUInt32BE(header.length + body.length);
-  return Buffer.concat([header, body, previousTagSize]);
-}
-
-/**
- * The opening of an FLV stream of one AAC elementary stream: the file header and the AAC sequence-header tag that
- * carries `config`, the AudioSpecificConfig every following access unit is decoded with.
- */
-function flvAacHeader(config: Buffer): Buffer {
-  return Buffer.concat([
-    FLV_FILE_HEADER,
-    audioTag(Buffer.concat([Buffer.from([AAC_SOUND_FLAGS, AAC_SEQUENCE_HEADER]), config])),
-  ]);
-}
-
-/** One AAC raw tag that carries `accessUnit` unchanged. */
-function flvAacAccessUnit(accessUnit: Buffer): Buffer {
-  return audioTag(Buffer.concat([Buffer.from([AAC_SOUND_FLAGS, AAC_RAW]), accessUnit]));
+  previousTagSize.writeUInt32BE(13 + payload.length);
+  return Buffer.concat([header, payload, previousTagSize]);
 }
 
 /**
