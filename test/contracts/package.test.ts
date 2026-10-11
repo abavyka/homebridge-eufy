@@ -236,6 +236,7 @@ async function renderUi(
   const wizardLiveStatus = { textContent: '' };
   const wizardLivePlay = interactiveElement({ hidden: false });
   const wizardLiveStop = interactiveElement({ hidden: true });
+  const wizardLiveSpinner = { hidden: true };
   const wizardFinish = interactiveElement({ textContent: '' });
   const wizardMap = interactiveElement({
     hidden: false,
@@ -448,6 +449,7 @@ async function renderUi(
           '[data-wizard-live-status]': wizardLiveStatus,
           '[data-wizard-live-play]': wizardLivePlay,
           '[data-wizard-live-stop]': wizardLiveStop,
+          '[data-wizard-live-spinner]': wizardLiveSpinner,
           '[data-wizard-finish]': wizardFinish,
           '[data-wizard-map]': wizardMap,
           '[data-wizard-stage]': wizardStage,
@@ -651,6 +653,7 @@ async function renderUi(
     wizardLiveStatus,
     wizardLivePlay,
     wizardLiveStop,
+    wizardLiveSpinner,
     wizardFinish,
     wizardMap,
     wizardEufy,
@@ -2834,8 +2837,11 @@ describe('setup wizard', () => {
 
     await ui.wizardLivePlay.dispatch('click');
     expect(ui.requests).toContainEqual({ path: '/device/live/start', body: { serial: camera.serial } });
-    expect(ui.wizardLiveStop.hidden, 'a stream offers its stop').toBe(false);
+    expect(ui.wizardLiveSpinner.hidden, 'a stream on its way spins').toBe(false);
+    expect(ui.wizardLiveStop.hidden, 'and has nothing to stop yet').toBe(true);
     ui.pushListeners['device-live']?.({ data: { serial: camera.serial, image: 'bGl2ZQ==' } });
+    expect(ui.wizardLiveSpinner.hidden).toBe(true);
+    expect(ui.wizardLiveStop.hidden, 'video offers its stop').toBe(false);
     expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,bGl2ZQ==');
     await ui.wizardLiveStop.dispatch('click');
     expect(ui.requests.filter(({ path }) => path === '/device/live/stop')).toHaveLength(1);

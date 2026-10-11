@@ -98,6 +98,7 @@ const wizardLiveImage = document.querySelector('[data-wizard-live-image]');
 const wizardLiveStatus = document.querySelector('[data-wizard-live-status]');
 const wizardLivePlay = document.querySelector('[data-wizard-live-play]');
 const wizardLiveStop = document.querySelector('[data-wizard-live-stop]');
+const wizardLiveSpinner = document.querySelector('[data-wizard-live-spinner]');
 const wizardSettings = document.querySelector('[data-wizard-settings]');
 const wizardControls = document.querySelector('[data-wizard-controls]');
 const wizardBack = document.querySelector('[data-wizard-back]');
@@ -883,6 +884,7 @@ function stopWizardLive() {
   wizardLivePictures = 0;
   wizardLivePlay.hidden = false;
   wizardLiveStop.hidden = true;
+  wizardLiveSpinner.hidden = true;
   wizardLiveStatus.textContent = '';
   void requestWithinDeadline('/device/live/stop', {}, 12000).catch(() => undefined);
 }
@@ -911,7 +913,7 @@ function startWizardLive(serial) {
   stopWizardLive();
   wizardLiveSerial = serial;
   wizardLivePlay.hidden = true;
-  wizardLiveStop.hidden = false;
+  wizardLiveSpinner.hidden = false;
   wizardLiveStatus.textContent = messages.wizardLiveStarting ?? '';
   void requestWithinDeadline('/device/live/start', { serial }, 12000).catch(() => endWizardLive(serial));
 }
@@ -924,11 +926,15 @@ function endWizardLive(serial) {
   wizardLiveStatus.textContent = watched ? '' : (messages.wizardLiveFailed ?? '');
   wizardLivePlay.hidden = false;
   wizardLiveStop.hidden = true;
+  wizardLiveSpinner.hidden = true;
 }
 
 homebridge.addEventListener('device-live', (event) => {
   if (!event.data || event.data.serial !== wizardLiveSerial) return;
   wizardLivePictures += 1;
+  // The stop is offered once there is video to stop; until then the spinner says it is on its way.
+  wizardLiveSpinner.hidden = true;
+  wizardLiveStop.hidden = false;
   wizardLiveImage.src = `data:image/jpeg;base64,${event.data.image}`;
   wizardLiveImage.hidden = false;
   wizardLiveStatus.textContent = '';
