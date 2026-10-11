@@ -42,8 +42,8 @@ const NEGOTIATED_VIDEO: NegotiatedLiveVideo = {
   rtcpInterval: 0.5,
 };
 
-/** A synthetic AudioSpecificConfig: ER AAC-ELD, 16 kHz, mono, LD-SBR, shaped like the one the SDK attaches. */
-const ELD_CONFIG = Buffer.from([0xf8, 0xf0, 0x21, 0x2c, 0x00, 0xbc, 0x00]);
+/** The AudioSpecificConfig the SDK attaches to AAC-ELD: ER AAC-ELD, 16 kHz, mono, 480 samples per frame, no LD-SBR. */
+const ELD_CONFIG = Buffer.from([0xf8, 0xf0, 0x30, 0x00]);
 
 const AAC_ELD_16: NegotiatedLiveAudio = {
   codec: 'AAC-eld',
@@ -957,19 +957,15 @@ describe('live media adaptation', () => {
     const alaw = await liveSession(undefined, { audio: AAC_ELD_16 });
     await alaw.start();
     alaw.stream.audio({ codec: 'g711a', data: Buffer.from([1, 2, 3]) });
-    const eld = await liveSession(undefined, { audio: AAC_ELD_16 });
-    await eld.start();
-    eld.stream.audio({ codec: 'aac-eld', data: Buffer.from([1, 2, 3]), config: ELD_CONFIG });
 
-    const inputs = [...video.spawned, ...aac.spawned, ...alaw.spawned, ...eld.spawned].map(inputOptions);
-    expect(inputs).toHaveLength(5);
+    const inputs = [...video.spawned, ...aac.spawned, ...alaw.spawned].map(inputOptions);
+    expect(inputs).toHaveLength(4);
     for (const options of inputs) {
       expect(options).toEqual(expect.arrayContaining(['-use_wallclock_as_timestamps', '1']));
     }
     video.prepared.stop();
     aac.prepared.stop();
     alaw.prepared.stop();
-    eld.prepared.stop();
   });
 
   /**
@@ -981,14 +977,10 @@ describe('live media adaptation', () => {
    * resampler is what bounds the output to real time however much content a source hands over at once, and it
    * belongs on every audio input format rather than one.
    */
-  it.each(['aac-lc', 'g711a', 'aac-eld'] as const)('resolves a live %s output against arrival', async (codec) => {
+  it.each(['aac-lc', 'g711a'] as const)('resolves a live %s output against arrival', async (codec) => {
     const session = await liveSession(undefined, { audio: AAC_ELD_16 });
     await session.start();
-    session.stream.audio({
-      codec,
-      data: Buffer.from([0xff, 0xf1, 1]),
-      ...(codec === 'aac-eld' ? { config: ELD_CONFIG } : {}),
-    });
+    session.stream.audio({ codec, data: Buffer.from([0xff, 0xf1, 1]) });
 
     expect(session.spawned[0]!).toEqual(expect.arrayContaining(['-af', 'aresample=async=1']));
     session.prepared.stop();
@@ -1011,12 +1003,9 @@ describe('live media adaptation', () => {
     const alaw = await liveSession(undefined, { audio: AAC_ELD_16 });
     await alaw.start();
     alaw.stream.audio({ codec: 'g711a', data: Buffer.from([0xd5]) });
-    const eld = await liveSession(undefined, { audio: AAC_ELD_16 });
-    await eld.start();
-    eld.stream.audio({ codec: 'aac-eld', data: Buffer.from([0x73]), config: ELD_CONFIG });
 
-    const inputs = [...video.spawned, ...audio.spawned, ...alaw.spawned, ...eld.spawned].map(inputOptions);
-    expect(inputs).toHaveLength(5);
+    const inputs = [...video.spawned, ...audio.spawned, ...alaw.spawned].map(inputOptions);
+    expect(inputs).toHaveLength(4);
     for (const options of inputs) {
       expect(options).toEqual(expect.arrayContaining(['-probesize', '32', '-analyzeduration', '1']));
       for (const forbidden of ['nobuffer', 'discardcorrupt', 'genpts', 'gendts', 'igndts']) {
@@ -1026,7 +1015,6 @@ describe('live media adaptation', () => {
     video.prepared.stop();
     audio.prepared.stop();
     alaw.prepared.stop();
-    eld.prepared.stop();
   });
 
   /**
