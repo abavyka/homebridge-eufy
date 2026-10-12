@@ -794,7 +794,10 @@ function configSignature(config) {
 async function updateConfig(block) {
   const nextConfig = pluginConfig.map((candidate) => (candidate.platform === 'HomebridgeEufy' ? block : candidate));
   if (!nextConfig.includes(block)) nextConfig.push(block);
-  await homebridge.updatePluginConfig(nextConfig);
+  // Homebridge UI merges each block into the one it holds, so a key the block dropped is sent as undefined to clear it.
+  const cleared = Object.keys(configuredBlock() ?? {}).filter((key) => !(key in block));
+  const sent = { ...Object.fromEntries(cleared.map((key) => [key, undefined])), ...block };
+  await homebridge.updatePluginConfig(nextConfig.map((candidate) => (candidate === block ? sent : candidate)));
   pluginConfig = nextConfig;
   if (configSignature(nextConfig) === savedConfigSignature) homebridge.disableSaveButton();
   else homebridge.enableSaveButton();
