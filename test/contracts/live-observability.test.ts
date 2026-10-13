@@ -159,7 +159,7 @@ describe('a session that reached the negotiated output', () => {
     expect(records(debug)[0]).toMatchObject({ scope: 'homekit', event: 'live-session-streaming' });
   });
 
-  it('records return audio reaching the device, so a working talkback shows in a live-media session', () => {
+  it('records a talkback that started, so a working one is told apart from one never opened', () => {
     const debug = vi.fn();
     reportHomeKitEvent({ debug }, { adapter: 'camera.streaming', event: 'live-talkback-started' });
     expect(records(debug)[0]).toMatchObject({ scope: 'homekit', event: 'live-talkback-started' });
@@ -571,6 +571,12 @@ describe('a live record that reached the support archive', () => {
   it('keeps a session that reached the negotiated output', async () => {
     await expect(retained({ adapter: 'camera.streaming', event: 'live-session-streaming' })).resolves.toEqual([
       { scope: 'homekit', level: 'debug', adapter: 'camera.streaming', event: 'live-session-streaming' },
+    ]);
+  });
+
+  it('keeps a talkback that started', async () => {
+    await expect(retained({ adapter: 'camera.streaming', event: 'live-talkback-started' })).resolves.toEqual([
+      { scope: 'homekit', level: 'debug', adapter: 'camera.streaming', event: 'live-talkback-started' },
     ]);
   });
 

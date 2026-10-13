@@ -706,14 +706,16 @@ function recordingReporter(context: AdapterAttachmentContext): (outcome: Recordi
   return (outcome) => condition(outcome.outcome === 'recording' ? undefined : outcome.reason);
 }
 
-/** Latches an isolated return-audio failure and clears it when later talkback starts producing audio. */
+/** Latches an isolated return-audio failure, and clears it and traces the start when later talkback starts. */
 function talkbackReporter(context: AdapterAttachmentContext): (outcome: TalkbackOutcome) => void {
   const condition = cameraCondition(context, CAMERA_TALKBACK_FAILED_CONDITION, 'talkback');
   return (outcome) => {
     if (outcome.outcome === 'talking') {
+      condition();
       context.trace?.({ event: 'live-talkback-started' });
+      return;
     }
-    condition(outcome.outcome === 'talking' ? undefined : outcome.reason);
+    condition(outcome.reason);
   };
 }
 

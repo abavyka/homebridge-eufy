@@ -110,7 +110,6 @@ export type HomeKitEventTrace = { adapter: string; serial?: string } & (
    * a port and a key all travel in the same neighbourhood.
    */
   | { event: 'live-session-streaming' }
-  /** Return audio reached the device. A failure is the talkback condition, so only the start needs a record. */
   | { event: 'live-talkback-started' }
   /**
    * A started request reached neither a streaming outcome nor a failure.
