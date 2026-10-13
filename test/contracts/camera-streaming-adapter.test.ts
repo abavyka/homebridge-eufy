@@ -3982,7 +3982,9 @@ describe('camera recording bundle adapter', () => {
 
   it('latches a talkback failure independently and clears it when later return audio starts', async () => {
     let transport: LiveMediaTransport | undefined;
+    const trace = vi.fn();
     const { controller, diagnose, observed } = attachRecordingCamera('Synthetic failed talkback camera', {
+      trace,
       device: {
         sn: SNAPSHOT_SERIAL,
         camera: () => ({ live: vi.fn(), talkback: vi.fn(async () => ({}) as never), recordFragments: vi.fn() }),
@@ -4006,8 +4008,11 @@ describe('camera recording bundle adapter', () => {
       reason: 'device-audio-failed',
     });
 
+    expect(trace).not.toHaveBeenCalledWith({ event: 'live-talkback-started' });
+
     transport!.onTalkbackOutcome?.({ outcome: 'talking' });
     expect(observed).toHaveBeenCalledWith('camera-talkback-failed');
+    expect(trace).toHaveBeenCalledWith({ event: 'live-talkback-started' });
   });
 
   it('rebuilds the camera controller when reconciliation changes its audio or talkback advertisement', () => {

@@ -95,6 +95,8 @@ export type AdapterLiveSessionTrace =
   | { event: 'live-session-released'; release: LiveSessionRelease }
   /** The first adapted output reached the negotiated destination, which is when a picture can appear. */
   | { event: 'live-session-streaming' }
+  /** The device accepted talkback and return audio is being handed to it. A failure is the talkback condition. */
+  | { event: 'live-talkback-started' }
   /**
    * A started request reached neither a streaming outcome nor a failure.
    *
