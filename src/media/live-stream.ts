@@ -825,22 +825,18 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
      * ends the talkback stops the loop.
      */
     const writeReturnFrames = (child: ReturnAudioProcess, reader: FlvAacReader, sink: Writable, chunk: Buffer): void => {
-      try {
-        for (const data of reader.push(chunk)) {
-          if (stopped || talkbackEnded) {
-            return;
-          }
-          if (!sink.write(data) && !child.eld.isPaused()) {
-            child.eld.pause();
-            sink.once('drain', () => {
-              if (!stopped && !talkbackEnded) {
-                child.eld.resume();
-              }
-            });
-          }
+      for (const data of reader.push(chunk)) {
+        if (stopped || talkbackEnded) {
+          return;
         }
-      } catch {
-        failTalkback('device-audio-failed');
+        if (!sink.write(data) && !child.eld.isPaused()) {
+          child.eld.pause();
+          sink.once('drain', () => {
+            if (!stopped && !talkbackEnded) {
+              child.eld.resume();
+            }
+          });
+        }
       }
     };
 
