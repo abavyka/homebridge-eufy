@@ -110,6 +110,8 @@ export type HomeKitEventTrace = { adapter: string; serial?: string } & (
    * a port and a key all travel in the same neighbourhood.
    */
   | { event: 'live-session-streaming' }
+  /** Return audio reached the device. A failure is the talkback condition, so only the start needs a record. */
+  | { event: 'live-talkback-started' }
   /**
    * A started request reached neither a streaming outcome nor a failure.
    *
@@ -188,6 +190,7 @@ const HOMEKIT_LIVE_REQUEST_EVENTS = new Set([
   'live-session-failed',
   'live-session-released',
   'live-session-streaming',
+  'live-talkback-started',
 ]);
 
 /**
@@ -3100,7 +3103,7 @@ function sanitizeLiveSessionTrace(value: Record<string, unknown>): Record<string
       ...accessory,
     };
   }
-  if (value.event === 'live-session-streaming') {
+  if (value.event === 'live-session-streaming' || value.event === 'live-talkback-started') {
     return { adapter: value.adapter, event: value.event, ...accessory };
   }
   if (value.event === 'live-request-refused') {

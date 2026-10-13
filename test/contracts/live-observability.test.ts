@@ -159,6 +159,12 @@ describe('a session that reached the negotiated output', () => {
     expect(records(debug)[0]).toMatchObject({ scope: 'homekit', event: 'live-session-streaming' });
   });
 
+  it('records return audio reaching the device, so a working talkback shows in a live-media session', () => {
+    const debug = vi.fn();
+    reportHomeKitEvent({ debug }, { adapter: 'camera.streaming', event: 'live-talkback-started' });
+    expect(records(debug)[0]).toMatchObject({ scope: 'homekit', event: 'live-talkback-started' });
+  });
+
   it('carries nothing beyond the fact itself', () => {
     const debug = vi.fn();
     reportHomeKitEvent({ debug }, {

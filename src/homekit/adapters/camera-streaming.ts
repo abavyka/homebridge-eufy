@@ -709,7 +709,12 @@ function recordingReporter(context: AdapterAttachmentContext): (outcome: Recordi
 /** Latches an isolated return-audio failure and clears it when later talkback starts producing audio. */
 function talkbackReporter(context: AdapterAttachmentContext): (outcome: TalkbackOutcome) => void {
   const condition = cameraCondition(context, CAMERA_TALKBACK_FAILED_CONDITION, 'talkback');
-  return (outcome) => condition(outcome.outcome === 'talking' ? undefined : outcome.reason);
+  return (outcome) => {
+    if (outcome.outcome === 'talking') {
+      context.trace?.({ event: 'live-talkback-started' });
+    }
+    condition(outcome.outcome === 'talking' ? undefined : outcome.reason);
+  };
 }
 
 /** Everything one attachment supplies to the camera operating mode service it presents and operates on. */
