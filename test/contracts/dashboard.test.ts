@@ -2,7 +2,7 @@ import type { DeviceManifest } from '@mega-yfue/eufy-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { RuntimeTrackerRecord } from '../../src/runtime/tracker.js';
-import { PLUGIN_VERSION } from '../../src/diagnostics.js';
+import { PLUGIN_BUILD, PLUGIN_VERSION } from '../../src/diagnostics.js';
 import { readDashboard } from '../../src/ui/dashboard.js';
 
 function manifest(codec: DeviceManifest['codec'], capability = 'contact'): DeviceManifest {
@@ -285,7 +285,7 @@ describe('a superseded runtime', () => {
   });
 
   it('names the running build only where it differs from the installed one', async () => {
-    const reading = (version?: string, restartable?: boolean) => ({
+    const reading = (version?: string, restartable?: boolean, build?: string) => ({
       read: async () => ({
         ready: true,
         status: {
@@ -297,6 +297,7 @@ describe('a superseded runtime', () => {
         },
         ...(version === undefined ? {} : { version }),
         ...(restartable === undefined ? {} : { restartable }),
+        ...(build === undefined ? {} : { build }),
       }),
     });
 
@@ -316,6 +317,27 @@ describe('a superseded runtime', () => {
     const silent = await readDashboard({ read: async () => record() }, now, {}, reading());
 
     expect(silent.runningVersion).toBeUndefined();
+
+    const rebuilt = await readDashboard(
+      { read: async () => record() },
+      now,
+      {},
+      reading(PLUGIN_VERSION, true, `${PLUGIN_VERSION}+1`),
+    );
+
+    expect(rebuilt, 'a rebuild of the same version is still a build the runtime has not loaded').toMatchObject({
+      runningVersion: PLUGIN_VERSION,
+      restartable: true,
+    });
+
+    const same = await readDashboard(
+      { read: async () => record() },
+      now,
+      {},
+      reading(PLUGIN_VERSION, true, PLUGIN_BUILD),
+    );
+
+    expect(same.runningVersion).toBeUndefined();
   });
 });
 

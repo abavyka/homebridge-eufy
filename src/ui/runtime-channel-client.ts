@@ -55,6 +55,8 @@ export interface RuntimeChannelReading {
    * rather than as skew: an upgrade that cannot be proven is not worth interrupting anyone over.
    */
   version?: string;
+  /** Which build of that version it loaded, when it says, so a rebuild without a version change still shows. */
+  build?: string;
   /** Whether that runtime would be replaced rather than merely stopped, when it says. */
   restartable?: boolean;
 }
@@ -457,6 +459,7 @@ export class RuntimeChannelClient
           status: answeredStatusValue,
           ...(answeredDevices === undefined ? {} : { devices: answeredDevices }),
           ...(greeting.version === undefined ? {} : { version: greeting.version }),
+          ...(greeting.build === undefined ? {} : { build: greeting.build }),
           ...(greeting.restartable === undefined ? {} : { restartable: greeting.restartable }),
         });
       };

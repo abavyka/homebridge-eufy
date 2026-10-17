@@ -172,7 +172,7 @@ export interface RuntimeChannelDevice {
  * What one connection is told before it may ask anything.
  *
  * `version` is the plugin build the answering process loaded, which a consumer compares with its own to learn
- * that this runtime is running superseded code. `restartable` states whether ending this process would replace it
+ * that this runtime is running superseded code, and `build` tells two builds of one version apart. `restartable` states whether ending this process would replace it
  * rather than take Homebridge down with it. Both sit here rather than in an answer so that a client refusing this
  * protocol still learns them.
  */
@@ -182,6 +182,7 @@ export interface RuntimeChannelGreeting {
   state: RuntimeState;
   generation?: string;
   version?: string;
+  build?: string;
   restartable?: boolean;
 }
 
@@ -476,6 +477,7 @@ interface RuntimeChannelServerOptions {
   authorization?: (notice: RuntimeChannelAuthorization) => boolean;
   standDown?: () => boolean;
   version?: string;
+  build?: string;
   restartable?: boolean;
   restart?: () => boolean;
   deviceSettings?: (query: RuntimeChannelDeviceSettingsQuery) => RuntimeChannelDeviceSetting[] | undefined;
@@ -502,6 +504,7 @@ export class RuntimeChannelServer {
   private readonly authorization?: (notice: RuntimeChannelAuthorization) => boolean;
   private readonly standDown?: () => boolean;
   private readonly version?: string;
+  private readonly build?: string;
   private readonly restartable?: boolean;
   private readonly restart?: () => boolean;
   private readonly deviceSettings?: RuntimeChannelServerOptions['deviceSettings'];
@@ -519,6 +522,7 @@ export class RuntimeChannelServer {
     this.authorization = options.authorization;
     this.standDown = options.standDown;
     this.version = options.version;
+    this.build = options.build;
     this.restartable = options.restartable;
     this.restart = options.restart;
     this.deviceSettings = options.deviceSettings;
@@ -640,6 +644,7 @@ export class RuntimeChannelServer {
       state: current.state,
       ...(current.generation === undefined ? {} : { generation: current.generation }),
       ...(this.version === undefined ? {} : { version: this.version }),
+      ...(this.build === undefined ? {} : { build: this.build }),
       ...(this.restartable === undefined ? {} : { restartable: this.restartable }),
     };
     connection.write(`${JSON.stringify(greeting)}\n`);

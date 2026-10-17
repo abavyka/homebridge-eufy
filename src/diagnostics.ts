@@ -1,5 +1,5 @@
 import { constants, createCipheriv, createHash, publicEncrypt, randomBytes, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { appendFile, chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -257,6 +257,14 @@ const DEBUG_AUTHORIZATION_MS = 72 * 60 * 60 * 1_000;
  * rather than joining a fixed number of segments because the plugin's own module is a directory deeper once
  * built, and an SDK resolved through a link answers from wherever the link points.
  */
+function loadedBuild(module: string): string {
+  try {
+    return `${PLUGIN_VERSION}+${Math.trunc(statSync(module).mtimeMs)}`;
+  } catch {
+    return PLUGIN_VERSION;
+  }
+}
+
 function loadedVersion(from: string | undefined): string {
   if (from === undefined) {
     return 'unknown';
@@ -298,6 +306,14 @@ function loadedSdkEntry(): string | undefined {
  * between them: after one lands, the runtime keeps answering with the build it started on until it is replaced.
  */
 export const PLUGIN_VERSION = loadedVersion(fileURLToPath(import.meta.url));
+
+/**
+ * Which build of {@link PLUGIN_VERSION} this process loaded: the version and the time this module was written.
+ *
+ * Every build rewrites the module, so two builds of one version differ here while a published package, whose
+ * files all carry one fixed time, differs only by its version. An unreadable module degrades to the version alone.
+ */
+export const PLUGIN_BUILD = loadedBuild(fileURLToPath(import.meta.url));
 const SDK_VERSION = loadedVersion(loadedSdkEntry());
 const gzip = promisify(gzipCallback);
 const gunzip = promisify(gunzipCallback);

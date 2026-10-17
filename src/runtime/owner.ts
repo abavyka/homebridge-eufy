@@ -15,6 +15,7 @@ import type { EufyConfig } from '../configuration.js';
 import {
   armDiagnosticsAuthorization,
   type ActiveCondition,
+  PLUGIN_BUILD,
   PLUGIN_VERSION,
   reportRuntimeNotice,
   type PlatformLogger,
@@ -632,6 +633,7 @@ export class RuntimeOwner {
           authorization: (notice) => armDiagnosticsAuthorization(this.log, storageRoot, notice.supportCaseId),
           standDown: () => this.standDown(),
           version: PLUGIN_VERSION,
+          build: PLUGIN_BUILD,
           restartable: isChildBridgeTitle(process.title),
           restart: () => this.endForReplacement(),
           deviceSettings: ({ serial }) => {
