@@ -1076,9 +1076,10 @@ function outputArguments(
  * inside its ceiling still transmits over it whenever the transport is unreserved, which is what the measured
  * overshoot was; the evidence is in docs/architecture.md.
  *
- * `ultrafast` drops CABAC and the 8x8 transform, so the coded stream is Constrained Baseline under
- * any negotiated profile, which every negotiated decoder accepts as a subset. `-profile:v` and `-level:v` remain
- * the ceilings the encoder is held to.
+ * `superfast` is the cheapest `libx264` preset that retains CABAC, and therefore the cheapest one whose
+ * coded stream can carry a negotiated Main or High profile; `ultrafast` drops CABAC and codes Constrained
+ * Baseline whatever `-profile:v` asks for. `-tune zerolatency` pins the same `sliced_threads`, `bframes`
+ * and `rc_lookahead` at either preset, so this costs computation rather than frame delay.
  *
  * `copy` sends an H.264 source as the camera coded it, with no encoder in the process. Nothing above then holds:
  * the geometry, frame rate, bit rate, profile and keyframe interval are the camera's own, not the negotiated
@@ -1116,7 +1117,7 @@ function videoArguments(
     '-c:v',
     'libx264',
     '-preset',
-    'ultrafast',
+    'superfast',
     '-tune',
     'zerolatency',
     '-profile:v',

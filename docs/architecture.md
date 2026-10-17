@@ -790,13 +790,15 @@ already matches the negotiated one, which no camera guarantees.
 
 ### Live adaptation encoder
 
-Live adaptation always encodes with `libx264` at `-preset ultrafast -tune zerolatency`. Hardware
+Live adaptation always encodes with `libx264` at `-preset superfast -tune zerolatency`. Hardware
 encoding is excluded rather than deferred.
 
-The coded stream stays within the negotiated profile, level, geometry and frame rate and under the
-negotiated bit rate. `ultrafast` drops CABAC and the 8x8 transform, so every selection is coded as
-Constrained Baseline, a strict subset any Baseline, Main or High decoder accepts. It is the bitstream
-4.7.2 coded; a camera transcoded as a real High stream streamed at rate and showed no picture on iOS.
+The negotiated contract requires the coded stream to carry exactly the negotiated profile, level,
+geometry and frame rate and to stay under the negotiated bit rate. Constrained Baseline is the named
+realization of a negotiated Baseline selection: it is a strict subset that any Baseline decoder accepts,
+and the only Baseline form the encoder can produce. `superfast` is the cheapest preset that retains
+CABAC and therefore the cheapest one that can satisfy a Main or High selection; `ultrafast` cannot,
+because dropping CABAC forces the coded stream below the negotiated profile.
 
 AAC-ELD output requires an explicit global header. `libfdk_aac` picks its transport from the framing the
 output asks for and defaults to ADTS, which cannot carry AAC-ELD at all, so without that header the
