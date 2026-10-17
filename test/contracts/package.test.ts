@@ -46,6 +46,7 @@ async function renderUi(
     missingEvidence: [],
     partialExportAvailable: false,
   },
+  wizardPending = false,
 ) {
   function interactiveElement<T extends object>(state: T) {
     const listeners: Record<string, Array<(event?: { preventDefault(): void }) => void | Promise<void>>> = {};
@@ -223,6 +224,48 @@ async function renderUi(
   const deviceSettingsTitle = { textContent: '' };
   const deviceSettingsEyebrow = { textContent: '' };
   const deviceSettingsControls = interactiveElement({ innerHTML: '' });
+  const menuWizard = interactiveElement({});
+  const wizardClose = interactiveElement({ focus() {} });
+  const wizardPanel = { hidden: true, scrollIntoView() {}, querySelector: () => wizardClose };
+  const wizardProgress = { textContent: '' };
+  const wizardTitle = { textContent: '' };
+  const wizardEyebrow = { textContent: '' };
+  const wizardRestart = { hidden: true };
+  const wizardLive = { hidden: true };
+  const wizardLiveImage = { hidden: true, src: '' };
+  const wizardLiveStatus = { textContent: '' };
+  const wizardLivePlay = interactiveElement({ hidden: false });
+  const wizardLiveStop = interactiveElement({ hidden: true });
+  const wizardLiveSpinner = { hidden: true };
+  const wizardFinish = interactiveElement({ textContent: '' });
+  const wizardMap = interactiveElement({
+    hidden: false,
+    children: [] as unknown[],
+    replaceChildren(...children: unknown[]) {
+      this.children = children;
+    },
+  });
+  const wizardStage = { hidden: false };
+  const wizardHomeKit = { hidden: false };
+  const wizardEufy = { hidden: true };
+  const wizardSettingsStatus = { textContent: '' };
+  const wizardSettings = interactiveElement({
+    children: [] as unknown[],
+    replaceChildren(...children: unknown[]) {
+      this.children = children;
+    },
+    querySelector: () => wizardSettingsStatus,
+  });
+  const wizardControls = interactiveElement({
+    innerHTML: '',
+    replaceChildren() {
+      this.innerHTML = '';
+    },
+  });
+  const wizardBack = interactiveElement({ disabled: false });
+  const wizardNext = interactiveElement({ disabled: false });
+  const pushListeners: Record<string, (event: { data: unknown }) => void> = {};
+  const storage = new Map<string, string>(wizardPending ? [['homebridge-eufy.setup-wizard-pending', 'pending']] : []);
   const advancedPolling = interactiveElement({
     value: '',
     validityMessage: '',
@@ -394,6 +437,28 @@ async function renderUi(
           '[data-warm-up-add-all]': warmUpAddAll,
           '[data-warm-up-remove]': warmUpRemove,
           '[data-warm-up-remove-all]': warmUpRemoveAll,
+          '[data-menu-wizard]': menuWizard,
+          '[data-setup-wizard]': wizardPanel,
+          '[data-wizard-close]': wizardClose,
+          '[data-wizard-progress]': wizardProgress,
+          '[data-wizard-title]': wizardTitle,
+          '[data-wizard-eyebrow]': wizardEyebrow,
+          '[data-wizard-restart]': wizardRestart,
+          '[data-wizard-live]': wizardLive,
+          '[data-wizard-live-image]': wizardLiveImage,
+          '[data-wizard-live-status]': wizardLiveStatus,
+          '[data-wizard-live-play]': wizardLivePlay,
+          '[data-wizard-live-stop]': wizardLiveStop,
+          '[data-wizard-live-spinner]': wizardLiveSpinner,
+          '[data-wizard-finish]': wizardFinish,
+          '[data-wizard-map]': wizardMap,
+          '[data-wizard-stage]': wizardStage,
+          '[data-wizard-homekit]': wizardHomeKit,
+          '[data-wizard-eufy]': wizardEufy,
+          '[data-wizard-settings]': wizardSettings,
+          '[data-wizard-controls]': wizardControls,
+          '[data-wizard-back]': wizardBack,
+          '[data-wizard-next]': wizardNext,
         }[selector];
       },
       querySelectorAll(selector: string) {
@@ -430,9 +495,11 @@ async function renderUi(
     }),
     clearTimeout,
     homebridge: {
-      addEventListener(event: string, listener: () => Promise<void>) {
+      addEventListener(event: string, listener: (event: { data: unknown }) => Promise<void>) {
         if (event === 'ready') {
-          ready = listener;
+          ready = listener as () => Promise<void>;
+        } else {
+          pushListeners[event] = listener;
         }
       },
       getPluginConfig: async () => pluginConfig,
@@ -450,6 +517,16 @@ async function renderUi(
         requests.push({ path, body });
         if (path === '/auth/start') return authenticationStart;
         if (path === '/dashboard') return dashboardSnapshot;
+        if (path === '/device/image') return { image: 'c3ludGhldGlj' };
+        if (path === '/device/settings') {
+          return {
+            available: true,
+            settings: [{ setting: 'nightVision', value: 1, labels: { '0': 'Off', '1': 'Infrared' }, writable: true }],
+          };
+        }
+        if (path === '/device/settings/write') return { ok: true };
+        if (path === '/device/live/start') return { started: true };
+        if (path === '/device/live/stop') return { stopped: true };
         if (path === '/diagnostics/authorize') {
           const payload = body as { profile?: unknown };
           if (Object.keys(payload ?? {}).join(',') !== 'profile' || typeof payload.profile !== 'string') {
@@ -561,10 +638,36 @@ async function renderUi(
     },
     setTimeout,
     window: browserWindow,
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+    },
   });
 
   await ready?.();
   return {
+    menuWizard,
+    wizardPanel,
+    wizardProgress,
+    wizardTitle,
+    wizardRestart,
+    wizardLive,
+    wizardLiveImage,
+    wizardLiveStatus,
+    wizardLivePlay,
+    wizardLiveStop,
+    wizardLiveSpinner,
+    wizardFinish,
+    wizardMap,
+    wizardEufy,
+    wizardSettings,
+    wizardSettingsStatus,
+    wizardControls,
+    wizardBack,
+    wizardNext,
+    pushListeners,
+    storage,
     firstSetup,
     authForm,
     authStatus,
@@ -821,7 +924,7 @@ describe('packed plugin', () => {
         customUi?: boolean;
       };
       const document = readFileSync(join(packageDirectory, 'homebridge-ui', 'public', 'index.html'), 'utf8');
-      const script = ['dashboard.js', 'legacy-settings.js', 'profile-wizard.js', 'app.js']
+      const script = ['dashboard.js', 'legacy-settings.js', 'profile-wizard.js', 'setup-wizard.js', 'app.js']
         .map((file) => readFileSync(join(packageDirectory, 'homebridge-ui', 'public', 'js', file), 'utf8'))
         .join('\n');
       const server = readFileSync(join(packageDirectory, 'homebridge-ui', 'server.js'), 'utf8');
@@ -908,8 +1011,8 @@ describe('packed plugin', () => {
       expect(document).toContain('src="assets/icons/settings.svg"');
       expect(document).toContain('src="assets/icons/warning.svg"');
       // Three panels now: diagnostics, advanced, and one device's settings, each with the same way back.
-      expect(document.match(/class="dashboard-page-back"/g)).toHaveLength(3);
-      expect(document.match(/aria-hidden="true">←<\/span>/g)).toHaveLength(3);
+      expect(document.match(/class="dashboard-page-back"/g)).toHaveLength(4);
+      expect(document.match(/aria-hidden="true">←<\/span>/g)).toHaveLength(4);
       expect(document).toContain('data-diagnostics-handoff');
       expect(
         document.match(
@@ -1025,6 +1128,11 @@ describe('packed plugin', () => {
           'trustedDeviceLabel',
           'updatePendingAction',
           'updatePendingTitle',
+          'wizardEufyHelp',
+          'wizardEufySettings',
+          'wizardHomeKitHelp',
+          'wizardHomeKitTitle',
+          'wizardRestartSummary',
         ].sort(),
       );
       expect(translatedLabelKeys).toEqual([
@@ -1036,11 +1144,18 @@ describe('packed plugin', () => {
         'closeAdvanced',
         'closeDetails',
         'closeDiagnostics',
+        'closeWizard',
         'dashboardActionsLabel',
         'menuAdvanced',
         'menuDiagnostics',
         'menuRelogin',
+        'menuWizard',
         'setupSequenceLabel',
+        'wizardBack',
+        'wizardLivePlay',
+        'wizardLiveStop',
+        'wizardMapLabel',
+        'wizardNext',
       ]);
       /**
        * A condition the dashboard names is worded under the log keys it is reported with, and the ones the page
@@ -1083,6 +1198,20 @@ describe('packed plugin', () => {
         'captchaRetry',
         'twoFactorLabel',
         'twoFactorSent',
+        'wizardClose',
+        'wizardFinish',
+        'wizardLiveFailed',
+        'wizardLiveStarting',
+        'wizardMotionDetection',
+        'wizardMapBase',
+        'wizardMapStandalone',
+        'wizardNightVision',
+        'wizardNotificationStyle',
+        'wizardProgress',
+        'wizardSettingFailed',
+        'wizardSettingSending',
+        'wizardSettingSent',
+        'wizardTitle',
         'cameraOwnArming',
         'categoryClean',
         'categoryLife',
@@ -2586,4 +2715,186 @@ describe('packed plugin', () => {
     },
     15_000,
   );
+});
+
+describe('setup wizard', () => {
+  const repository = fileURLToPath(new URL('../..', import.meta.url));
+  const publicDirectory = join(repository, 'homebridge-ui', 'public');
+  const script = ['dashboard.js', 'legacy-settings.js', 'profile-wizard.js', 'setup-wizard.js', 'app.js']
+    .map((file) => readFileSync(join(publicDirectory, 'js', file), 'utf8'))
+    .join('\n');
+  const catalogs = Object.fromEntries(
+    ['en', 'fr'].map((language) => [
+      `i18n/${language}.json`,
+      JSON.parse(readFileSync(join(publicDirectory, 'i18n', `${language}.json`), 'utf8')) as Record<string, string>,
+    ]),
+  );
+  const en = catalogs['i18n/en.json'];
+  const block = { platform: 'HomebridgeEufy', username: 'guest@example.invalid', password: 'synthetic-password' };
+  const base = {
+    serial: 'T8010P0000000000',
+    name: 'Synthetic Base',
+    modelName: 'Synthetic HomeBase',
+    deviceClass: 'homebase',
+    category: 'security',
+    preferences: ['represented', 'armingModes'],
+    representation: ['arming.security-system'],
+    represented: true,
+  };
+  const camera = {
+    serial: 'T8000P0000000000',
+    name: 'Synthetic Camera',
+    modelName: 'Synthetic Cam',
+    deviceClass: 'camera',
+    category: 'security',
+    preferences: ['represented', 'snapshotMode'],
+    representation: ['camera.streaming'],
+    represented: true,
+    station: base.serial,
+  };
+  const standalone = { ...camera, serial: 'T8170P0000000000', name: 'Synthetic Solo', station: undefined };
+  const sensor = {
+    ...camera,
+    serial: 'T8900P0000000000',
+    name: 'Synthetic Sensor',
+    deviceClass: 'sensor',
+    artwork: 'assets/devices/T8900.png',
+  };
+  const diagnosed = { ...camera, serial: 'T8000P0000000009', diagnosticOnly: true };
+  type MapNode = { textContent?: string; children?: MapNode[]; attributes?: Record<string, string> };
+  const names = (nodes: MapNode[]): unknown =>
+    nodes.map((node) => ({
+      title: node.children?.[0]?.textContent,
+      members: node.children?.[1]?.children?.map((member) => member.textContent),
+    }));
+
+  /**
+   * A sign-in always leaves Homebridge to restart, so the wizard says so and remembers it is due rather than
+   * walking devices no running plugin can show.
+   */
+  it('asks for a restart after a sign-in and remembers it is due', async () => {
+    const ui = await renderUi(
+      script,
+      [],
+      catalogs,
+      'en',
+      [],
+      { status: 'restart-required' },
+      { state: 'restart-required', devices: [camera] },
+    );
+    ui.acknowledgement.checked = true;
+    await ui.acknowledgement.dispatch('change');
+    await ui.continueButton.dispatch('click');
+    ui.account.value = 'guest@example.invalid';
+    ui.password.value = 'synthetic-password';
+    await ui.authForm.dispatch('submit');
+
+    expect(ui.wizardPanel.hidden).toBe(false);
+    expect(ui.wizardRestart.hidden).toBe(false);
+    expect(ui.wizardMap.hidden).toBe(true);
+    expect(ui.wizardFinish.textContent).toBe(en.wizardClose);
+    expect(ui.storage.get('homebridge-eufy.setup-wizard-pending')).toBe('pending');
+    await ui.wizardFinish.dispatch('click');
+    expect(ui.wizardPanel.hidden, 'closing the restart notice keeps the wizard due').toBe(true);
+    expect(ui.storage.get('homebridge-eufy.setup-wizard-pending')).toBe('pending');
+  });
+
+  /**
+   * Once the plugin runs, a due wizard opens by itself on a map of the household: each HomeBase with what hangs
+   * off it, and the standalone cameras apart. A camera shows its last picture behind the play button, streams
+   * only when asked and stops on demand, and offers its eufy settings in their own card.
+   */
+  it('opens on its own once the plugin runs and walks each device from the map', async () => {
+    const ui = await renderUi(
+      script,
+      [block],
+      catalogs,
+      'en',
+      [],
+      undefined,
+      { state: 'ready', devices: [base, camera, diagnosed, standalone, sensor] },
+      undefined,
+      true,
+    );
+
+    expect(ui.wizardPanel.hidden).toBe(false);
+    expect(ui.wizardRestart.hidden).toBe(true);
+    expect(ui.wizardProgress.textContent).toBe('Device 1 of 4');
+    expect(names(ui.wizardMap.children as MapNode[])).toEqual([
+      { title: 'Synthetic Base', members: ['Synthetic Camera', 'Synthetic Sensor'] },
+      { title: en.wizardMapStandalone, members: ['Synthetic Solo'] },
+    ]);
+    expect(ui.wizardBack.disabled).toBe(true);
+    expect(ui.wizardTitle.textContent).toBe('Synthetic Base');
+    expect(ui.wizardLivePlay.hidden, 'a HomeBase has nothing to play').toBe(true);
+
+    await ui.wizardNext.dispatch('click');
+    await vi.waitFor(() => expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,c3ludGhldGlj'));
+    expect(ui.wizardTitle.textContent).toBe('Synthetic Camera');
+    expect(ui.wizardLivePlay.hidden).toBe(false);
+    expect(
+      ui.requests.map(({ path }) => path),
+      'nothing streams until play is pressed',
+    ).not.toContain('/device/live/start');
+    expect(ui.wizardControls.innerHTML).toContain('data-preference="represented"');
+    await vi.waitFor(() => expect(ui.wizardEufy.hidden).toBe(false));
+
+    await ui.wizardLivePlay.dispatch('click');
+    expect(ui.requests).toContainEqual({ path: '/device/live/start', body: { serial: camera.serial } });
+    expect(ui.wizardLiveSpinner.hidden, 'a stream on its way spins').toBe(false);
+    expect(ui.wizardLiveStop.hidden, 'and has nothing to stop yet').toBe(true);
+    ui.pushListeners['device-live']?.({ data: { serial: camera.serial, image: 'bGl2ZQ==' } });
+    expect(ui.wizardLiveSpinner.hidden).toBe(true);
+    expect(ui.wizardLiveStop.hidden, 'video offers its stop').toBe(false);
+    expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,bGl2ZQ==');
+    await ui.wizardLiveStop.dispatch('click');
+    expect(ui.requests.filter(({ path }) => path === '/device/live/stop')).toHaveLength(1);
+    expect(ui.wizardLivePlay.hidden).toBe(false);
+    expect(ui.wizardLiveStop.hidden).toBe(true);
+
+    await ui.wizardLivePlay.dispatch('click');
+    ui.pushListeners['device-live-end']?.({ data: { serial: camera.serial } });
+    expect(ui.wizardLiveStatus.textContent, 'a stream that sent nothing says so').toBe(en.wizardLiveFailed);
+    expect(ui.wizardLivePlay.hidden, 'and can be played again').toBe(false);
+
+    const select = (ui.wizardSettings.children[0] as { children: Array<Record<string, unknown>> }).children[1];
+    select.value = '0';
+    await ui.wizardSettings.dispatch('change', { target: select } as never);
+    expect(ui.requests).toContainEqual({
+      path: '/device/settings/write',
+      body: { serial: camera.serial, setting: 'nightVision', value: 0 },
+    });
+    expect(ui.wizardSettingsStatus.textContent).toBe(en.wizardSettingSent);
+
+    await ui.wizardLivePlay.dispatch('click');
+    await ui.wizardMap.dispatch('click', {
+      target: { closest: () => ({ dataset: { serial: standalone.serial } }) },
+    } as never);
+    expect(
+      ui.requests.filter(({ path }) => path === '/device/live/stop'),
+      'leaving a camera stops its stream',
+    ).toHaveLength(2);
+    expect(ui.wizardTitle.textContent).toBe('Synthetic Solo');
+    expect(ui.wizardNext.disabled).toBe(true);
+
+    await ui.wizardBack.dispatch('click');
+    expect(ui.wizardTitle.textContent).toBe('Synthetic Sensor');
+    expect(ui.wizardLivePlay.hidden).toBe(true);
+    expect(ui.wizardLiveImage.src, 'a device that is not a camera shows its product picture').toBe(sensor.artwork);
+
+    await ui.wizardFinish.dispatch('click');
+    expect(ui.wizardPanel.hidden).toBe(true);
+    expect(ui.storage.has('homebridge-eufy.setup-wizard-pending'), 'finishing clears the marker').toBe(false);
+  });
+
+  /** The wizard's button reopens it at any time, without a sign-in. */
+  it('reopens from its button', async () => {
+    const ui = await renderUi(script, [block], catalogs, 'en', [], undefined, { state: 'ready', devices: [sensor] });
+    expect(ui.wizardPanel.hidden).toBe(true);
+
+    await ui.menuWizard.dispatch('click');
+
+    expect(ui.wizardPanel.hidden).toBe(false);
+    expect(ui.wizardProgress.textContent).toBe('Device 1 of 1');
+  });
 });

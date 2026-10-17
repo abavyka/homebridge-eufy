@@ -346,7 +346,7 @@
       },
       true,
     );
-    (elements.deviceSettingsControls ?? elements.groups).addEventListener('change', async (event) => {
+    const onPreferenceChange = async (event) => {
       const control = event.target;
       const serial = control?.dataset?.serial;
       const key = control?.dataset?.preference;
@@ -395,7 +395,10 @@
       } catch {
         elements.summary.textContent = getMessages().preferenceSaveFailed;
       }
-    });
+    };
+    for (const container of elements.preferenceContainers ?? [elements.deviceSettingsControls ?? elements.groups]) {
+      container.addEventListener('change', onPreferenceChange);
+    }
   }
 
   /**

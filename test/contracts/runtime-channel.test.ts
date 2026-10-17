@@ -75,7 +75,7 @@ function trackerRecord(update: Partial<RuntimeTrackerRecord> = {}): RuntimeTrack
 }
 
 const ANSWERED_FIELDS = ['complete', 'generation', 'state', 'status', 'updatedAt'];
-const ANSWERED_DEVICE_FIELDS = ['availability', 'battery', 'enabled', 'serial'];
+const ANSWERED_DEVICE_FIELDS = ['availability', 'battery', 'enabled', 'serial', 'station'];
 
 const SUBMITTED_PASSWORD = 'synthetic-password-must-never-be-answered';
 const SUBMITTED_ANSWER = 'synthetic-challenge-answer-must-never-be-answered';
@@ -1066,7 +1066,13 @@ describe('runtime channel device observations', () => {
   it('answers a closed device field set and nothing beside it', async () => {
     const client = await serveDevices(() => [
       Object.assign(
-        { serial: 'synthetic-camera', availability: 'available' as const, enabled: true, battery: 42 },
+        {
+          serial: 'synthetic-camera',
+          availability: 'available' as const,
+          enabled: true,
+          battery: 42,
+          station: 'synthetic-base',
+        },
         { address: '10.0.0.9', userId: 'synthetic-user', authToken: SUBMITTED_PASSWORD },
       ),
     ]);
