@@ -1436,7 +1436,7 @@ describe('live media adaptation', () => {
         '-c:v',
         'libx264',
         '-preset',
-        'ultrafast',
+        'superfast',
         '-tune',
         'zerolatency',
         '-profile:v',
