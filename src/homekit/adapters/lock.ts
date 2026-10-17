@@ -449,6 +449,13 @@ function attachLock(context: AdapterAttachmentContext): AttachedAdapter | undefi
   const target = service.getCharacteristic(hap.Characteristic.LockTargetState);
   const announces = context.evidence.has(LOCK_STATE_EVENT_ROW);
   const reports = context.evidence.has(LOCKED_READ_ROW);
+  /**
+   * The flat property name this device announces its reported state under, as its own manifest pairs it.
+   *
+   * A device whose manifest names no property for the read is left unfollowed rather than matched on the
+   * accessor, because an accessor equal to some other capability's property name would move this bolt.
+   */
+  const lockedProperty = context.evidence.get(LOCKED_READ_ROW)?.property;
   const diagnoseState = (active: boolean, reason: LockDiagnostic['reason']): void => {
     context.diagnose({ code: 'unusable-lock-announcement', capability: 'lock', member: 'state', active, reason });
     if (!active) {
@@ -597,8 +604,22 @@ function attachLock(context: AdapterAttachmentContext): AttachedAdapter | undefi
      * firmware update — is not this member reporting at all, so it records no trace and leaves the state
      * alone. Anything else in the range is unread: the state is withdrawn rather than kept, because the
      * announcement was about this lock and this build cannot say what it meant.
+     *
+     * The SDK's property announcement of the reported state is presented the same way, recorded as `poll`: it
+     * is how a lock that moved without a push, such as an auto-lock, is learned.
      */
     event(event: AnyDeviceEvent): AdapterEventTrace | undefined {
+      if (event.eventName === 'propertyChanged') {
+        if (lockedProperty === undefined || event.property !== lockedProperty) {
+          return undefined;
+        }
+        if (typeof event.value !== 'boolean') {
+          const observation = event.value === undefined ? 'missing' : 'malformed';
+          return { event: LOCK_STATE_TRACE, observation, announcedBy: 'poll' };
+        }
+        present(event.value ? 'secured' : 'unsecured');
+        return { event: LOCK_STATE_TRACE, observation: 'valid', announcedBy: 'poll' };
+      }
       if (event.eventName !== 'lockState' || !announces) {
         return undefined;
       }

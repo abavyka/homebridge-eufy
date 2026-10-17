@@ -367,6 +367,28 @@ describe('T8531 lock capability adapter', () => {
     await expect(current.handleGetRequest()).resolves.toBe(Characteristic.LockCurrentState.UNSECURED);
   });
 
+  /** A lock that relocks without a push is followed from the SDK's property announcement of its reported state. */
+  it('follows an observed locked state that no announcement carried', () => {
+    const target = accessory();
+    const evidence = new Map<string, { id: string; kind: string; property?: string }>(LOCK_EVIDENCE);
+    evidence.set(LOCKED_READ_ROW, { id: LOCKED_READ_ROW, kind: 'read', property: 'locked' });
+    const adapter = attach(lockDevice({ ...workingLock(), locked: false }), target, vi.fn(), evidence)!;
+    const service = target.getServiceById(Service.LockMechanism, LOCK_ADAPTER_KEY)!;
+    expect(service.getCharacteristic(Characteristic.LockCurrentState).value).toBe(
+      Characteristic.LockCurrentState.UNSECURED,
+    );
+
+    expect(
+      adapter.event?.({ eventName: 'propertyChanged', property: 'locked', value: true } as AnyDeviceEvent),
+    ).toEqual({ event: 'lock-state', observation: 'valid', announcedBy: 'poll' });
+    expect(service.getCharacteristic(Characteristic.LockCurrentState).value).toBe(
+      Characteristic.LockCurrentState.SECURED,
+    );
+    expect(service.getCharacteristic(Characteristic.LockTargetState).value).toBe(
+      Characteristic.LockTargetState.SECURED,
+    );
+  });
+
   it('ignores an event that is not this lock announcing its state', () => {
     const target = accessory();
     const adapter = attach(lockDevice(workingLock()), target)!;
