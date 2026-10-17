@@ -335,6 +335,55 @@ describe('runtime channel round trip', () => {
   });
 
   /**
+   * A camera's live preview crosses the channel as base64 JPEG pictures under one request until it ends. Aborting
+   * closes the connection, which stops the preview in the runtime. A picture too large for a frame is dropped, and
+   * a device without a preview, or an older runtime without the path, settles at once with nothing.
+   */
+  it('streams a live preview until it ends or the reader stops it', async () => {
+    const stops: string[] = [];
+    let finish: (() => void) | undefined;
+    const client = await serve(() => status(), {
+      frameBytes: 4096,
+      deviceLive: ({ serial }, onPicture, onEnd) => {
+        if (serial === 'T8000P0000000003') return undefined;
+        setImmediate(() => {
+          onPicture(Buffer.from([0xff, 0xd8, 0x01, 0xff, 0xd9]));
+          onPicture(Buffer.alloc(4096));
+          onPicture(Buffer.from([0xff, 0xd8, 0x02, 0xff, 0xd9]));
+          if (serial === 'T8000P0000000000') onEnd();
+        });
+        finish = () => onPicture(Buffer.from([0xff, 0xd8, 0x03, 0xff, 0xd9]));
+        return () => stops.push(serial);
+      },
+    });
+
+    const ended: string[] = [];
+    await client.liveDevice('T8000P0000000000', (jpeg) => ended.push(jpeg), new AbortController().signal);
+    expect(ended).toEqual(['/9gB/9k=', '/9gC/9k=']);
+
+    const watched: string[] = [];
+    const reader = new AbortController();
+    const watching = client.liveDevice(
+      'T8000P0000000001',
+      (jpeg) => {
+        watched.push(jpeg);
+        if (watched.length === 2) reader.abort();
+      },
+      reader.signal,
+    );
+    await watching;
+    await vi.waitFor(() => expect(stops).toContain('T8000P0000000001'));
+    finish?.();
+    expect(watched).toHaveLength(2);
+
+    const none: string[] = [];
+    await client.liveDevice('T8000P0000000003', (jpeg) => none.push(jpeg), new AbortController().signal);
+    const older = await serve(() => status());
+    await older.liveDevice('T8000P0000000000', (jpeg) => none.push(jpeg), new AbortController().signal);
+    expect(none).toEqual([]);
+  });
+
+  /**
    * The channel answers the live runtime state, which is the one thing the persisted tracker can be a
    * heartbeat behind, so a read that reaches the runtime is distinguishable from one that read the file.
    */

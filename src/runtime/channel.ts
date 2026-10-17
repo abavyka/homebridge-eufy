@@ -73,6 +73,12 @@ export const RUNTIME_DEVICE_SETTINGS_PATH = '/runtime/device-settings';
 export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write';
 
 /**
+ * The path one camera's live preview streams on: a base64 JPEG frame per picture under the request's id, then a
+ * refusal once it ends. Closing the connection stops it.
+ */
+export const RUNTIME_DEVICE_LIVE_PATH = '/runtime/device-live';
+
+/**
  * The eufy settings this channel reads and writes, and nothing else.
  *
  * Each is a typed SDK member with a confirmed write: `motionDetection` is the motion capability's master switch,
@@ -81,6 +87,9 @@ export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write
 export const DEVICE_SETTINGS = ['motionDetection', 'nightVision', 'notificationStyle'] as const;
 
 export type DeviceSettingName = (typeof DEVICE_SETTINGS)[number];
+
+/** Room a live picture leaves in its frame for the envelope around it. */
+const LIVE_FRAME_MARGIN = 1024;
 
 /** The longest serial a settings request may name, which bounds what an inbound body can carry. */
 const MAX_SERIAL_LENGTH = 64;
@@ -198,7 +207,7 @@ export interface RuntimeChannelRequest {
 export interface RuntimeChannelResponse {
   id: number;
   ok: boolean;
-  data?: RuntimeChannelStatus | RuntimeChannelDevice[] | RuntimeChannelDeviceSetting[];
+  data?: RuntimeChannelStatus | RuntimeChannelDevice[] | RuntimeChannelDeviceSetting[] | string;
 }
 
 /** The address the runtime channel is served and consumed on, and what its location implies. */
@@ -482,6 +491,11 @@ interface RuntimeChannelServerOptions {
   restart?: () => boolean;
   deviceSettings?: (query: RuntimeChannelDeviceSettingsQuery) => RuntimeChannelDeviceSetting[] | undefined;
   writeDeviceSetting?: (write: RuntimeChannelDeviceSettingWrite) => Promise<boolean>;
+  deviceLive?: (
+    query: RuntimeChannelDeviceSettingsQuery,
+    onPicture: (jpeg: Buffer) => void,
+    onEnd: () => void,
+  ) => (() => void) | undefined;
 }
 
 /**
@@ -509,6 +523,7 @@ export class RuntimeChannelServer {
   private readonly restart?: () => boolean;
   private readonly deviceSettings?: RuntimeChannelServerOptions['deviceSettings'];
   private readonly writeDeviceSetting?: RuntimeChannelServerOptions['writeDeviceSetting'];
+  private readonly deviceLive?: RuntimeChannelServerOptions['deviceLive'];
 
   constructor(
     private readonly endpoint: RuntimeChannelEndpoint,
@@ -527,6 +542,7 @@ export class RuntimeChannelServer {
     this.restart = options.restart;
     this.deviceSettings = options.deviceSettings;
     this.writeDeviceSetting = options.writeDeviceSetting;
+    this.deviceLive = options.deviceLive;
   }
 
   /** Binds the endpoint, reporting whether it bound. An unbound channel is an absent one. */
@@ -673,10 +689,54 @@ export class RuntimeChannelServer {
       connection.destroy();
       return;
     }
+    if (request.path === RUNTIME_DEVICE_LIVE_PATH && this.deviceLive) {
+      this.streamLive(connection, request, this.deviceLive);
+      return;
+    }
     void Promise.resolve(this.answered(request)).then((response) => {
       if (!connection.destroyed) {
         connection.write(`${JSON.stringify(response)}\n`);
       }
     });
+  }
+
+  /**
+   * Streams one camera's live preview on this connection until it ends or the connection closes.
+   *
+   * A picture is dropped while the reader has not taken the previous ones, and one too large for a frame is
+   * dropped too: these are pictures for a person to look at, so the next one replaces a missed one. A provider
+   * that faults or has no preview to give is refused, like any other request.
+   */
+  private streamLive(
+    connection: Socket,
+    request: RuntimeChannelRequest,
+    deviceLive: NonNullable<RuntimeChannelServerOptions['deviceLive']>,
+  ): void {
+    const ended = (): void => {
+      if (!connection.destroyed) connection.write(`${JSON.stringify({ id: request.id, ok: false })}\n`);
+    };
+    const query = noticedDeviceSettingsQuery(request.body);
+    let stop: (() => void) | undefined;
+    try {
+      stop = query
+        ? deviceLive(
+            query,
+            (jpeg) => {
+              const data = jpeg.toString('base64');
+              if (connection.destroyed || connection.writableNeedDrain) return;
+              if (data.length > this.frameBytes - LIVE_FRAME_MARGIN) return;
+              connection.write(`${JSON.stringify({ id: request.id, ok: true, data })}\n`);
+            },
+            ended,
+          )
+        : undefined;
+    } catch {
+      stop = undefined;
+    }
+    if (!stop) {
+      ended();
+      return;
+    }
+    connection.once('close', stop);
   }
 }

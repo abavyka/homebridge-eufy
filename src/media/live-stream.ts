@@ -986,7 +986,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
  * leading keyframe the caller waited for, and a raw A-law demuxer stops emitting timestamps entirely, so both
  * cost media that was already in hand.
  */
-function commonArguments(inputFormat: string, inputOptions: readonly string[] = []): string[] {
+export function commonArguments(inputFormat: string, inputOptions: readonly string[] = []): string[] {
   return [
     '-hide_banner',
     '-loglevel',

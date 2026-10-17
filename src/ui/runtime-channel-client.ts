@@ -14,6 +14,7 @@ import {
   RUNTIME_CHANNEL_RESPONSE_TIMEOUT_MS,
   RUNTIME_CHANNEL_STAND_DOWN_TIMEOUT_MS,
   RUNTIME_CHANNEL_WRITE_TIMEOUT_MS,
+  RUNTIME_DEVICE_LIVE_PATH,
   RUNTIME_DEVICE_SETTING_WRITE_PATH,
   RUNTIME_DEVICE_SETTINGS_PATH,
   RUNTIME_DEVICES_PATH,
@@ -111,6 +112,11 @@ export interface RuntimeRestartChannel {
 export interface RuntimeDeviceSettingsChannel {
   readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined>;
   writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean>;
+  /**
+   * Streams one camera's live preview as base64 JPEG pictures until it ends, the runtime is gone, or `signal`
+   * aborts. Settles once it has stopped; a runtime without the path, or with no preview to give, settles at once.
+   */
+  liveDevice(serial: string, onPicture: (jpeg: string) => void, signal: AbortSignal): Promise<void>;
 }
 
 interface RuntimeChannelClientOptions {
@@ -172,6 +178,10 @@ export class RuntimeChannelClient
       ),
     );
     return accepted === true;
+  }
+
+  async liveDevice(serial: string, onPicture: (jpeg: string) => void, signal: AbortSignal): Promise<void> {
+    await this.over(undefined, (connection) => this.streamed(connection, serial, onPicture, signal));
   }
 
   async read(): Promise<RuntimeChannelReading | undefined> {
@@ -415,6 +425,47 @@ export class RuntimeChannelClient
             conclude(accept(response));
             return;
           }
+        }
+      });
+    });
+  }
+
+  /** Sends one live request after the greeting and hands on each picture, settling once the stream ends. */
+  private streamed(
+    connection: Socket,
+    serial: string,
+    onPicture: (jpeg: string) => void,
+    signal: AbortSignal,
+  ): Promise<undefined> {
+    return new Promise<undefined>((resolve) => {
+      const conclude = (): void => resolve(undefined);
+      if (signal.aborted) return conclude();
+      signal.addEventListener('abort', conclude, { once: true });
+      const reader = new FrameReader();
+      let requested = false;
+      connection.once('error', conclude);
+      connection.once('close', conclude);
+      connection.on('data', (chunk) => {
+        const frames = reader.accept(chunk);
+        if (!frames) return conclude();
+        for (const frame of frames) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(frame);
+          } catch {
+            return conclude();
+          }
+          if (!requested) {
+            if ((parsed as RuntimeChannelGreeting)?.protocol !== RUNTIME_CHANNEL_PROTOCOL) return conclude();
+            requested = true;
+            const request = { v: RUNTIME_CHANNEL_PROTOCOL, id: SETTINGS_REQUEST, path: RUNTIME_DEVICE_LIVE_PATH };
+            connection.write(`${JSON.stringify({ ...request, body: { serial } })}\n`);
+            continue;
+          }
+          const response = parsed as RuntimeChannelResponse;
+          if (response?.id !== SETTINGS_REQUEST) continue;
+          if (!response.ok || typeof response.data !== 'string') return conclude();
+          onPicture(response.data);
         }
       });
     });
