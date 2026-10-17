@@ -9,8 +9,12 @@ import { AccountOwnership } from '../../src/account/ownership.js';
 import { parseConfig } from '../../src/configuration.js';
 import { AccountSessionPersistence } from '../../src/account/persistence.js';
 import type { SdkClient } from '../../src/runtime/sdk-client.js';
+import { FfmpegLiveMedia } from '../../src/media/live-stream.js';
 import { createEufyPlatform, type PlatformLifecycleEvent } from '../../src/platform.js';
 import { RuntimeTracker } from '../../src/runtime/tracker.js';
+
+/** Hardware encoder qualification spawns FFmpeg, so the platform is observed asking for it instead. */
+const qualify = vi.spyOn(FfmpegLiveMedia.prototype, 'qualify').mockResolvedValue({});
 
 describe('platform lifecycle', () => {
   function session(): PersistedSession {
@@ -81,6 +85,48 @@ describe('platform lifecycle', () => {
       { on: vi.fn() },
     );
     expect(acknowledgedWarn).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Hardware encoders are qualified for this host once Homebridge has launched, without waiting on the answer,
+   * and the log names what qualified. Turned off, nothing is qualified and libx264 codes every session.
+   */
+  it('qualifies hardware encoders for this host after launch, unless hardware encoding is off', async () => {
+    const launch = (config: Record<string, unknown>) => {
+      const listeners: Partial<Record<PlatformLifecycleEvent, () => void>> = {};
+      const info = vi.fn();
+      const Platform = createEufyPlatform(() => ({ start: vi.fn().mockResolvedValue(undefined), stop: vi.fn() }));
+      new Platform(
+        { error: vi.fn(), info, warn: vi.fn() },
+        { platform: 'HomebridgeEufy', ...config },
+        {
+          on(event, listener): void {
+            listeners[event] = listener;
+          },
+        },
+      );
+      expect(qualify, 'nothing is qualified before Homebridge has launched').not.toHaveBeenCalled();
+      listeners.didFinishLaunching?.();
+      return info;
+    };
+    qualify.mockClear();
+    qualify.mockResolvedValueOnce({ h264_amf: ['main@3.1'] });
+
+    const info = launch({});
+    expect(qualify).toHaveBeenCalledExactlyOnceWith({
+      platform: process.platform,
+      arch: process.arch,
+      configured: false,
+    });
+    await vi.waitFor(() =>
+      expect(info).toHaveBeenCalledWith(
+        '[live-video-encoders] Live video encoders, in order of use: h264_amf, libx264.',
+      ),
+    );
+
+    qualify.mockClear();
+    launch({ hardwareVideoEncoder: false });
+    expect(qualify).not.toHaveBeenCalled();
   });
 
   it('starts its SDK client after Homebridge finishes launching', async () => {

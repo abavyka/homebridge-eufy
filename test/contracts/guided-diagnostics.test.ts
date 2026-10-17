@@ -1546,6 +1546,64 @@ describe('guided diagnostics session', () => {
       rmSync(root, { force: true, recursive: true });
     }
   });
+
+  /**
+   * The qualified hardware encoders travel with the binary that qualified them, bounded by two closed sets: an
+   * encoder this build names, and a profile and level a controller can negotiate. Anything else in the record
+   * is dropped rather than carried into an archive.
+   */
+  it('keeps the qualified encoders this build names, and nothing else', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+    let now = Date.parse('2026-08-17T08:00:00.000Z');
+    const diagnostics = new GuidedDiagnostics(root, () => now, {
+      keyId: 'test-support-key',
+      publicKey,
+      sha256: createHash('sha256').update(publicKey.trim()).digest('hex'),
+    });
+
+    try {
+      mkdirSync(join(root, 'diagnostics'), { recursive: true });
+      writeFileSync(
+        join(root, 'diagnostics', 'host.json'),
+        `${JSON.stringify({
+          version: 2,
+          ffmpeg: {
+            path: '/synthetic/bin/ffmpeg',
+            source: 'bundled',
+            encoders: {
+              h264_videotoolbox: ['main@3.1', 'main@3.1', 'high@4.0', 'main@5.1', 'x'.repeat(4096), 7],
+              h264_amf: [],
+              h264_invented: ['main@3.1'],
+              ['y'.repeat(4096)]: ['main@3.1'],
+            },
+          },
+        })}\n`,
+      );
+      await diagnostics.authorize('live-media', 'now');
+      await diagnostics.startReproduction();
+      now += 5_000;
+      await diagnostics.endReproduction();
+      const review = await diagnostics.reviewSupportArchive();
+      const exported = await diagnostics.exportSupportArchive(review.reviewId);
+      const payload = decryptSupportArchive(exported.archive, privateKey) as {
+        evidence: readonly { evidence: string; content: string }[];
+      };
+      const environment = JSON.parse(payload.evidence.find((row) => row.evidence === 'environment')!.content);
+
+      expect(environment.ffmpeg).toEqual({
+        path: '/synthetic/bin/ffmpeg',
+        source: 'bundled',
+        encoders: { h264_videotoolbox: ['main@3.1', 'high@4.0'], h264_amf: [] },
+      });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
 });
 
 describe('a diagnostics authorization the runtime is notified of', () => {

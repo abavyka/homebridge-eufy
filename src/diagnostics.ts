@@ -682,6 +682,8 @@ interface PersistedFfmpegEnvironment {
   path: string;
   source: 'bundled' | 'configured';
   version?: string;
+  /** Each hardware encoder that qualified, with the `profile@level` selections it qualified for. */
+  encoders?: Record<string, string[]>;
 }
 
 /**
@@ -846,9 +848,35 @@ function readFfmpegIdentity(value: unknown): PersistedFfmpegEnvironment | undefi
   const path = typeof recorded.path === 'string' ? boundedText(recorded.path, MAX_FFMPEG_IDENTITY_LENGTH) : undefined;
   const version =
     typeof recorded.version === 'string' ? boundedText(recorded.version, MAX_FFMPEG_IDENTITY_LENGTH) : undefined;
+  const encoders =
+    recorded.encoders && typeof recorded.encoders === 'object' && !Array.isArray(recorded.encoders)
+      ? readQualifiedEncoders(recorded.encoders as Record<string, unknown>)
+      : undefined;
   return path === undefined
     ? undefined
-    : { path, source: recorded.source, ...(version === undefined ? {} : { version }) };
+    : {
+        path,
+        source: recorded.source,
+        ...(version === undefined ? {} : { version }),
+        ...(encoders === undefined ? {} : { encoders }),
+      };
+}
+
+/**
+ * The recorded qualified encoders, keeping only encoder names and `profile@level` selections this build
+ * names, so the record is bounded by those two closed sets.
+ */
+function readQualifiedEncoders(recorded: Record<string, unknown>): Record<string, string[]> {
+  return Object.fromEntries(
+    LIVE_VIDEO_ENCODERS.filter((name) => Object.hasOwn(recorded, name)).map((name) => {
+      const selections = Array.isArray(recorded[name]) ? (recorded[name] as unknown[]) : [];
+      const named = selections.filter((selection): selection is string => {
+        const [profile, level] = String(selection).split('@');
+        return HOMEKIT_LIVE_VIDEO_PROFILES.has(profile!) && HOMEKIT_LIVE_VIDEO_LEVELS.has(level!);
+      });
+      return [name, [...new Set(named)]];
+    }),
+  );
 }
 
 /**
@@ -2289,6 +2317,7 @@ const ADAPTATION_ROLES = new Set(['live-video', 'live-audio', 'return-audio', 'r
 /** What that process did. `output` is a process reported for what it wrote rather than for how it ended. */
 const ADAPTATION_EVENTS = new Set([
   'started',
+  'encoder-disqualified',
   'spawn-failed',
   'input-failed',
   'exited-before-output',
@@ -2302,6 +2331,17 @@ const ADAPTATION_EVENTS = new Set([
  * started mid-flight is judged against what that one left. A first adaptation has nothing behind it.
  */
 const ADAPTATION_CAUSES = ['first', 'controller-selection', 'source-configuration'] as const;
+/** The encoders a live video process may code with, `copy` being none. */
+const LIVE_VIDEO_ENCODERS = [
+  'copy',
+  'libx264',
+  'h264_videotoolbox',
+  'h264_qsv',
+  'h264_nvenc',
+  'h264_amf',
+  'h264_vaapi',
+  'h264_v4l2m2m',
+] as const;
 /**
  * Which of those events is a failure, and so the ones a record is levelled `warn` for.
  *
@@ -2311,6 +2351,7 @@ const ADAPTATION_CAUSES = ['first', 'controller-selection', 'source-configuratio
  * log for every session that succeeded.
  */
 const ADAPTATION_FAILURE_EVENTS = new Set<string>([
+  'encoder-disqualified',
   'spawn-failed',
   'input-failed',
   'exited-before-output',
@@ -2831,6 +2872,18 @@ export function reportDiscardedV4Settings(
   );
 }
 
+/** States once which encoders code live video on this host: every qualified hardware encoder, then `libx264`. */
+export function reportLiveVideoEncoders(
+  target: Pick<PlatformLogger, 'info'>,
+  encoders: Readonly<Record<string, readonly string[]>>,
+): void {
+  const names = [
+    ...LIVE_VIDEO_ENCODERS.filter((name) => (encoders[name]?.length ?? 0) > 0 && name !== 'libx264'),
+    'libx264',
+  ];
+  target.info(`[live-video-encoders] ${localize(target, 'log.liveVideoEncoders', { encoders: names.join(', ') })}`);
+}
+
 /** Emits one identity-free warning after an invalid retained camera image is discarded. */
 export function reportInvalidSnapshotCache(
   target: Pick<PlatformLogger, 'warn'> & Partial<Pick<PlatformLogger, 'debug'>>,
@@ -2958,6 +3011,8 @@ export interface AdaptationTrace {
   event: string;
   /** Why this process was started, which separates a mid-session replacement from a session's first output. */
   cause?: string;
+  /** The encoder a live video process codes with. */
+  encoder?: string;
   code?: number;
   signal?: string;
   /**
@@ -3082,12 +3137,14 @@ function sanitizeAdaptationNotice(value: Record<string, unknown>, level: string)
     .slice(-MAX_ADAPTATION_STDERR_LINES);
   const sourceFragments = nonNegativeInteger(value.sourceFragments);
   const cause = allowlistedLabel(value.cause, ADAPTATION_CAUSES);
+  const encoder = allowlistedLabel(value.encoder, LIVE_VIDEO_ENCODERS);
   return {
     scope: 'ffmpeg',
     level,
     role: value.role,
     event: value.event,
     ...(cause === undefined ? {} : { cause }),
+    ...(encoder === undefined ? {} : { encoder }),
     ...(code === undefined ? {} : { code }),
     ...(signal === undefined ? {} : { signal }),
     ...(sourceFragments === undefined ? {} : { sourceFragments }),

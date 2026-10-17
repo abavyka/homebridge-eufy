@@ -790,8 +790,31 @@ already matches the negotiated one, which no camera guarantees.
 
 ### Live adaptation encoder
 
-Live adaptation always encodes with `libx264` at `-preset superfast -tune zerolatency`. Hardware
-encoding is excluded rather than deferred.
+A live selection is coded by a hardware encoder only once that encoder is qualified for it, and by
+`libx264` at `-preset superfast -tune zerolatency` otherwise. A copied source and a constant-quality
+session are never hardware-coded: neither has a bit-rate ceiling to qualify against.
+
+Qualification runs once at launch, in the background, and every session is coded by `libx264` until it
+ends. Each candidate the host's binary may carry is qualified against each advertised profile and level, at
+the largest geometry that level admits, at 30 fps and at the lowest bit rate a controller has been measured
+selecting. It codes two seconds of moving synthetic picture through the exact argument list a session would
+run, so the encoder being named, accepting those arguments, and opening on this host's devices are proven
+in one run. A second FFmpeg then traces the coded parameter sets, which proves the fourth stage without a
+bitstream parser of the plugin's own: a profile at or below the negotiated one, the negotiated level and
+macroblock geometry, every frame, and bytes inside the budget plus the one second of it the rate control may
+borrow. A hardware encoder that exits before output in a session serves nothing for the rest of the run.
+
+No candidate is given `-allow_sw`. VideoToolbox would otherwise substitute Apple's software encoder without
+saying so, and qualification would be measuring an encoder the session never asked for. `h264_v4l2m2m`
+carries no level and no ceiling at all, so it qualifies only where its output happens to match the
+selection.
+
+This reopens a decision that excluded hardware encoding until two conditions held. The first, a bundled
+artifact shipping an encoder that expresses every advertised combination exactly, is met by
+`h264_videotoolbox` in the darwin bundle. The second, a measurement showing software cannot serve the
+advertised concurrency, is not met, and is overridden for compatibility: a controller that would not play
+a camera's software-coded stream played it from VideoToolbox. Hardware encoding is on by default and one
+setting turns it off, which skips qualification entirely.
 
 The negotiated contract requires the coded stream to carry exactly the negotiated profile, level,
 geometry and frame rate and to stay under the negotiated bit rate. Constrained Baseline is the named
@@ -1057,19 +1080,11 @@ advertisement and exact coded fidelity rather than changing either without contr
 start and reconfiguration records its identity-free profile, level, geometry and frame rate as the
 allowlisted `live-video-selected` debug trace so future real-controller evidence can revisit that decision.
 
-No hardware encoder reachable on a Homebridge host clears that bar. The encoders present in every
-bundled Linux artifact cannot express the advertised profile set at all, and the encoders that can
-express it are absent from every bundled artifact. Availability is also not qualification: an encoder
-that enumerates may still fail at option parse, fail at device open, or silently widen the coded
-profile, and each stage must be proven separately. V4 shipped that mistake — a probe that validated a
-smaller command than the one it authorized — and every session on the affected hosts failed while the
-probe reported success.
-
-Encoding cost is not what the exclusion trades away. On a Homebridge host with the bundled binary,
-retaining CABAC costs half a percent of encoder CPU and halves the quantizer at the same bit-rate
-ceiling. Revisit this decision only when both conditions hold: a bundled artifact ships an encoder that
-expresses every advertised combination exactly, and a measurement on a real constrained host shows
-software encoding cannot serve the advertised concurrent-session count. The supporting evidence is in
+Availability is not qualification: an encoder that enumerates may still fail at option parse, fail at
+device open, or silently widen the coded profile, and each stage is proven separately against the argument
+list the session runs. V4 shipped the opposite — a probe that validated a smaller command than the one it
+authorized — and every session on the affected hosts failed while the probe reported success. "Live
+adaptation encoder" above records how a hardware encoder is qualified, and the supporting evidence is in
 [hardware encoder viability](./reference/hardware-encoder-viability.md).
 
 ### Concurrent media capacity

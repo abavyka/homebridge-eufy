@@ -18,10 +18,14 @@ import { AccountSessionPersistence } from '../../src/account/persistence.js';
 import { parseConfig } from '../../src/configuration.js';
 import type { CompleteDeviceSnapshot } from '../../src/device/snapshot.js';
 import { createSdkLogger } from '../../src/diagnostics.js';
+import { FfmpegLiveMedia } from '../../src/media/live-stream.js';
 import { createEufyPlatform, type PlatformLifecycleEvent } from '../../src/platform.js';
 import { isChildBridgeTitle, RuntimeOwner } from '../../src/runtime/owner.js';
 import { PersistedSdkClient, type SdkClient, type SdkStartResult } from '../../src/runtime/sdk-client.js';
 import { RuntimeTracker } from '../../src/runtime/tracker.js';
+
+/** Hardware encoder qualification spawns FFmpeg, which no platform here is meant to run. */
+vi.spyOn(FfmpegLiveMedia.prototype, 'qualify').mockResolvedValue({});
 
 const roots: string[] = [];
 

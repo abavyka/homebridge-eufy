@@ -77,6 +77,7 @@ const advancedConcurrentMedia = document.querySelector('[data-advanced-concurren
 const advancedFfmpeg = document.querySelector('[data-advanced-ffmpeg]');
 const advancedSmallVideoPackets = document.querySelector('[data-advanced-small-video-packets]');
 const advancedLiveVideoPassthrough = document.querySelector('[data-advanced-live-video-passthrough]');
+const advancedHardwareVideoEncoder = document.querySelector('[data-advanced-hardware-video-encoder]');
 const advancedHdLiveVideo = document.querySelector('[data-advanced-hd-live-video]');
 const advancedIgnoreHomeBitRate = document.querySelector('[data-advanced-ignore-home-bit-rate]');
 const warmUpAvailable = document.querySelector('[data-warm-up-available]');
@@ -618,6 +619,7 @@ menuAdvanced.addEventListener('click', async () => {
   advancedFfmpeg.value = config.ffmpegPath ?? '';
   advancedSmallVideoPackets.checked = config.smallVideoPackets === true;
   advancedLiveVideoPassthrough.checked = config.liveVideoPassthrough === true;
+  advancedHardwareVideoEncoder.checked = config.hardwareVideoEncoder !== false;
   advancedHdLiveVideo.checked = config.hdLiveVideo === true;
   advancedIgnoreHomeBitRate.checked = config.ignoreHomeBitRate === true;
   openDashboardPanel(advancedPanel, menuAdvanced);
@@ -679,6 +681,8 @@ async function updateAdvancedSettings() {
   else delete next.smallVideoPackets;
   if (advancedLiveVideoPassthrough.checked) next.liveVideoPassthrough = true;
   else delete next.liveVideoPassthrough;
+  if (advancedHardwareVideoEncoder.checked) delete next.hardwareVideoEncoder;
+  else next.hardwareVideoEncoder = false;
   if (advancedHdLiveVideo.checked) next.hdLiveVideo = true;
   else delete next.hdLiveVideo;
   if (advancedIgnoreHomeBitRate.checked) next.ignoreHomeBitRate = true;
@@ -700,6 +704,7 @@ advancedConcurrentMedia.addEventListener('change', updateAdvancedSettings);
 advancedFfmpeg.addEventListener('change', updateAdvancedSettings);
 advancedSmallVideoPackets.addEventListener('change', updateAdvancedSettings);
 advancedLiveVideoPassthrough.addEventListener('change', updateAdvancedSettings);
+advancedHardwareVideoEncoder.addEventListener('change', updateAdvancedSettings);
 advancedHdLiveVideo.addEventListener('change', updateAdvancedSettings);
 advancedIgnoreHomeBitRate.addEventListener('change', updateAdvancedSettings);
 warmUpAdd.addEventListener('click', () => moveWarmUp('available'));

@@ -7,6 +7,7 @@ import {
   recordFleet,
   recordHostEnvironment,
   reportAdaptationNotice,
+  reportLiveVideoEncoders,
   reportDiscardedV4Settings,
   reportHomeKitEvent,
   unconfirmedWriteCondition,
@@ -171,13 +172,26 @@ export function createEufyPlatform(
       });
       api.on('didFinishLaunching', () => {
         const ffmpegPath = configuredConfig.ffmpegPath;
+        const qualification =
+          ffmpegPath && liveMedia && configuredConfig.hardwareVideoEncoder
+            ? liveMedia.qualify({
+                platform: process.platform,
+                arch: process.arch,
+                configured: ffmpegPathSource(ffmpegPath) === 'configured',
+              })
+            : undefined;
+        void qualification?.then((encoders) => reportLiveVideoEncoders(diagnosticLog, encoders));
         if (storageRoot) {
           const homebridge = typeof api.serverVersion === 'string' ? { homebridge: api.serverVersion } : {};
           recordHostEnvironment(storageRoot, homebridge);
           if (ffmpegPath) {
-            void resolveFfmpegIdentity(ffmpegPath, ffmpegPathSource(ffmpegPath)).then((ffmpeg) =>
-              recordHostEnvironment(storageRoot, { ...homebridge, ffmpeg }),
-            );
+            void resolveFfmpegIdentity(ffmpegPath, ffmpegPathSource(ffmpegPath)).then(async (ffmpeg) => {
+              recordHostEnvironment(storageRoot, { ...homebridge, ffmpeg });
+              const encoders = await qualification;
+              if (encoders) {
+                recordHostEnvironment(storageRoot, { ...homebridge, ffmpeg: { ...ffmpeg, encoders } });
+              }
+            });
           }
         }
         const accessoryStore = createAccessoryStore(api);

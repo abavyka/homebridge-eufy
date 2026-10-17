@@ -269,6 +269,308 @@ export type MediaPortFactory = (addressVersion: 'ipv4' | 'ipv6') => Promise<Rese
 /** The `libx264` constant rate factor a live adaptation codes at when the negotiated bit rate is ignored. */
 const CONSTANT_QUALITY_CRF = 23;
 
+/**
+ * One way of coding a negotiated live selection: the encoder FFmpeg names, the arguments it is given for a
+ * selection and an encoder budget in kbps, and what it appends to the shared scale and pad chain.
+ *
+ * The same builder produces the arguments a session runs and the arguments qualification proves, so nothing
+ * qualified differs from what is served.
+ */
+interface LiveVideoEncoder {
+  readonly name: string;
+  readonly args: (selection: NegotiatedLiveVideo, kbps: string) => string[];
+  readonly upload?: string;
+}
+
+/** The host facts that decide which hardware encoders a binary may carry. */
+export interface EncoderHost {
+  readonly platform: string;
+  readonly arch: string;
+  /** Whether the binary is an administrator's own `ffmpegPath` rather than the bundled build. */
+  readonly configured: boolean;
+}
+
+/** `libx264`'s profile, level, speed and pixel format, shared by its rate-capped and constant-quality forms. */
+function libx264Arguments(selection: NegotiatedLiveVideo): string[] {
+  return [
+    '-preset',
+    'superfast',
+    '-tune',
+    'zerolatency',
+    '-profile:v',
+    selection.profile,
+    '-level:v',
+    selection.level,
+    '-pix_fmt',
+    'yuv420p',
+  ];
+}
+
+/** The software encoder every selection no qualified hardware encoder serves is coded by. */
+const LIBX264: LiveVideoEncoder = {
+  name: 'libx264',
+  args: (selection, kbps) => [...libx264Arguments(selection), '-b:v', kbps, '-maxrate', kbps, '-bufsize', kbps],
+};
+
+/** `libx264` at {@link CONSTANT_QUALITY_CRF} with no rate control, which no hardware encoder replaces. */
+const CONSTANT_QUALITY: LiveVideoEncoder = {
+  name: 'libx264',
+  args: (selection) => [...libx264Arguments(selection), '-crf', String(CONSTANT_QUALITY_CRF)],
+};
+
+/** The H.264 `profile_idc` of each negotiable profile. */
+const PROFILE_IDC = { baseline: 66, main: 77, high: 100 } as const;
+
+/**
+ * The hardware encoders a selection may be served by, in order of preference, each with the hosts whose
+ * binary may carry it.
+ *
+ * Each states profile, level and rate control in its own encoder's spelling, with B-frames off and its
+ * lowest-latency mode, as docs/reference/hardware-encoder-viability.md records them. None is used for a
+ * selection until {@link FfmpegLiveMedia.qualify} has proven it against that selection.
+ */
+const HARDWARE_ENCODERS: readonly (LiveVideoEncoder & { readonly triedOn: (host: EncoderHost) => boolean })[] = [
+  {
+    name: 'h264_videotoolbox',
+    triedOn: (host) => host.platform === 'darwin',
+    args: (selection, kbps) => [
+      '-profile:v',
+      selection.profile,
+      '-level:v',
+      selection.level,
+      '-realtime',
+      '1',
+      '-prio_speed',
+      '1',
+      '-bf',
+      '0',
+      '-pix_fmt',
+      'yuv420p',
+      '-b:v',
+      kbps,
+      '-maxrate',
+      kbps,
+    ],
+  },
+  {
+    name: 'h264_qsv',
+    triedOn: (host) => host.platform === 'win32' || host.configured,
+    args: (selection, kbps) => [
+      '-profile:v',
+      selection.profile,
+      '-level:v',
+      selection.level.replace('.', ''),
+      '-pix_fmt',
+      'nv12',
+      '-bf',
+      '0',
+      '-look_ahead',
+      '0',
+      '-async_depth',
+      '1',
+      '-b:v',
+      kbps,
+      '-maxrate',
+      kbps,
+    ],
+  },
+  {
+    name: 'h264_nvenc',
+    triedOn: (host) => host.configured,
+    args: (selection, kbps) => [
+      '-profile:v',
+      selection.profile,
+      '-level:v',
+      selection.level,
+      '-preset',
+      'p1',
+      '-tune',
+      'ull',
+      '-zerolatency',
+      '1',
+      '-bf',
+      '0',
+      '-pix_fmt',
+      'yuv420p',
+      '-rc',
+      'cbr',
+      '-b:v',
+      kbps,
+      '-maxrate',
+      kbps,
+      '-bufsize',
+      kbps,
+    ],
+  },
+  {
+    name: 'h264_amf',
+    triedOn: (host) => host.platform === 'linux' && host.arch === 'x64',
+    args: (selection, kbps) => [
+      '-profile:v',
+      selection.profile === 'baseline' ? 'constrained_baseline' : selection.profile,
+      '-level:v',
+      selection.level,
+      '-usage',
+      'ultralowlatency',
+      '-bf',
+      '0',
+      '-pix_fmt',
+      'yuv420p',
+      '-b:v',
+      kbps,
+      '-maxrate',
+      kbps,
+      '-bufsize',
+      kbps,
+    ],
+  },
+  {
+    name: 'h264_vaapi',
+    triedOn: (host) => host.platform === 'linux' && host.configured,
+    upload: ',format=nv12,hwupload',
+    args: (selection, kbps) => [
+      '-vaapi_device',
+      '/dev/dri/renderD128',
+      '-profile:v',
+      selection.profile === 'baseline' ? 'constrained_baseline' : selection.profile,
+      '-level:v',
+      selection.level,
+      '-bf',
+      '0',
+      '-async_depth',
+      '1',
+      '-b:v',
+      kbps,
+      '-maxrate',
+      kbps,
+    ],
+  },
+  {
+    name: 'h264_v4l2m2m',
+    triedOn: (host) => host.platform === 'linux' && (host.arch === 'arm' || host.arch === 'arm64'),
+    args: (selection, kbps) => [
+      '-profile:v',
+      String(PROFILE_IDC[selection.profile]),
+      '-pix_fmt',
+      'yuv420p',
+      '-b:v',
+      kbps,
+    ],
+  },
+];
+
+/** How many seconds of synthetic picture one qualification run codes. */
+const QUALIFICATION_SECONDS = 2;
+/** The longest one qualification process may run before its selection counts as unqualified. */
+const QUALIFICATION_RUN_TIMEOUT_MS = 10_000;
+/** The longest qualification as a whole may take; a selection it has not finished by then stays unqualified. */
+const QUALIFICATION_BUDGET_MS = 60_000;
+
+/**
+ * The selections every hardware encoder is qualified against: each advertised profile and level, at the
+ * largest advertised geometry that level's frame-size limit admits, at the advertised frame-rate ceiling, and
+ * at 299 kbps, the lowest bit rate a controller has been measured selecting.
+ */
+const QUALIFICATION_SELECTIONS: readonly NegotiatedLiveVideo[] = (['baseline', 'main', 'high'] as const).flatMap(
+  (profile) =>
+    (
+      [
+        ['3.1', 1280, 720],
+        ['3.2', 1280, 720],
+        ['4.0', 1920, 1080],
+      ] as const
+    ).map(([level, width, height]) => ({
+      profile,
+      level,
+      width,
+      height,
+      fps: 30,
+      maxBitRate: 299,
+      mtu: 1378,
+      payloadType: 99,
+      ssrc: 1,
+      rtcpInterval: 0.5,
+    })),
+);
+
+/**
+ * Runs one FFmpeg process to completion with `input` on its stdin, and returns what it wrote, or nothing where
+ * it exited non-zero, failed to start, or outran `timeoutMs`.
+ */
+export type QualificationRun = (
+  executable: string,
+  args: readonly string[],
+  input: Buffer | undefined,
+  timeoutMs: number,
+) => Promise<{ readonly stdout: Buffer; readonly stderr: string } | undefined>;
+
+const runQualification: QualificationRun = (executable, args, input, timeoutMs) =>
+  new Promise((resolve) => {
+    const child = execFile(
+      executable,
+      args,
+      { encoding: 'buffer', timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
+      (error, stdout, stderr) => resolve(error ? undefined : { stdout, stderr: stderr.toString() }),
+    );
+    child.stdin?.on('error', () => undefined);
+    child.stdin?.end(input);
+  });
+
+/**
+ * Whether `encoder` passes every qualification stage for `selection` before `deadline`.
+ *
+ * The encoder codes {@link QUALIFICATION_SECONDS} of moving synthetic picture through the session's own
+ * argument list, which proves it is named by the binary, accepts those arguments, and opens on this host's
+ * devices. A second FFmpeg then traces the coded parameter sets, which proves what was coded: a profile at or
+ * below the negotiated one, the negotiated level and macroblock geometry, every frame, and no more bytes than
+ * the encoder budget plus the one second of it the session's rate control may borrow.
+ */
+async function qualifies(
+  executable: string,
+  encoder: LiveVideoEncoder,
+  selection: NegotiatedLiveVideo,
+  run: QualificationRun,
+  deadline: number,
+): Promise<boolean> {
+  const within = (args: string[], input?: Buffer) => {
+    const left = deadline - Date.now();
+    return left > 0 ? run(executable, args, input, Math.min(left, QUALIFICATION_RUN_TIMEOUT_MS)) : undefined;
+  };
+  const coded = await within([
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    `testsrc2=size=${selection.width}x${selection.height}:rate=${selection.fps}:duration=${QUALIFICATION_SECONDS}`,
+    ...encodeArguments(encoder, selection),
+    '-f',
+    'h264',
+    'pipe:1',
+  ]);
+  const traced =
+    coded &&
+    (await within(
+      ['-hide_banner', '-f', 'h264', '-i', 'pipe:0', '-c', 'copy', '-bsf:v', 'trace_headers', '-f', 'null', '-'],
+      coded.stdout,
+    ));
+  if (!coded || !traced) {
+    return false;
+  }
+  const field = (name: string) => Number(new RegExp(`\\b${name}\\s.*= (\\d+)$`, 'm').exec(traced.stderr)?.[1]);
+  const profile = field('profile_idc');
+  const wanted = PROFILE_IDC[selection.profile];
+  return (
+    (profile === wanted || (profile === 66 && field('constraint_set1_flag') === 1) || (profile === 77 && wanted === 100)) &&
+    field('level_idc') === Number(selection.level.replace('.', '')) &&
+    field('pic_width_in_mbs_minus1') + 1 === Math.ceil(selection.width / 16) &&
+    field('pic_height_in_map_units_minus1') + 1 === Math.ceil(selection.height / 16) &&
+    (traced.stderr.match(/\bPacket: /g)?.length ?? 0) === selection.fps * QUALIFICATION_SECONDS &&
+    coded.stdout.length * 8 <= videoBudgetInsideCeiling(selection) * 1_000 * (QUALIFICATION_SECONDS + 1)
+  );
+}
+
 /** The live video packet size an administrator can choose for networks that drop the negotiated one. */
 export const SMALL_VIDEO_PACKET_SIZE = 1128;
 
@@ -284,6 +586,39 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     private readonly copyVideo = false,
     private readonly constantQuality = false,
   ) {}
+
+  /**
+   * Each hardware encoder's qualified selections, as `profile@level`, for the rest of this run.
+   *
+   * A spawn reads it, so a selection is served by hardware from the moment it qualifies, and an encoder that
+   * exits before output in a session is removed from it and serves nothing again.
+   */
+  private readonly qualified = new Map<string, Set<string>>();
+
+  /**
+   * Qualifies every hardware encoder `host`'s binary may carry against every selection it is qualified for,
+   * one run after another and within {@link QUALIFICATION_BUDGET_MS}, and returns what qualified.
+   *
+   * Until a selection qualifies it is coded by `libx264`, and a selection no encoder qualifies for stays there.
+   */
+  async qualify(host: EncoderHost, run: QualificationRun = runQualification): Promise<Record<string, string[]>> {
+    const deadline = Date.now() + QUALIFICATION_BUDGET_MS;
+    for (const encoder of HARDWARE_ENCODERS.filter((candidate) => candidate.triedOn(host))) {
+      for (const selection of QUALIFICATION_SELECTIONS) {
+        if (await qualifies(this.executable, encoder, selection, run, deadline)) {
+          const selections = this.qualified.get(encoder.name) ?? new Set<string>();
+          this.qualified.set(encoder.name, selections.add(`${selection.profile}@${selection.level}`));
+        }
+      }
+    }
+    return Object.fromEntries([...this.qualified].map(([name, selections]) => [name, [...selections]]));
+  }
+
+  /** The first hardware encoder qualified for `selection`, or `libx264` where none is. */
+  private encoderFor(selection: NegotiatedLiveVideo): LiveVideoEncoder {
+    const key = `${selection.profile}@${selection.level}`;
+    return HARDWARE_ENCODERS.find((encoder) => this.qualified.get(encoder.name)?.has(key)) ?? LIBX264;
+  }
 
   /**
    * Reserves the negotiated output ports so `SetupEndpoints` can be answered with them, and returns a
@@ -600,20 +935,24 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
       if (!videoProcess) {
         adaptationConfig = videoConfig;
         videoSequence = (videoSequence + OUTPUT_SEQUENCE_STEP) & 0xffff;
+        const encoder =
+          copyVideo && videoConfig.codec === 'h264'
+            ? 'copy'
+            : constantQuality
+              ? CONSTANT_QUALITY
+              : this.encoderFor(negotiated.video);
         const child = this.createProcess(
           this.executable,
-          videoArguments(
-            videoConfig,
-            negotiated.video,
-            targetAddress,
-            transport.video,
-            videoSequence,
-            copyVideo,
-            constantQuality,
-          ),
+          videoArguments(videoConfig, negotiated.video, targetAddress, transport.video, videoSequence, encoder),
         );
         videoProcess = child;
-        adaptationDiagnostics?.report({ role: 'live-video', event: 'started', cause: videoCause });
+        const encoderName = encoder === 'copy' ? encoder : encoder.name;
+        adaptationDiagnostics?.report({
+          role: 'live-video',
+          event: 'started',
+          cause: videoCause,
+          encoder: encoderName,
+        });
         const stderr = new AdaptationStderr();
         let producedOutput = false;
         child.stderr.on('data', (chunk: Buffer) => {
@@ -647,6 +986,9 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
             code,
             signal,
           );
+          if (!producedOutput && this.qualified.delete(encoderName)) {
+            adaptationDiagnostics?.report({ role: 'live-video', event: 'encoder-disqualified', encoder: encoderName });
+          }
           failVideo(producedOutput ? 'adaptation-exited-while-streaming' : 'adaptation-exited-before-output');
         });
       }
@@ -1085,7 +1427,7 @@ function outputArguments(
  * the geometry, frame rate, bit rate, profile and keyframe interval are the camera's own, not the negotiated
  * selection. Only the RTP output is the negotiated one. An H.265 source is transcoded either way.
  *
- * `constantQuality` codes at {@link CONSTANT_QUALITY_CRF} with no rate control, so the negotiated bit rate is not
+ * {@link CONSTANT_QUALITY} codes at {@link CONSTANT_QUALITY_CRF} with no rate control, so the negotiated bit rate is not
  * honoured: the output spends what the picture needs. A controller asks 299 kbps for 720p and does not raise it
  * during a session, which the ceiling above codes as a blurred, then blocky, picture.
  */
@@ -1095,39 +1437,24 @@ function videoArguments(
   targetAddress: string,
   target: LiveMediaTarget,
   sequence: number,
-  copy = false,
-  constantQuality = false,
+  encoder: LiveVideoEncoder | 'copy',
 ): string[] {
-  if (copy && input.codec === 'h264') {
-    return [
-      ...commonArguments('h264'),
-      '-an',
-      '-c:v',
-      'copy',
-      ...outputArguments(targetAddress, target, selection.payloadType, selection.ssrc, selection.mtu, sequence),
-    ];
+  const output = outputArguments(targetAddress, target, selection.payloadType, selection.ssrc, selection.mtu, sequence);
+  if (encoder === 'copy') {
+    return [...commonArguments('h264'), '-an', '-c:v', 'copy', ...output];
   }
-  const budget = videoBudgetInsideCeiling(selection);
-  const rate = constantQuality
-    ? ['-crf', String(CONSTANT_QUALITY_CRF)]
-    : ['-b:v', `${budget}k`, '-maxrate', `${budget}k`, '-bufsize', `${budget}k`];
+  return [...commonArguments(input.codec === 'h265' ? 'hevc' : input.codec), ...encodeArguments(encoder, selection), ...output];
+}
+
+/** What one encoder is given to code `selection`, between its input and its output, in a session and in qualification alike. */
+function encodeArguments(encoder: LiveVideoEncoder, selection: NegotiatedLiveVideo): string[] {
   return [
-    ...commonArguments(input.codec === 'h265' ? 'hevc' : input.codec),
     '-an',
     '-c:v',
-    'libx264',
-    '-preset',
-    'superfast',
-    '-tune',
-    'zerolatency',
-    '-profile:v',
-    selection.profile,
-    '-level:v',
-    selection.level,
-    '-pix_fmt',
-    'yuv420p',
+    encoder.name,
+    ...encoder.args(selection, `${videoBudgetInsideCeiling(selection)}k`),
     '-vf',
-    `scale=${selection.width}:${selection.height}:force_original_aspect_ratio=decrease,pad=${selection.width}:${selection.height}:(ow-iw)/2:(oh-ih)/2`,
+    `scale=${selection.width}:${selection.height}:force_original_aspect_ratio=decrease,pad=${selection.width}:${selection.height}:(ow-iw)/2:(oh-ih)/2${encoder.upload ?? ''}`,
     '-fpsmax',
     String(selection.fps),
     '-g',
@@ -1136,8 +1463,6 @@ function videoArguments(
     String(selection.fps * 2),
     '-sc_threshold',
     '0',
-    ...rate,
-    ...outputArguments(targetAddress, target, selection.payloadType, selection.ssrc, selection.mtu, sequence),
   ];
 }
 

@@ -77,6 +77,8 @@ export interface EufyConfig {
   ffmpegPath: string | undefined;
   smallVideoPackets: boolean;
   liveVideoPassthrough: boolean;
+  /** Whether live video may be coded by a qualified hardware encoder. On unless set to `false`. */
+  hardwareVideoEncoder: boolean;
   hdLiveVideo: boolean;
   ignoreHomeBitRate: boolean;
   entityPreferences: Record<string, EntityPreference>;
@@ -225,6 +227,7 @@ export function parseConfig(value: unknown): EufyConfig {
     ffmpegPath: configuredFfmpegPath ?? bundledFfmpegPath,
     smallVideoPackets: value.smallVideoPackets === true,
     liveVideoPassthrough: value.liveVideoPassthrough === true,
+    hardwareVideoEncoder: value.hardwareVideoEncoder !== false,
     hdLiveVideo: value.hdLiveVideo === true,
     ignoreHomeBitRate: value.ignoreHomeBitRate === true,
     entityPreferences: parseEntityPreferences(value.entityPreferences),
@@ -281,6 +284,7 @@ export function serializeConfig(config: EufyConfig): Record<string, unknown> {
     ffmpegPath: config.ffmpegPath,
     ...(config.smallVideoPackets ? { smallVideoPackets: true } : {}),
     ...(config.liveVideoPassthrough ? { liveVideoPassthrough: true } : {}),
+    ...(config.hardwareVideoEncoder ? {} : { hardwareVideoEncoder: false }),
     ...(config.hdLiveVideo ? { hdLiveVideo: true } : {}),
     ...(config.ignoreHomeBitRate ? { ignoreHomeBitRate: true } : {}),
     entityPreferences: Object.fromEntries(

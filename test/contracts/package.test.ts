@@ -285,6 +285,7 @@ async function renderUi(
   const advancedFfmpeg = interactiveElement({ value: '' });
   const advancedSmallVideoPackets = interactiveElement({ checked: false });
   const advancedLiveVideoPassthrough = interactiveElement({ checked: false });
+  const advancedHardwareVideoEncoder = interactiveElement({ checked: false });
   const advancedHdLiveVideo = interactiveElement({ checked: false });
   const advancedIgnoreHomeBitRate = interactiveElement({ checked: false });
   /**
@@ -428,6 +429,7 @@ async function renderUi(
           '[data-advanced-ffmpeg]': advancedFfmpeg,
           '[data-advanced-small-video-packets]': advancedSmallVideoPackets,
           '[data-advanced-live-video-passthrough]': advancedLiveVideoPassthrough,
+          '[data-advanced-hardware-video-encoder]': advancedHardwareVideoEncoder,
           '[data-advanced-hd-live-video]': advancedHdLiveVideo,
           '[data-advanced-ignore-home-bit-rate]': advancedIgnoreHomeBitRate,
           '[data-advanced-status]': advancedStatus,
@@ -734,6 +736,7 @@ async function renderUi(
     advancedFfmpeg,
     advancedSmallVideoPackets,
     advancedLiveVideoPassthrough,
+    advancedHardwareVideoEncoder,
     advancedHdLiveVideo,
     advancedIgnoreHomeBitRate,
     advancedStatus,
@@ -1050,6 +1053,8 @@ describe('packed plugin', () => {
           'advancedPollingHelp',
           'advancedLiveVideoPassthroughHelp',
           'advancedLiveVideoPassthroughLabel',
+          'advancedHardwareVideoEncoderHelp',
+          'advancedHardwareVideoEncoderLabel',
           'advancedHdLiveVideoHelp',
           'advancedHdLiveVideoLabel',
           'advancedIgnoreHomeBitRateHelp',
@@ -1521,6 +1526,7 @@ describe('packed plugin', () => {
         advancedPanel: { hidden: false },
         advancedPolling: { value: '15' },
         advancedFfmpeg: { value: '/synthetic/ffmpeg' },
+        advancedHardwareVideoEncoder: { checked: true },
       });
       menuUi.advancedPolling.value = '5';
       await menuUi.advancedPolling.dispatch('change');
@@ -1554,6 +1560,15 @@ describe('packed plugin', () => {
       menuUi.advancedLiveVideoPassthrough.checked = false;
       await menuUi.advancedLiveVideoPassthrough.dispatch('change');
       expect(menuUi.updatedConfig?.[0]).not.toHaveProperty('liveVideoPassthrough');
+      menuUi.advancedHardwareVideoEncoder.checked = false;
+      await menuUi.advancedHardwareVideoEncoder.dispatch('change');
+      expect(menuUi.updatedConfig?.[0]).toMatchObject({ hardwareVideoEncoder: false });
+      menuUi.advancedHardwareVideoEncoder.checked = true;
+      await menuUi.advancedHardwareVideoEncoder.dispatch('change');
+      expect(
+        menuUi.updatedConfig?.[0],
+        'on is what an absent key already means, so it is not stored',
+      ).not.toHaveProperty('hardwareVideoEncoder');
       menuUi.advancedHdLiveVideo.checked = true;
       await menuUi.advancedHdLiveVideo.dispatch('change');
       expect(menuUi.updatedConfig?.[0]).toMatchObject({ hdLiveVideo: true });

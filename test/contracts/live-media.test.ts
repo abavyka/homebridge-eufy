@@ -26,7 +26,9 @@ import {
   FfmpegLiveMedia,
   resolveFfmpegIdentity,
   SMALL_VIDEO_PACKET_SIZE,
+  type EncoderHost,
   type MediaProcess,
+  type QualificationRun,
 } from '../../src/media/live-stream.js';
 import { StallingAdaptationInput } from './stalling-adaptation-input.js';
 
@@ -698,7 +700,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-spawn-failed', stage: 'first-adapted-output' },
     ]);
     expect(spawnFailed.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-video', event: 'spawn-failed' },
     ]);
 
@@ -714,7 +716,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-exited-before-output', stage: 'first-adapted-output' },
     ]);
     expect(exited.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-video', event: 'exited-before-output', code: 234, stderr: ["Unknown encoder 'libx264'"] },
     ]);
   });
@@ -733,7 +735,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-exited-while-streaming', stage: 'first-adapted-output' },
     ]);
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-video', event: 'exited-while-streaming', signal: 'SIGSEGV' },
     ]);
   });
@@ -757,7 +759,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       {
         role: 'live-video',
         event: 'exited-while-streaming',
@@ -790,7 +792,7 @@ describe('live media adaptation', () => {
     expect(session.outcomes, 'a silent camera is not a broken one, so audio never fails the session').toEqual([]);
     expect(session.onVideoFailure).not.toHaveBeenCalled();
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-audio', event: 'started' },
       {
         role: 'live-audio',
@@ -825,7 +827,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-failed', stage: 'first-adapted-output' },
     ]);
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-audio', event: 'started' },
       { role: 'live-audio', event: 'input-failed', stderr: ['Audio encoding failed'] },
       { role: 'live-video', event: 'input-failed', stderr: ['av_interleaved_write_frame(): Broken pipe'] },
@@ -850,7 +852,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-audio', event: 'started' },
       { role: 'live-audio', event: 'started' },
     ]);
@@ -876,7 +878,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-audio', event: 'started' },
       { role: 'live-audio', event: 'exited-before-output', code: 1, stderr: ['Audio encoding failed'] },
     ]);
@@ -901,7 +903,7 @@ describe('live media adaptation', () => {
     expect(noisy.outcomes, 'a stopped session is not a failed one').toEqual([{ outcome: 'streaming' }]);
     expect(noisy.onVideoFailure).not.toHaveBeenCalled();
     expect(noisy.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'live-video', event: 'output', code: 0, signal: 'SIGTERM', stderr: ['Past duration 0.799995 too large'] },
     ]);
 
@@ -915,7 +917,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(silent.notices, 'a process that said nothing has nothing to attribute beyond having started').toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
     ]);
   });
 
@@ -2244,7 +2246,7 @@ describe('isolated return-audio adaptation', () => {
       session.notices,
       'return audio fails only talkback, so without a report of its own its stderr has no account anywhere',
     ).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
       { role: 'return-audio', event: 'spawn-failed' },
     ]);
   });
@@ -2410,6 +2412,388 @@ describe('adaptation binary identity', () => {
       absent.version,
       'a path naming nothing runnable answers nothing, which is what tells it from a missing encoder',
     ).toBeUndefined();
+  });
+});
+
+/** What a synthetic encoder coded for one qualification run, in the fields `trace_headers` reports. */
+interface CodedSelection {
+  profile_idc: number;
+  constraint_set1_flag: number;
+  level_idc: number;
+  pic_width_in_mbs_minus1: number;
+  pic_height_in_map_units_minus1: number;
+  frames: number;
+  bytes: number;
+}
+
+const DARWIN: EncoderHost = { platform: 'darwin', arch: 'arm64', configured: false };
+/** A configured binary on Linux x64, which is tried for QSV, NVENC, AMF and VAAPI in that order. */
+const CONFIGURED_LINUX: EncoderHost = { platform: 'linux', arch: 'x64', configured: true };
+const ALL_SELECTIONS = ['baseline', 'main', 'high'].flatMap((profile) =>
+  ['3.1', '3.2', '4.0'].map((level) => `${profile}@${level}`),
+);
+/** The selection qualification codes Main 3.1 at, so a session's arguments can be compared with it. */
+const QUALIFIED_MAIN: NegotiatedLiveVideo = { ...NEGOTIATED_VIDEO, maxBitRate: 299, mtu: 1378 };
+
+/**
+ * A qualification run that codes exactly what it was asked for, unless `coded` answers otherwise for one
+ * encoder and selection, recording every argument list it was given and the timeout it was given it under.
+ *
+ * An encode is answered with `bytes` of output, and the trace of it with one SPS and one packet per frame in
+ * the layout `trace_headers` writes.
+ */
+function qualificationRun(
+  coded: (encoder: string, selection: string, honest: CodedSelection) => CodedSelection | 'failed' = (_e, _s, c) => c,
+) {
+  const runs: Array<{ args: string[]; timeoutMs: number }> = [];
+  let last: CodedSelection | undefined;
+  const run: QualificationRun = async (_executable, args, _input, timeoutMs) => {
+    runs.push({ args: [...args], timeoutMs });
+    if (args.includes('-bsf:v')) {
+      const { frames, bytes: _bytes, ...fields } = last!;
+      const stderr = [
+        '[trace_headers @ 0x1] Sequence Parameter Set',
+        ...Object.entries(fields).map(([name, value]) => `[trace_headers @ 0x1] 8   ${name}   0101 = ${value}`),
+        ...Array.from({ length: frames }, () => '[trace_headers @ 0x1] Packet: 600 bytes, dts 0, duration 1.'),
+      ].join('\n');
+      return { stdout: Buffer.alloc(0), stderr };
+    }
+    const value = (name: string) => args[args.indexOf(name) + 1]!;
+    const [width, height, rate, seconds] = /size=(\d+)x(\d+):rate=(\d+):duration=(\d+)/
+      .exec(value('-i'))!
+      .slice(1)
+      .map(Number) as [number, number, number, number];
+    const profile = value('-profile:v');
+    const level = args.includes('-level:v') ? value('-level:v').replace('.', '') : '31';
+    const named = profile.replace('constrained_', '');
+    const idc = { baseline: 66, main: 77, high: 100 }[named] ?? Number(profile);
+    const honest: CodedSelection = {
+      profile_idc: idc,
+      constraint_set1_flag: profile === 'constrained_baseline' ? 1 : 0,
+      level_idc: Number(level),
+      pic_width_in_mbs_minus1: width / 16 - 1,
+      pic_height_in_map_units_minus1: Math.ceil(height / 16) - 1,
+      frames: rate * seconds,
+      bytes: 50_000,
+    };
+    const selection = `${{ 66: 'baseline', 77: 'main', 100: 'high' }[idc]}@${level[0]}.${level[1]}`;
+    const answer = coded(value('-c:v'), selection, honest);
+    if (answer === 'failed') {
+      return undefined;
+    }
+    last = answer;
+    return { stdout: Buffer.alloc(answer.bytes), stderr: '' };
+  };
+  return { run, runs };
+}
+
+/** One `FfmpegLiveMedia` whose qualification and sessions are both observable, opened one session at a time. */
+function hardwareMedia({ copy = false, constantQuality = false } = {}) {
+  const spawned: string[][] = [];
+  const children: SyntheticProcess[] = [];
+  const notices: AdaptationNotice[] = [];
+  const media = new FfmpegLiveMedia(
+    '/synthetic/ffmpeg',
+    { report: (notice) => notices.push(notice) },
+    (_executable, args) => {
+      const child = process();
+      spawned.push([...args]);
+      children.push(child);
+      return child;
+    },
+    async () => ({ port: 41000, onMessage: vi.fn(), close: vi.fn() }),
+    undefined,
+    undefined,
+    copy,
+    constantQuality,
+  );
+  const open = async (video: NegotiatedLiveVideo = QUALIFIED_MAIN) => {
+    const stream = new SyntheticLiveStream();
+    const prepared = await media.prepare({
+      addressVersion: 'ipv4',
+      targetAddress: '192.0.2.10',
+      video: {
+        port: 50100,
+        srtpCryptoSuite: 'AES_CM_128_HMAC_SHA1_80',
+        srtpKey: Buffer.alloc(16),
+        srtpSalt: Buffer.alloc(14),
+      },
+    });
+    await prepared.start({ live: async () => stream }, { video });
+    stream.video(KEYFRAME);
+    const args = spawned.at(-1)!;
+    return { prepared, child: children.at(-1)!, encoder: args[args.indexOf('-c:v') + 1], args };
+  };
+  return { media, notices, open };
+}
+
+/** The arguments one encoder was given, from its name to the end of the shared keyframe policy. */
+function encoderSlice(args: readonly string[]): string[] {
+  return args.slice(args.indexOf('-c:v'), args.indexOf('-sc_threshold') + 2);
+}
+
+/** The arguments each encoder tried on `host` was given for Main 3.1, its name and the shared tail aside. */
+async function mainArguments(host: EncoderHost): Promise<Map<string, string[]>> {
+  const { run, runs } = qualificationRun();
+  await hardwareMedia().media.qualify(host, run);
+  const tried = new Map<string, string[]>();
+  for (const { args } of runs.filter(({ args }) => args.includes('-c:v'))) {
+    const name = args[args.indexOf('-c:v') + 1]!;
+    if (['main', '77'].includes(args[args.indexOf('-profile:v') + 1]!) && !tried.has(name)) {
+      tried.set(name, encoderSlice(args).slice(2, -6));
+    }
+  }
+  return tried;
+}
+
+describe('hardware encoder qualification', () => {
+  /**
+   * Each hardware encoder spells profile, level and rate control its own way, and each is tried only where
+   * its binary can carry it. These are the arguments qualification gives a Main 3.1 1280x720@30 selection at
+   * 299 kbps, whose budget after transport is 287 kbps; the scale and pad chain and the keyframe policy are
+   * the session's own.
+   */
+  it('gives each encoder its own spelling of the selection, on the hosts that may carry it', async () => {
+    const rate = ['-b:v', '287k', '-maxrate', '287k'];
+    const vf = (upload = '') => [
+      '-vf',
+      `scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2${upload}`,
+      '-fpsmax',
+      '30',
+    ];
+
+    expect(await mainArguments(DARWIN)).toEqual(
+      new Map([
+        [
+          'h264_videotoolbox',
+          [
+            ...['-profile:v', 'main', '-level:v', '3.1', '-realtime', '1', '-prio_speed', '1', '-bf', '0'],
+            ...['-pix_fmt', 'yuv420p', ...rate, ...vf()],
+          ],
+        ],
+      ]),
+    );
+    expect([...(await mainArguments({ platform: 'win32', arch: 'x64', configured: false })).keys()]).toEqual([
+      'h264_qsv',
+    ]);
+    expect(await mainArguments({ platform: 'linux', arch: 'x64', configured: false })).toEqual(
+      new Map([
+        [
+          'h264_amf',
+          [
+            ...['-profile:v', 'main', '-level:v', '3.1', '-usage', 'ultralowlatency', '-bf', '0'],
+            ...['-pix_fmt', 'yuv420p', ...rate, '-bufsize', '287k', ...vf()],
+          ],
+        ],
+      ]),
+    );
+    expect(await mainArguments({ platform: 'linux', arch: 'arm64', configured: false })).toEqual(
+      new Map([['h264_v4l2m2m', ['-profile:v', '77', '-pix_fmt', 'yuv420p', '-b:v', '287k', ...vf()]]]),
+    );
+    expect(await mainArguments({ platform: 'freebsd', arch: 'x64', configured: false })).toEqual(new Map());
+
+    expect(await mainArguments(CONFIGURED_LINUX)).toEqual(
+      new Map([
+        [
+          'h264_qsv',
+          [
+            ...['-profile:v', 'main', '-level:v', '31', '-pix_fmt', 'nv12', '-bf', '0', '-look_ahead', '0'],
+            ...['-async_depth', '1', ...rate, ...vf()],
+          ],
+        ],
+        [
+          'h264_nvenc',
+          [
+            ...['-profile:v', 'main', '-level:v', '3.1', '-preset', 'p1', '-tune', 'ull', '-zerolatency', '1'],
+            ...['-bf', '0', '-pix_fmt', 'yuv420p', '-rc', 'cbr', ...rate, '-bufsize', '287k', ...vf()],
+          ],
+        ],
+        [
+          'h264_amf',
+          [
+            ...['-profile:v', 'main', '-level:v', '3.1', '-usage', 'ultralowlatency', '-bf', '0'],
+            ...['-pix_fmt', 'yuv420p', ...rate, '-bufsize', '287k', ...vf()],
+          ],
+        ],
+        [
+          'h264_vaapi',
+          [
+            ...['-vaapi_device', '/dev/dri/renderD128', '-profile:v', 'main', '-level:v', '3.1', '-bf', '0'],
+            ...['-async_depth', '1', ...rate, ...vf(',format=nv12,hwupload')],
+          ],
+        ],
+      ]),
+    );
+
+    const { run, runs } = qualificationRun();
+    await hardwareMedia().media.qualify(CONFIGURED_LINUX, run);
+    const profiles = (name: string) =>
+      new Set(runs.filter(({ args }) => args.includes(name)).map(({ args }) => args[args.indexOf('-profile:v') + 1]));
+    expect(profiles('h264_vaapi'), 'VAAPI and AMF spell Baseline only as Constrained Baseline').toEqual(
+      new Set(['constrained_baseline', 'main', 'high']),
+    );
+    expect(profiles('h264_amf')).toEqual(new Set(['constrained_baseline', 'main', 'high']));
+    expect(
+      runs.some(({ args }) => args.includes('-allow_sw')),
+      'no encoder may substitute software',
+    ).toBe(false);
+  });
+
+  /**
+   * Qualification proves every stage against each advertised profile and level: the encoder runs the session's
+   * own arguments, opens, and codes what the selection asked for, which a trace of the coded parameter sets
+   * states. A Baseline coded as Constrained Baseline, and a High coded as Main, are below what was negotiated
+   * and decodable by anything that decodes it.
+   */
+  it('qualifies an encoder whose coded output matches every selection', async () => {
+    const { run, runs } = qualificationRun((_encoder, _selection, honest) =>
+      honest.profile_idc === 66
+        ? { ...honest, constraint_set1_flag: 1 }
+        : honest.profile_idc === 100
+          ? { ...honest, profile_idc: 77 }
+          : honest,
+    );
+    const qualified = await hardwareMedia().media.qualify(DARWIN, run);
+
+    expect(Object.keys(qualified)).toEqual(['h264_videotoolbox']);
+    expect(new Set(qualified.h264_videotoolbox)).toEqual(new Set(ALL_SELECTIONS));
+    expect(runs.find(({ args }) => args.includes('-bsf:v'))?.args, 'the second FFmpeg only traces').toEqual(
+      expect.arrayContaining(['-f', 'h264', '-i', 'pipe:0', '-c', 'copy', '-bsf:v', 'trace_headers', '-f', 'null']),
+    );
+    expect(
+      runs.find(({ args }) => args.includes('testsrc2=size=1920x1080:rate=30:duration=2'))?.args,
+      'level 4.0 is qualified at the largest advertised geometry',
+    ).toEqual(expect.arrayContaining(['-level:v', '4.0', '-f', 'h264', 'pipe:1']));
+  });
+
+  it.each<[string, (honest: CodedSelection) => CodedSelection | 'failed']>([
+    ['a coded profile above the negotiated one', (honest) => ({ ...honest, profile_idc: 100 })],
+    ['a Baseline that is not Constrained Baseline', (honest) => ({ ...honest, profile_idc: 66 })],
+    ['another level', (honest) => ({ ...honest, level_idc: 32 })],
+    ['another width', (honest) => ({ ...honest, pic_width_in_mbs_minus1: 59 })],
+    ['another height', (honest) => ({ ...honest, pic_height_in_map_units_minus1: 33 })],
+    ['a frame short', (honest) => ({ ...honest, frames: 59 })],
+    ['more bytes than the budget and its one second of buffer', (honest) => ({ ...honest, bytes: 107_626 })],
+    ['an encoder that exited non-zero or outlived its timeout', () => 'failed'],
+  ])('rejects %s', async (_case, mismatch) => {
+    const { run } = qualificationRun((_encoder, selection, honest) =>
+      selection === 'main@3.1' ? mismatch(honest) : honest,
+    );
+    const qualified = await hardwareMedia().media.qualify(DARWIN, run);
+
+    expect(new Set(qualified.h264_videotoolbox)).toEqual(
+      new Set(ALL_SELECTIONS.filter((selection) => selection !== 'main@3.1')),
+    );
+  });
+
+  /**
+   * Each run is bounded, and so is qualification as a whole: a selection it has not finished when its minute is
+   * spent stays unqualified.
+   */
+  it('bounds each run and leaves unqualified what its budget did not reach', async () => {
+    vi.useFakeTimers();
+    try {
+      const { run: honest } = qualificationRun();
+      const timeouts: number[] = [];
+      const run: QualificationRun = async (executable, args, input, timeoutMs) => {
+        timeouts.push(timeoutMs);
+        vi.advanceTimersByTime(4_000);
+        return honest(executable, args, input, timeoutMs);
+      };
+      const qualified = await hardwareMedia().media.qualify(DARWIN, run);
+
+      expect(timeouts, 'a run is given at most 10 s, and never more than is left of the minute').toEqual([
+        ...Array<number>(13).fill(10_000),
+        8_000,
+        4_000,
+      ]);
+      expect(qualified.h264_videotoolbox, 'two 4 s runs a selection finish seven inside 60 s').toHaveLength(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('a live session on a qualified encoder', () => {
+  /**
+   * A session is coded by the first encoder qualified for its own profile and level, with exactly the arguments
+   * that encoder was qualified on, and a selection nothing qualified for is coded by libx264. The `started`
+   * record names the encoder, so a support archive states which one served the session.
+   */
+  it('uses the first encoder qualified for its selection, and libx264 for one nothing qualified', async () => {
+    const { run, runs } = qualificationRun((encoder, selection, honest) =>
+      encoder === 'h264_qsv' || selection === 'high@4.0' ? 'failed' : honest,
+    );
+    const { media, notices, open } = hardwareMedia();
+    await media.qualify(CONFIGURED_LINUX, run);
+
+    const main = await open();
+    expect(main.encoder).toBe('h264_nvenc');
+    expect(encoderSlice(main.args), 'a session runs what was qualified').toEqual(
+      encoderSlice(
+        runs.find(
+          ({ args }) =>
+            args.includes('h264_nvenc') && args.includes('main') && args.includes('3.1') && !args.includes('4.0'),
+        )!.args,
+      ),
+    );
+    main.prepared.stop();
+
+    const high = await open({ ...QUALIFIED_MAIN, width: 1920, height: 1080, profile: 'high', level: '4.0' });
+    expect(high.encoder).toBe('libx264');
+    expect(high.args).toEqual(expect.arrayContaining(['-preset', 'superfast', '-tune', 'zerolatency']));
+    high.prepared.stop();
+
+    expect(notices.filter(({ event }) => event === 'started')).toEqual([
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'h264_nvenc' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+    ]);
+  });
+
+  /**
+   * A qualified encoder that exits before its first output in a real session serves nothing for the rest of
+   * the run, and says so: the next session goes to the next encoder qualified for it, and the last to libx264.
+   * An exit after output is a run that worked, and disqualifies nothing.
+   */
+  it('disqualifies an encoder that exits before output, and the next session moves on', async () => {
+    const { run } = qualificationRun((encoder, _selection, honest) => (encoder === 'h264_qsv' ? 'failed' : honest));
+    const { media, notices, open } = hardwareMedia();
+    await media.qualify(CONFIGURED_LINUX, run);
+
+    const streamed = await open();
+    streamed.child.stderr.push('progress=continue\n');
+    await settle();
+    streamed.child.emit('exit', 1, null);
+    await settle();
+    const served: string[] = [];
+    for (let session = 0; session < 4; session += 1) {
+      const next = await open();
+      served.push(next.encoder!);
+      next.child.emit('exit', 1, null);
+      await settle();
+    }
+
+    expect(served).toEqual(['h264_nvenc', 'h264_amf', 'h264_vaapi', 'libx264']);
+    expect(notices.filter(({ event }) => event === 'encoder-disqualified')).toEqual([
+      { role: 'live-video', event: 'encoder-disqualified', encoder: 'h264_nvenc' },
+      { role: 'live-video', event: 'encoder-disqualified', encoder: 'h264_amf' },
+      { role: 'live-video', event: 'encoder-disqualified', encoder: 'h264_vaapi' },
+    ]);
+  });
+
+  /** A copied source and a constant-quality session have no bit-rate ceiling to qualify, so hardware codes neither. */
+  it('leaves passthrough and constant quality to their own arguments', async () => {
+    const copy = hardwareMedia({ copy: true });
+    await copy.media.qualify(DARWIN, qualificationRun().run);
+    expect((await copy.open()).encoder).toBe('copy');
+    expect(copy.notices[0]).toEqual({ role: 'live-video', event: 'started', cause: 'first', encoder: 'copy' });
+
+    const quality = hardwareMedia({ constantQuality: true });
+    await quality.media.qualify(DARWIN, qualificationRun().run);
+    const constant = await quality.open();
+    expect(constant.encoder).toBe('libx264');
+    expect(constant.args[constant.args.indexOf('-crf') + 1]).toBe('23');
+    expect(constant.args).not.toContain('-b:v');
   });
 });
 
