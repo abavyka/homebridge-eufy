@@ -4,6 +4,7 @@ import type {
   LiveStreamStartFailureReason,
   LiveStreamStartStage,
   TalkbackHandle,
+  VideoCodec,
 } from '@mega-yfue/eufy-sdk';
 
 import type { SnapshotMode } from '../configuration.js';
@@ -158,9 +159,13 @@ export type AdaptationRole = 'live-video' | 'live-audio' | 'return-audio' | 'rec
  * `input-failed` is a process that stopped accepting the media it was still being given, which is observed on
  * the pipe rather than in an exit status: the process may still be running, and the exit that follows is the
  * one this domain asked for. It is reported apart from an exit because it carries no status of its own.
+ *
+ * `encoder-disqualified` is a qualified hardware encoder that exited before output in a session, and serves
+ * no selection for the rest of the run.
  */
 export type AdaptationEvent =
   | 'started'
+  | 'encoder-disqualified'
   | 'spawn-failed'
   | 'input-failed'
   | 'exited-before-output'
@@ -196,6 +201,10 @@ export interface AdaptationNotice {
    * is judged against what the previous process left, while a first one starts against nothing.
    */
   readonly cause?: AdaptationCause;
+  /** The encoder a live video process codes with, `copy` where it codes nothing, on `started` and `encoder-disqualified`. */
+  readonly encoder?: string;
+  /** The codec the source delivers to a live video process, on `started`. */
+  readonly source?: VideoCodec;
   readonly code?: number;
   readonly signal?: string;
   readonly stderr?: readonly string[];

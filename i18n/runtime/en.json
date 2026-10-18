@@ -44,6 +44,7 @@
   "log.condition.affectedOne": "1 accessory is affected.",
   "log.condition.recovered": "Recovered: {summary}.",
   "log.diagnosticFileFailed": "Diagnostic file logging failed; check storage permissions.",
+  "log.liveVideoEncoders": "Live video encoders, in order of use: {encoders}.",
   "log.discardedSettings": "Some legacy settings were discarded. Review and acknowledge them in the Homebridge Eufy dashboard.",
   "log.snapshotCacheInvalid": "An invalid retained camera image was removed",
   "log.homekit.batteryCapabilityUnavailable": "Battery information is unavailable",

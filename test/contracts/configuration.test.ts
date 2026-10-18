@@ -165,6 +165,7 @@ describe('V5 configuration', () => {
       ffmpegPath: '/synthetic/ffmpeg',
       smallVideoPackets: true,
       liveVideoPassthrough: true,
+      hardwareVideoEncoder: false,
       hdLiveVideo: true,
       ignoreHomeBitRate: true,
       maxConcurrentMediaSessions: 4,
@@ -192,6 +193,7 @@ describe('V5 configuration', () => {
       ffmpegPath: '/synthetic/ffmpeg',
       smallVideoPackets: true,
       liveVideoPassthrough: true,
+      hardwareVideoEncoder: false,
       hdLiveVideo: true,
       ignoreHomeBitRate: true,
       maxConcurrentMediaSessions: 4,
@@ -217,6 +219,16 @@ describe('V5 configuration', () => {
       securitySystem: true,
       snapshotMode: 'Refresh',
       armingModes: { home: 'home', away: 'away', off: 'disarmed' },
+    });
+  });
+
+  /** Hardware encoding is on unless turned off, and only turning it off is written back. */
+  it('reads hardware video encoding as on unless it is set to false, and writes back only false', () => {
+    expect(parseConfig({ platform: 'HomebridgeEufy' }).hardwareVideoEncoder).toBe(true);
+    expect(parseConfig({ platform: 'HomebridgeEufy', hardwareVideoEncoder: true }).hardwareVideoEncoder).toBe(true);
+    expect(serializeConfig(parseConfig({ platform: 'HomebridgeEufy' }))).not.toHaveProperty('hardwareVideoEncoder');
+    expect(serializeConfig(parseConfig({ platform: 'HomebridgeEufy', hardwareVideoEncoder: false }))).toMatchObject({
+      hardwareVideoEncoder: false,
     });
   });
 

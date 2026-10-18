@@ -10,6 +10,7 @@ import {
   GuidedDiagnostics,
   reportAdaptationNotice,
   reportHomeKitEvent,
+  reportLiveVideoEncoders,
   reportStationClaim,
 } from '../../src/diagnostics.js';
 
@@ -149,6 +150,65 @@ describe('an adaptation that has started', () => {
     const debug = vi.fn();
     reportAdaptationNotice({ debug }, { role: 'live-video', event: 'started', stderr: ['srtp://192.0.2.10:5000'] });
     expect(JSON.stringify(records(debug))).not.toContain('192.0.2.10');
+  });
+
+  /**
+   * The record names the encoder that codes the session and the codec its source delivers, each from a closed
+   * set, so a copied stream is told from a converted one and a conversion from its cause.
+   */
+  it('names the encoder it codes with and the source codec, and only ones this build names', () => {
+    const debug = vi.fn();
+    reportAdaptationNotice({ debug }, { role: 'live-video', event: 'started', encoder: 'copy', source: 'h264' });
+    reportAdaptationNotice(
+      { debug },
+      { role: 'live-video', event: 'started', encoder: 'h264_videotoolbox', source: 'h265' },
+    );
+    reportAdaptationNotice({ debug }, {
+      role: 'live-video',
+      event: 'started',
+      encoder: '/synthetic/encoder',
+      source: '/synthetic/codec',
+    } as never);
+    expect(records(debug).map(({ encoder, source }) => [encoder, source])).toEqual([
+      ['copy', 'h264'],
+      ['h264_videotoolbox', 'h265'],
+      [undefined, undefined],
+    ]);
+  });
+});
+
+describe('the encoders live video is coded by', () => {
+  /** Once qualification ends the log states which encoders serve live video, in the order a session picks them. */
+  it('names every qualified hardware encoder this build knows, then libx264', () => {
+    const info = vi.fn();
+    reportLiveVideoEncoders(
+      { info },
+      {
+        h264_amf: { 'main@3.1': 'qualified', 'high@4.0': 'encode' },
+        h264_qsv: { 'main@3.1': 'encode' },
+        '/synthetic/encoder': { 'main@3.1': 'qualified' },
+      },
+    );
+    reportLiveVideoEncoders({ info }, {});
+    expect(info.mock.calls).toEqual([
+      ['[live-video-encoders] Live video encoders, in order of use: h264_amf, libx264.'],
+      ['[live-video-encoders] Live video encoders, in order of use: libx264.'],
+    ]);
+  });
+});
+
+describe('a hardware encoder disqualified during a session', () => {
+  /** An encoder that stops serving for the rest of the run is a failure a reader acts on, named by the encoder. */
+  it('is recorded as a warning that names the encoder', () => {
+    const debug = vi.fn();
+    reportAdaptationNotice({ debug }, { role: 'live-video', event: 'encoder-disqualified', encoder: 'h264_amf' });
+    expect(records(debug)[0]).toMatchObject({
+      scope: 'ffmpeg',
+      level: 'warn',
+      role: 'live-video',
+      event: 'encoder-disqualified',
+      encoder: 'h264_amf',
+    });
   });
 });
 
