@@ -1548,11 +1548,11 @@ describe('guided diagnostics session', () => {
   });
 
   /**
-   * The qualified hardware encoders travel with the binary that qualified them, bounded by two closed sets: an
-   * encoder this build names, and a profile and level a controller can negotiate. Anything else in the record
-   * is dropped rather than carried into an archive.
+   * Each hardware encoder's qualification travels with the binary that ran it, bounded by three closed sets: an
+   * encoder this build names, a profile and level a controller can negotiate, and an outcome qualification
+   * reports. Anything else in the record is dropped rather than carried into an archive.
    */
-  it('keeps the qualified encoders this build names, and nothing else', async () => {
+  it('keeps the encoder qualification this build names, and nothing else', async () => {
     const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
     const { publicKey, privateKey } = generateKeyPairSync('rsa', {
       modulusLength: 2048,
@@ -1576,10 +1576,17 @@ describe('guided diagnostics session', () => {
             path: '/synthetic/bin/ffmpeg',
             source: 'bundled',
             encoders: {
-              h264_videotoolbox: ['main@3.1', 'main@3.1', 'high@4.0', 'main@5.1', 'x'.repeat(4096), 7],
-              h264_amf: [],
-              h264_invented: ['main@3.1'],
-              ['y'.repeat(4096)]: ['main@3.1'],
+              h264_videotoolbox: {
+                'main@3.1': 'qualified',
+                'high@4.0': 'bytes',
+                'main@3.2': 'invented',
+                'main@5.1': 'qualified',
+                'main@3.1@x': 'qualified',
+                ['x'.repeat(4096)]: 'qualified',
+              },
+              h264_amf: {},
+              h264_invented: { 'main@3.1': 'qualified' },
+              ['y'.repeat(4096)]: { 'main@3.1': 'qualified' },
             },
           },
         })}\n`,
@@ -1598,7 +1605,7 @@ describe('guided diagnostics session', () => {
       expect(environment.ffmpeg).toEqual({
         path: '/synthetic/bin/ffmpeg',
         source: 'bundled',
-        encoders: { h264_videotoolbox: ['main@3.1', 'high@4.0'], h264_amf: [] },
+        encoders: { h264_videotoolbox: { 'main@3.1': 'qualified', 'high@4.0': 'bytes' }, h264_amf: {} },
       });
     } finally {
       rmSync(root, { force: true, recursive: true });

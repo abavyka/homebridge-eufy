@@ -517,7 +517,15 @@ const runQualification: QualificationRun = (executable, args, input, timeoutMs) 
   });
 
 /**
- * Whether `encoder` passes every qualification stage for `selection` before `deadline`.
+ * What qualifying one hardware encoder for one selection found: `qualified`, or the first check it failed.
+ *
+ * `budget` is qualification's deadline reached before a run, `encode` a coding run that exited non-zero, failed
+ * to start, or timed out, and `trace` a tracing run that did. The rest name the coded fact that differed.
+ */
+type QualificationOutcome = 'qualified' | 'budget' | 'encode' | 'trace' | 'profile' | 'level' | 'geometry' | 'frames' | 'bytes';
+
+/**
+ * Qualifies `encoder` for `selection` before `deadline`.
  *
  * The encoder codes {@link QUALIFICATION_SECONDS} of moving synthetic picture through the session's own
  * argument list, which proves it is named by the binary, accepts those arguments, and opens on this host's
@@ -525,16 +533,16 @@ const runQualification: QualificationRun = (executable, args, input, timeoutMs) 
  * below the negotiated one, the negotiated level and macroblock geometry, every frame, and no more bytes than
  * the encoder budget plus the one second of it the session's rate control may borrow.
  */
-async function qualifies(
+async function qualification(
   executable: string,
   encoder: LiveVideoEncoder,
   selection: NegotiatedLiveVideo,
   run: QualificationRun,
   deadline: number,
-): Promise<boolean> {
+): Promise<QualificationOutcome> {
   const within = (args: string[], input?: Buffer) => {
     const left = deadline - Date.now();
-    return left > 0 ? run(executable, args, input, Math.min(left, QUALIFICATION_RUN_TIMEOUT_MS)) : undefined;
+    return left > 0 ? run(executable, args, input, Math.min(left, QUALIFICATION_RUN_TIMEOUT_MS)) : ('budget' as const);
   };
   const coded = await within([
     '-hide_banner',
@@ -549,26 +557,31 @@ async function qualifies(
     'h264',
     'pipe:1',
   ]);
-  const traced =
-    coded &&
-    (await within(
-      ['-hide_banner', '-f', 'h264', '-i', 'pipe:0', '-c', 'copy', '-bsf:v', 'trace_headers', '-f', 'null', '-'],
-      coded.stdout,
-    ));
-  if (!coded || !traced) {
-    return false;
+  if (!coded || coded === 'budget') {
+    return coded ?? 'encode';
+  }
+  const traced = await within(
+    ['-hide_banner', '-f', 'h264', '-i', 'pipe:0', '-c', 'copy', '-bsf:v', 'trace_headers', '-f', 'null', '-'],
+    coded.stdout,
+  );
+  if (!traced || traced === 'budget') {
+    return traced ?? 'trace';
   }
   const field = (name: string) => Number(new RegExp(`\\b${name}\\s.*= (\\d+)$`, 'm').exec(traced.stderr)?.[1]);
   const profile = field('profile_idc');
   const wanted = PROFILE_IDC[selection.profile];
-  return (
-    (profile === wanted || (profile === 66 && field('constraint_set1_flag') === 1) || (profile === 77 && wanted === 100)) &&
-    field('level_idc') === Number(selection.level.replace('.', '')) &&
-    field('pic_width_in_mbs_minus1') + 1 === Math.ceil(selection.width / 16) &&
-    field('pic_height_in_map_units_minus1') + 1 === Math.ceil(selection.height / 16) &&
-    (traced.stderr.match(/\bPacket: /g)?.length ?? 0) === selection.fps * QUALIFICATION_SECONDS &&
-    coded.stdout.length * 8 <= videoBudgetInsideCeiling(selection) * 1_000 * (QUALIFICATION_SECONDS + 1)
-  );
+  const checks: ReadonlyArray<readonly [QualificationOutcome, boolean]> = [
+    ['profile', profile === wanted || (profile === 66 && field('constraint_set1_flag') === 1) || (profile === 77 && wanted === 100)],
+    ['level', field('level_idc') === Number(selection.level.replace('.', ''))],
+    [
+      'geometry',
+      field('pic_width_in_mbs_minus1') + 1 === Math.ceil(selection.width / 16) &&
+        field('pic_height_in_map_units_minus1') + 1 === Math.ceil(selection.height / 16),
+    ],
+    ['frames', (traced.stderr.match(/\bPacket: /g)?.length ?? 0) === selection.fps * QUALIFICATION_SECONDS],
+    ['bytes', coded.stdout.length * 8 <= videoBudgetInsideCeiling(selection) * 1_000 * (QUALIFICATION_SECONDS + 1)],
+  ];
+  return checks.find(([, passed]) => !passed)?.[0] ?? 'qualified';
 }
 
 /** The live video packet size an administrator can choose for networks that drop the negotiated one. */
@@ -597,21 +610,28 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
 
   /**
    * Qualifies every hardware encoder `host`'s binary may carry against every selection it is qualified for,
-   * one run after another and within {@link QUALIFICATION_BUDGET_MS}, and returns what qualified.
+   * one run after another and within {@link QUALIFICATION_BUDGET_MS}, and returns each tried encoder's
+   * outcome per `profile@level`.
    *
    * Until a selection qualifies it is coded by `libx264`, and a selection no encoder qualifies for stays there.
    */
-  async qualify(host: EncoderHost, run: QualificationRun = runQualification): Promise<Record<string, string[]>> {
+  async qualify(
+    host: EncoderHost,
+    run: QualificationRun = runQualification,
+  ): Promise<Record<string, Record<string, QualificationOutcome>>> {
     const deadline = Date.now() + QUALIFICATION_BUDGET_MS;
+    const outcomes: Record<string, Record<string, QualificationOutcome>> = {};
     for (const encoder of HARDWARE_ENCODERS.filter((candidate) => candidate.triedOn(host))) {
+      const tried: Record<string, QualificationOutcome> = (outcomes[encoder.name] = {});
       for (const selection of QUALIFICATION_SELECTIONS) {
-        if (await qualifies(this.executable, encoder, selection, run, deadline)) {
-          const selections = this.qualified.get(encoder.name) ?? new Set<string>();
-          this.qualified.set(encoder.name, selections.add(`${selection.profile}@${selection.level}`));
+        const key = `${selection.profile}@${selection.level}`;
+        tried[key] = await qualification(this.executable, encoder, selection, run, deadline);
+        if (tried[key] === 'qualified') {
+          this.qualified.set(encoder.name, (this.qualified.get(encoder.name) ?? new Set<string>()).add(key));
         }
       }
     }
-    return Object.fromEntries([...this.qualified].map(([name, selections]) => [name, [...selections]]));
+    return outcomes;
   }
 
   /** The first hardware encoder qualified for `selection`, or `libx264` where none is. */
@@ -952,6 +972,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           event: 'started',
           cause: videoCause,
           encoder: encoderName,
+          source: videoConfig.codec,
         });
         const stderr = new AdaptationStderr();
         let producedOutput = false;

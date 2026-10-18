@@ -700,7 +700,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-spawn-failed', stage: 'first-adapted-output' },
     ]);
     expect(spawnFailed.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-video', event: 'spawn-failed' },
     ]);
 
@@ -716,7 +716,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-exited-before-output', stage: 'first-adapted-output' },
     ]);
     expect(exited.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-video', event: 'exited-before-output', code: 234, stderr: ["Unknown encoder 'libx264'"] },
     ]);
   });
@@ -735,7 +735,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-exited-while-streaming', stage: 'first-adapted-output' },
     ]);
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-video', event: 'exited-while-streaming', signal: 'SIGSEGV' },
     ]);
   });
@@ -759,7 +759,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       {
         role: 'live-video',
         event: 'exited-while-streaming',
@@ -792,7 +792,7 @@ describe('live media adaptation', () => {
     expect(session.outcomes, 'a silent camera is not a broken one, so audio never fails the session').toEqual([]);
     expect(session.onVideoFailure).not.toHaveBeenCalled();
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-audio', event: 'started' },
       {
         role: 'live-audio',
@@ -827,7 +827,7 @@ describe('live media adaptation', () => {
       { outcome: 'failed', reason: 'adaptation-failed', stage: 'first-adapted-output' },
     ]);
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-audio', event: 'started' },
       { role: 'live-audio', event: 'input-failed', stderr: ['Audio encoding failed'] },
       { role: 'live-video', event: 'input-failed', stderr: ['av_interleaved_write_frame(): Broken pipe'] },
@@ -852,7 +852,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-audio', event: 'started' },
       { role: 'live-audio', event: 'started' },
     ]);
@@ -878,7 +878,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(session.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-audio', event: 'started' },
       { role: 'live-audio', event: 'exited-before-output', code: 1, stderr: ['Audio encoding failed'] },
     ]);
@@ -903,7 +903,7 @@ describe('live media adaptation', () => {
     expect(noisy.outcomes, 'a stopped session is not a failed one').toEqual([{ outcome: 'streaming' }]);
     expect(noisy.onVideoFailure).not.toHaveBeenCalled();
     expect(noisy.notices).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'live-video', event: 'output', code: 0, signal: 'SIGTERM', stderr: ['Past duration 0.799995 too large'] },
     ]);
 
@@ -917,7 +917,7 @@ describe('live media adaptation', () => {
     await settle();
 
     expect(silent.notices, 'a process that said nothing has nothing to attribute beyond having started').toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
     ]);
   });
 
@@ -1044,7 +1044,8 @@ describe('live media adaptation', () => {
   /**
    * Every access unit a session accepts has to reach the process that codes it, byte for byte and in order.
    * The count is the only thing that catches a whole group of pictures being lost silently: a session that
-   * drops frames still starts, still reports progress, and still produces a coded stream.
+   * drops frames still starts, still reports progress, and still produces a coded stream. Its `started` record
+   * names the source codec, so a support archive tells a copied stream from a converted one.
    */
   it.each(['h264', 'h265'] as const)(
     'writes every %s access unit it accepts to the adaptation, in order and unaltered',
@@ -1066,6 +1067,7 @@ describe('live media adaptation', () => {
 
       expect(session.children).toHaveLength(1);
       expect(session.spawned[0]![session.spawned[0]!.indexOf('-f') + 1]).toBe(codec === 'h265' ? 'hevc' : 'h264');
+      expect(session.notices[0], 'the started record names the source codec').toMatchObject({ source: codec });
       expect(Buffer.concat(session.children[0]!.input)).toEqual(Buffer.concat(gop.map(({ data }) => data)));
       session.prepared.stop();
     },
@@ -2246,7 +2248,7 @@ describe('isolated return-audio adaptation', () => {
       session.notices,
       'return audio fails only talkback, so without a report of its own its stderr has no account anywhere',
     ).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'return-audio', event: 'spawn-failed' },
     ]);
   });
@@ -2432,6 +2434,8 @@ const CONFIGURED_LINUX: EncoderHost = { platform: 'linux', arch: 'x64', configur
 const ALL_SELECTIONS = ['baseline', 'main', 'high'].flatMap((profile) =>
   ['3.1', '3.2', '4.0'].map((level) => `${profile}@${level}`),
 );
+/** Every selection qualified. */
+const ALL_QUALIFIED = Object.fromEntries(ALL_SELECTIONS.map((selection) => [selection, 'qualified']));
 /** The selection qualification codes Main 3.1 at, so a session's arguments can be compared with it. */
 const QUALIFIED_MAIN: NegotiatedLiveVideo = { ...NEGOTIATED_VIDEO, maxBitRate: 299, mtu: 1378 };
 
@@ -2440,16 +2444,23 @@ const QUALIFIED_MAIN: NegotiatedLiveVideo = { ...NEGOTIATED_VIDEO, maxBitRate: 2
  * encoder and selection, recording every argument list it was given and the timeout it was given it under.
  *
  * An encode is answered with `bytes` of output, and the trace of it with one SPS and one packet per frame in
- * the layout `trace_headers` writes.
+ * the layout `trace_headers` writes, or with a failed run where `coded` answered `untraced`.
  */
 function qualificationRun(
-  coded: (encoder: string, selection: string, honest: CodedSelection) => CodedSelection | 'failed' = (_e, _s, c) => c,
+  coded: (encoder: string, selection: string, honest: CodedSelection) => CodedSelection | 'failed' | 'untraced' = (
+    _e,
+    _s,
+    c,
+  ) => c,
 ) {
   const runs: Array<{ args: string[]; timeoutMs: number }> = [];
   let last: CodedSelection | undefined;
   const run: QualificationRun = async (_executable, args, _input, timeoutMs) => {
     runs.push({ args: [...args], timeoutMs });
     if (args.includes('-bsf:v')) {
+      if (!last) {
+        return undefined;
+      }
       const { frames, bytes: _bytes, ...fields } = last!;
       const stderr = [
         '[trace_headers @ 0x1] Sequence Parameter Set',
@@ -2481,8 +2492,8 @@ function qualificationRun(
     if (answer === 'failed') {
       return undefined;
     }
-    last = answer;
-    return { stdout: Buffer.alloc(answer.bytes), stderr: '' };
+    last = answer === 'untraced' ? undefined : answer;
+    return { stdout: Buffer.alloc(last?.bytes ?? 0), stderr: '' };
   };
   return { run, runs };
 }
@@ -2655,8 +2666,7 @@ describe('hardware encoder qualification', () => {
     );
     const qualified = await hardwareMedia().media.qualify(DARWIN, run);
 
-    expect(Object.keys(qualified)).toEqual(['h264_videotoolbox']);
-    expect(new Set(qualified.h264_videotoolbox)).toEqual(new Set(ALL_SELECTIONS));
+    expect(qualified).toEqual({ h264_videotoolbox: ALL_QUALIFIED });
     expect(runs.find(({ args }) => args.includes('-bsf:v'))?.args, 'the second FFmpeg only traces').toEqual(
       expect.arrayContaining(['-f', 'h264', '-i', 'pipe:0', '-c', 'copy', '-bsf:v', 'trace_headers', '-f', 'null']),
     );
@@ -2666,29 +2676,29 @@ describe('hardware encoder qualification', () => {
     ).toEqual(expect.arrayContaining(['-level:v', '4.0', '-f', 'h264', 'pipe:1']));
   });
 
-  it.each<[string, (honest: CodedSelection) => CodedSelection | 'failed']>([
-    ['a coded profile above the negotiated one', (honest) => ({ ...honest, profile_idc: 100 })],
-    ['a Baseline that is not Constrained Baseline', (honest) => ({ ...honest, profile_idc: 66 })],
-    ['another level', (honest) => ({ ...honest, level_idc: 32 })],
-    ['another width', (honest) => ({ ...honest, pic_width_in_mbs_minus1: 59 })],
-    ['another height', (honest) => ({ ...honest, pic_height_in_map_units_minus1: 33 })],
-    ['a frame short', (honest) => ({ ...honest, frames: 59 })],
-    ['more bytes than the budget and its one second of buffer', (honest) => ({ ...honest, bytes: 107_626 })],
-    ['an encoder that exited non-zero or outlived its timeout', () => 'failed'],
-  ])('rejects %s', async (_case, mismatch) => {
+  /** A selection that fails qualification is recorded with the first check it failed. */
+  it.each<[string, string, (honest: CodedSelection) => CodedSelection | 'failed' | 'untraced']>([
+    ['a coded profile above the negotiated one', 'profile', (honest) => ({ ...honest, profile_idc: 100 })],
+    ['a Baseline that is not Constrained Baseline', 'profile', (honest) => ({ ...honest, profile_idc: 66 })],
+    ['another level', 'level', (honest) => ({ ...honest, level_idc: 32 })],
+    ['another width', 'geometry', (honest) => ({ ...honest, pic_width_in_mbs_minus1: 59 })],
+    ['another height', 'geometry', (honest) => ({ ...honest, pic_height_in_map_units_minus1: 33 })],
+    ['a frame short', 'frames', (honest) => ({ ...honest, frames: 59 })],
+    ['more bytes than the budget and its one second of buffer', 'bytes', (honest) => ({ ...honest, bytes: 107_626 })],
+    ['an encoder that exited non-zero or outlived its timeout', 'encode', () => 'failed'],
+    ['a coded stream the trace could not read', 'trace', () => 'untraced'],
+  ])('rejects %s as %s', async (_case, outcome, mismatch) => {
     const { run } = qualificationRun((_encoder, selection, honest) =>
       selection === 'main@3.1' ? mismatch(honest) : honest,
     );
     const qualified = await hardwareMedia().media.qualify(DARWIN, run);
 
-    expect(new Set(qualified.h264_videotoolbox)).toEqual(
-      new Set(ALL_SELECTIONS.filter((selection) => selection !== 'main@3.1')),
-    );
+    expect(qualified.h264_videotoolbox).toEqual({ ...ALL_QUALIFIED, 'main@3.1': outcome });
   });
 
   /**
    * Each run is bounded, and so is qualification as a whole: a selection it has not finished when its minute is
-   * spent stays unqualified.
+   * spent stays unqualified, recorded as `budget`.
    */
   it('bounds each run and leaves unqualified what its budget did not reach', async () => {
     vi.useFakeTimers();
@@ -2707,7 +2717,11 @@ describe('hardware encoder qualification', () => {
         8_000,
         4_000,
       ]);
-      expect(qualified.h264_videotoolbox, 'two 4 s runs a selection finish seven inside 60 s').toHaveLength(7);
+      expect(Object.values(qualified.h264_videotoolbox!), 'two 4 s runs a selection finish seven inside 60 s').toEqual([
+        ...Array<string>(7).fill('qualified'),
+        'budget',
+        'budget',
+      ]);
     } finally {
       vi.useRealTimers();
     }
@@ -2745,8 +2759,8 @@ describe('a live session on a qualified encoder', () => {
     high.prepared.stop();
 
     expect(notices.filter(({ event }) => event === 'started')).toEqual([
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'h264_nvenc' },
-      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'h264_nvenc', source: 'h264' },
+      { role: 'live-video', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
     ]);
   });
 
@@ -2786,7 +2800,13 @@ describe('a live session on a qualified encoder', () => {
     const copy = hardwareMedia({ copy: true });
     await copy.media.qualify(DARWIN, qualificationRun().run);
     expect((await copy.open()).encoder).toBe('copy');
-    expect(copy.notices[0]).toEqual({ role: 'live-video', event: 'started', cause: 'first', encoder: 'copy' });
+    expect(copy.notices[0]).toEqual({
+      role: 'live-video',
+      event: 'started',
+      cause: 'first',
+      encoder: 'copy',
+      source: 'h264',
+    });
 
     const quality = hardwareMedia({ constantQuality: true });
     await quality.media.qualify(DARWIN, qualificationRun().run);

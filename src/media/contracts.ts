@@ -4,6 +4,7 @@ import type {
   LiveStreamStartFailureReason,
   LiveStreamStartStage,
   TalkbackHandle,
+  VideoCodec,
 } from '@mega-yfue/eufy-sdk';
 
 import type { SnapshotMode } from '../configuration.js';
@@ -202,6 +203,8 @@ export interface AdaptationNotice {
   readonly cause?: AdaptationCause;
   /** The encoder a live video process codes with, `copy` where it codes nothing, on `started` and `encoder-disqualified`. */
   readonly encoder?: string;
+  /** The codec the source delivers to a live video process, on `started`. */
+  readonly source?: VideoCodec;
   readonly code?: number;
   readonly signal?: string;
   readonly stderr?: readonly string[];

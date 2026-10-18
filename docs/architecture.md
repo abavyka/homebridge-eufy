@@ -802,7 +802,10 @@ run, so the encoder being named, accepting those arguments, and opening on this 
 in one run. A second FFmpeg then traces the coded parameter sets, which proves the fourth stage without a
 bitstream parser of the plugin's own: a profile at or below the negotiated one, the negotiated level and
 macroblock geometry, every frame, and bytes inside the budget plus the one second of it the rate control may
-borrow. A hardware encoder that exits before output in a session serves nothing for the rest of the run.
+borrow. Each selection's outcome, `qualified` or the first check it failed, is recorded with the binary, and
+each live video `started` record names its encoder and source codec, so an archive states why a session was
+copied, hardware-coded or coded by `libx264`. A hardware encoder that exits before output in a session serves
+nothing for the rest of the run.
 
 No candidate is given `-allow_sw`. VideoToolbox would otherwise substitute Apple's software encoder without
 saying so, and qualification would be measuring an encoder the session never asked for. `h264_v4l2m2m`

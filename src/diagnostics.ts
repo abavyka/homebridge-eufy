@@ -682,8 +682,8 @@ interface PersistedFfmpegEnvironment {
   path: string;
   source: 'bundled' | 'configured';
   version?: string;
-  /** Each hardware encoder that qualified, with the `profile@level` selections it qualified for. */
-  encoders?: Record<string, string[]>;
+  /** Each hardware encoder qualification tried, with its outcome per `profile@level` selection. */
+  encoders?: Record<string, Record<string, string>>;
 }
 
 /**
@@ -850,7 +850,7 @@ function readFfmpegIdentity(value: unknown): PersistedFfmpegEnvironment | undefi
     typeof recorded.version === 'string' ? boundedText(recorded.version, MAX_FFMPEG_IDENTITY_LENGTH) : undefined;
   const encoders =
     recorded.encoders && typeof recorded.encoders === 'object' && !Array.isArray(recorded.encoders)
-      ? readQualifiedEncoders(recorded.encoders as Record<string, unknown>)
+      ? readEncoderQualification(recorded.encoders as Record<string, unknown>)
       : undefined;
   return path === undefined
     ? undefined
@@ -863,18 +863,28 @@ function readFfmpegIdentity(value: unknown): PersistedFfmpegEnvironment | undefi
 }
 
 /**
- * The recorded qualified encoders, keeping only encoder names and `profile@level` selections this build
- * names, so the record is bounded by those two closed sets.
+ * The recorded encoder qualification, keeping only encoder names, `profile@level` selections and outcomes this
+ * build names, so the record is bounded by those three closed sets.
  */
-function readQualifiedEncoders(recorded: Record<string, unknown>): Record<string, string[]> {
+function readEncoderQualification(recorded: Record<string, unknown>): Record<string, Record<string, string>> {
   return Object.fromEntries(
     LIVE_VIDEO_ENCODERS.filter((name) => Object.hasOwn(recorded, name)).map((name) => {
-      const selections = Array.isArray(recorded[name]) ? (recorded[name] as unknown[]) : [];
-      const named = selections.filter((selection): selection is string => {
-        const [profile, level] = String(selection).split('@');
-        return HOMEKIT_LIVE_VIDEO_PROFILES.has(profile!) && HOMEKIT_LIVE_VIDEO_LEVELS.has(level!);
-      });
-      return [name, [...new Set(named)]];
+      const outcomes = recorded[name] && typeof recorded[name] === 'object' ? Object.entries(recorded[name]) : [];
+      return [
+        name,
+        Object.fromEntries(
+          outcomes.flatMap(([selection, value]) => {
+            const [profile, level] = selection.split('@');
+            const outcome = allowlistedLabel(value, QUALIFICATION_OUTCOMES);
+            return HOMEKIT_LIVE_VIDEO_PROFILES.has(profile!) &&
+              HOMEKIT_LIVE_VIDEO_LEVELS.has(level!) &&
+              selection === `${profile}@${level}` &&
+              outcome
+              ? [[selection, outcome]]
+              : [];
+          }),
+        ),
+      ];
     }),
   );
 }
@@ -2342,6 +2352,20 @@ const LIVE_VIDEO_ENCODERS = [
   'h264_vaapi',
   'h264_v4l2m2m',
 ] as const;
+/** What qualifying a hardware encoder for one selection found: `qualified`, or the first check it failed. */
+const QUALIFICATION_OUTCOMES = [
+  'qualified',
+  'budget',
+  'encode',
+  'trace',
+  'profile',
+  'level',
+  'geometry',
+  'frames',
+  'bytes',
+] as const;
+/** The codec a live video source delivers. */
+const LIVE_VIDEO_SOURCES = ['h264', 'h265', 'av1'] as const;
 /**
  * Which of those events is a failure, and so the ones a record is levelled `warn` for.
  *
@@ -2875,10 +2899,12 @@ export function reportDiscardedV4Settings(
 /** States once which encoders code live video on this host: every qualified hardware encoder, then `libx264`. */
 export function reportLiveVideoEncoders(
   target: Pick<PlatformLogger, 'info'>,
-  encoders: Readonly<Record<string, readonly string[]>>,
+  encoders: Readonly<Record<string, Readonly<Record<string, string>>>>,
 ): void {
   const names = [
-    ...LIVE_VIDEO_ENCODERS.filter((name) => (encoders[name]?.length ?? 0) > 0 && name !== 'libx264'),
+    ...LIVE_VIDEO_ENCODERS.filter(
+      (name) => Object.values(encoders[name] ?? {}).includes('qualified') && name !== 'libx264',
+    ),
     'libx264',
   ];
   target.info(`[live-video-encoders] ${localize(target, 'log.liveVideoEncoders', { encoders: names.join(', ') })}`);
@@ -3138,6 +3164,7 @@ function sanitizeAdaptationNotice(value: Record<string, unknown>, level: string)
   const sourceFragments = nonNegativeInteger(value.sourceFragments);
   const cause = allowlistedLabel(value.cause, ADAPTATION_CAUSES);
   const encoder = allowlistedLabel(value.encoder, LIVE_VIDEO_ENCODERS);
+  const source = allowlistedLabel(value.source, LIVE_VIDEO_SOURCES);
   return {
     scope: 'ffmpeg',
     level,
@@ -3145,6 +3172,7 @@ function sanitizeAdaptationNotice(value: Record<string, unknown>, level: string)
     event: value.event,
     ...(cause === undefined ? {} : { cause }),
     ...(encoder === undefined ? {} : { encoder }),
+    ...(source === undefined ? {} : { source }),
     ...(code === undefined ? {} : { code }),
     ...(signal === undefined ? {} : { signal }),
     ...(sourceFragments === undefined ? {} : { sourceFragments }),

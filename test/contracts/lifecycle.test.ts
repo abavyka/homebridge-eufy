@@ -110,7 +110,7 @@ describe('platform lifecycle', () => {
       return info;
     };
     qualify.mockClear();
-    qualify.mockResolvedValueOnce({ h264_amf: ['main@3.1'] });
+    qualify.mockResolvedValueOnce({ h264_amf: { 'main@3.1': 'qualified' } });
 
     const info = launch({});
     expect(qualify).toHaveBeenCalledExactlyOnceWith({
