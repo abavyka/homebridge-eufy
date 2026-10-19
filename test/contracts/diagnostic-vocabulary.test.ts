@@ -183,7 +183,11 @@ describe('diagnostic vocabulary', () => {
    */
   it('accepts every scope a reporter emits, so a notice cannot reach the console and nothing else', () => {
     const sinkOwned = new Set(['diagnostics']);
-    const emitted = new Set([...diagnostics.matchAll(/scope: '([a-z-]+)'/g)].map(([, scope]) => scope!));
+    const emitted = new Set(
+      [...diagnostics.matchAll(/scope: '([a-z-]+)'|'([a-z-]+-notice)'/g)].map(
+        ([, scope, notice]) => (scope ?? notice)!,
+      ),
+    );
     const accepted = new Set([...diagnostics.matchAll(/value\.scope === '([a-z-]+)'/g)].map(([, scope]) => scope!));
 
     expect(emitted.has('media-notice'), 'the scope whose absent branch dropped every image notice').toBe(true);

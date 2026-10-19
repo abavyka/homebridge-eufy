@@ -16,7 +16,6 @@ import {
   GuidedDiagnostics,
   reportAdaptationNotice,
   reportHomeKitEvent,
-  reportInvalidSnapshotCache,
   unconfirmedWriteCondition,
   reportRuntimeNotice,
 } from '../../src/diagnostics.js';
@@ -1699,7 +1698,7 @@ describe('diagnostic conditions', () => {
     const logger = createDiagnosticLogger({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn }, root);
 
     try {
-      reportInvalidSnapshotCache(logger);
+      reportRuntimeNotice(logger, 'camera-snapshot-cache-invalid');
       await logger.flush?.();
 
       expect(warn).toHaveBeenCalledExactlyOnceWith(
@@ -1726,15 +1725,35 @@ describe('diagnostic conditions', () => {
     }
   });
 
-  it('renders Homebridge messages through an injected runtime catalog', () => {
-    const warn = vi.fn();
-    const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn }, undefined, {
-      'log.notice.statusPublicationFailed': 'Translated runtime notice.',
-    });
+  /** A record refused by a full queue is counted, and the count reaches the file as one `records-dropped` record. */
+  it('counts records a full queue refused into one records-dropped record', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-dropped-'));
+    const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root);
 
-    reportRuntimeNotice(logger, 'status-publication-failed');
+    try {
+      for (let index = 0; index < 20_000; index += 1) {
+        reportRuntimeNotice(logger, 'status-publication-failed');
+      }
+      await logger.flush?.();
 
-    expect(warn).toHaveBeenCalledExactlyOnceWith('[status-publication-failed] Translated runtime notice.');
+      const records = readFileSync(join(root, 'logs', 'homebridge-eufy.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const dropped = records.filter(({ event }) => event === 'records-dropped');
+      expect(dropped).toEqual([
+        {
+          scope: 'diagnostics',
+          level: 'warn',
+          event: 'records-dropped',
+          droppedRecords: expect.any(Number),
+          timestamp: expect.any(String),
+        },
+      ]);
+      expect(records.length - 1 + Number(dropped[0]!.droppedRecords)).toBe(20_000);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 
   it('reconstructs file records from allowlisted fields and excludes FFmpeg', async () => {

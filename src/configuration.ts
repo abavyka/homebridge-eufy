@@ -24,34 +24,20 @@ export type ArmingSlot = 'home' | 'away' | 'night' | 'off';
 /**
  * Which eufy guard mode each HomeKit state means for one station, for the states the user assigned.
  *
- * The values are the SDK's own settable mode names, so a mode the SDK cannot write is not offered here. An
- * unassigned state falls back to {@link DEFAULT_ARMING_MODES}, and `night` has no default: nothing in the
- * vendor's vocabulary is a night posture, so it stays a state a station may report and HomeKit cannot set until
- * a user says what it means.
+ * The values are the SDK's own settable mode names, so a mode the SDK cannot write is not offered here.
  */
-export type ArmingModeMap = Readonly<Partial<Record<ArmingSlot, ArmingMode>>>;
-
-/** What each HomeKit state means where the user assigned nothing. */
-export const DEFAULT_ARMING_MODES: ArmingModeMap = { home: 'home', away: 'away', off: 'disarmed' };
+type ArmingModeMap = Readonly<Partial<Record<ArmingSlot, ArmingMode>>>;
 
 /**
  * One device's preferences; a camera live video setting it carries overrides the general one for that camera
  * alone. Hardware encoding and packet size are host and network settings, so no camera carries its own.
  */
-export interface EntityPreference extends Partial<Pick<LiveVideoSettings, CameraLiveVideoSetting>> {
+interface EntityPreference extends Partial<Pick<LiveVideoSettings, CameraLiveVideoSetting>> {
   represented?: boolean;
   audio?: boolean;
   securitySystem?: boolean;
   snapshotMode?: SnapshotMode;
   armingModes?: ArmingModeMap;
-}
-
-export interface ResolvedEntityPreference {
-  represented: boolean;
-  audio: boolean;
-  securitySystem: boolean;
-  snapshotMode: SnapshotMode;
-  armingModes: ArmingModeMap;
 }
 
 export interface EufyConfig {
@@ -314,17 +300,5 @@ export function resolveLiveVideoSettings(config: EufyConfig, serial: string): Li
     hardwareVideoEncoder: config.hardwareVideoEncoder,
     liveVideoPassthrough: preference?.liveVideoPassthrough ?? config.liveVideoPassthrough,
     ignoreHomeBitRate: preference?.ignoreHomeBitRate ?? config.ignoreHomeBitRate,
-  };
-}
-
-/** Applies preference defaults without adding a serial to persisted configuration. */
-export function resolveEntityPreference(config: EufyConfig, serial: string): ResolvedEntityPreference {
-  const preference = config.entityPreferences[serial];
-  return {
-    represented: preference?.represented ?? true,
-    audio: preference?.audio ?? true,
-    securitySystem: preference?.securitySystem ?? true,
-    snapshotMode: preference?.snapshotMode ?? 'Refresh',
-    armingModes: { ...DEFAULT_ARMING_MODES, ...preference?.armingModes },
   };
 }

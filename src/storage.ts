@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { isOwnerProcessAlive } from './account/ownership.js';
 
-export const STORAGE_DIRECTORY = 'homebridge-eufy';
+const STORAGE_DIRECTORY = 'homebridge-eufy';
 const LEGACY_V5_STORAGE_DIRECTORY = 'eufy-security';
 
 function hasLiveOwner(root: string): boolean {
