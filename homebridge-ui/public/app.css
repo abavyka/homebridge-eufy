@@ -822,7 +822,7 @@ button.diagnostics-quiet-action {
   padding: 12px;
 }
 
-.device-tile:not([data-device-class='camera']) /*
+/*
  * A device's settings are a page rather than a face on the tile, so they are read at the page's scale and have as
  * much room as the device needs. The tile is the summary and the way in; nothing about its size bounds this.
  */
@@ -867,7 +867,7 @@ button.diagnostics-quiet-action {
   }
 }
 
-.diagnostic-panel img {
+.device-tile:not([data-device-class='camera']) .diagnostic-panel img {
   display: none;
 }
 
@@ -1291,7 +1291,7 @@ button.diagnostics-quiet-action {
   font-weight: 700;
 }
 
-.preference-grid .preference-changed /*
+/*
  * The guard-mode map: four HomeKit states against nine station modes, one pairing per row.
  *
  * A table because the content is one, which also gives each select its own row label without a second element
@@ -1412,7 +1412,7 @@ button.diagnostics-quiet-action {
   }
 }
 
-.snapshot-description {
+.preference-grid .preference-changed .snapshot-description {
   font-weight: 400;
 }
 
