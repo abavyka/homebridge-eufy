@@ -52,10 +52,10 @@ import {
   isStructuralJpeg,
   observations,
   options,
-  required,
   retainedSnapshotName,
   selectCameras,
   snapshotImage,
+  withPairedController,
 } from './hap-live-harness.mjs';
 
 const PRESENTATION_DIGESTS = new Map(
@@ -119,22 +119,7 @@ for (const [aid, presentation] of expectedPresentations) {
     throw new Error('--presentations must contain comma-separated aid:disabled or aid:offline entries');
   }
 }
-const controllerModule = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
-const { HttpClient } = await import(controllerModule).catch(() => {
-  throw new Error(`hap-controller is unavailable at ${controllerModule}; install it outside this repository`);
-});
-
-const client = new HttpClient(
-  required(parsed, 'device-id'),
-  required(parsed, 'address'),
-  Number(required(parsed, 'port')),
-  undefined,
-  { usePersistentConnections: true, subscriptionsUseSameConnection: true },
-);
-await client.pairSetup(required(parsed, 'pin'));
-console.log('paired one temporary controller');
-
-try {
+await withPairedController(parsed, async (client) => {
   const { accessories } = await client.getAccessories();
   const cameras = selectCameras(accessories, { battery: true });
   const streamable = selectCameras(accessories, {
@@ -232,10 +217,6 @@ try {
   } else {
     results.unverified('retained image custody was not verified; pass --storage to include it');
   }
-} finally {
-  await client.removePairing(client.pairingProtocol.iOSDevicePairingID);
-  client.close();
-  console.log('removed the temporary controller pairing');
-}
+});
 
 results.summarize();

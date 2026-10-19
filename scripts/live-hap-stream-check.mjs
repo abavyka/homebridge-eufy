@@ -86,8 +86,6 @@ import {
   STREAMING_AVAILABLE,
   STREAMING_IN_USE,
   accessoryModel,
-  adaptationProcessRoles,
-  adaptationProcesses,
   advertisedVideo,
   appendedJsonRecords,
   appendedLines,
@@ -98,6 +96,7 @@ import {
   logMark,
   measuredWindow,
   observations,
+  observeAdaptation,
   options,
   refuseUnadvertised,
   reportAdvertisedVideo,
@@ -106,6 +105,7 @@ import {
   snapshotImage,
   videoSelection,
   waitFor,
+  withPairedController,
 } from './hap-live-harness.mjs';
 
 const FIRST_PACKET_TIMEOUT_MS = 20_000;
@@ -129,11 +129,6 @@ const reconfigured = {
 };
 const snapshotSettleMs = Number(parsed.get('snapshot-settle-ms') ?? 25_000);
 const homebridgePid = parsed.get('homebridge-pid');
-const controllerModule = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
-const { HttpClient } = await import(controllerModule).catch(() => {
-  throw new Error(`hap-controller is unavailable at ${controllerModule}; install it outside this repository`);
-});
-
 const results = observations('live stream qualification');
 const check = results.check;
 
@@ -175,80 +170,9 @@ function judgePluginLog(mark) {
   check((levels.error ?? 0) === 0, 'the plugin JSONL recorded no error condition for the session');
 }
 
-/**
- * Adaptation processes the plugin owns, with the negotiated selection matched but never printed.
- *
- * Video and audio are separate inputs and therefore separate processes, so they are counted separately:
- * one video adaptation per expected session, and one audio adaptation per session only when the camera
- * actually delivered source audio. Counting them together fails every audio-capable camera. A video
- * adaptation is the one asked to drop audio, and an audio adaptation the one asked to drop video, which is
- * the only part of an argument list that may be matched here because the rest carries SRTP key material.
- */
-function observeAdaptation(label, expectedSessions, applied) {
-  const processes = adaptationProcesses(homebridgePid);
-  if (processes === undefined) {
-    results.unverified(`${label} adaptation processes=not-observed (pass --homebridge-pid to verify them)`);
-    return;
-  }
-  const { video, audio, returnAudio, other } = adaptationProcessRoles(processes);
-  console.log(
-    `${label} adaptation processes=${processes.length} video=${video.length} audio=${audio.length}` +
-      ` return-audio=${returnAudio.length} other=${other.length}`,
-  );
-  check(video.length === expectedSessions, `${label} ran exactly ${expectedSessions} video adaptation(s)`);
-  check(
-    audio.length <= expectedSessions,
-    `${label} ran no more than ${expectedSessions} audio adaptation(s), one per session that carried source audio`,
-  );
-  check(
-    returnAudio.length <= expectedSessions,
-    `${label} ran no more than ${expectedSessions} return-audio adaptation(s), one per talkback-capable session`,
-  );
-  check(
-    video.length + audio.length + returnAudio.length === processes.length,
-    `${label} ran no unclassified adaptation process`,
-  );
-  if (!applied || video.length === 0) {
-    return;
-  }
-  check(
-    video.some(({ args }) => args.includes(`${applied.width}:${applied.height}`)),
-    `${label} adaptation applied ${applied.width}x${applied.height}`,
-  );
-  check(
-    video.some(({ args }) => new RegExp(`-fpsmax\\s+${applied.fps}\\b`).test(args)),
-    `${label} adaptation bounded the rate at ${applied.fps}fps`,
-  );
-  check(
-    video.every(({ args }) => !/(?:^|\s)-r\s+\d/.test(args)),
-    `${label} adaptation pinned no constant output rate`,
-  );
-  const budgets = video.map(({ args }) => Number(/-maxrate\s+(\d+)k/.exec(args)?.[1]));
-  console.log(`${label} adaptation video budget=${budgets.join(',')}kbps of ${applied.bitrate}kbps negotiated`);
-  check(
-    budgets.length > 0 && budgets.every((budget) => budget > 0 && budget < applied.bitrate),
-    `${label} asked the encoder for strictly less than the negotiated ${applied.bitrate}kbps, reserving its transport`,
-  );
-  check(
-    video.every(({ args }) => {
-      const [, maxrate, bufsize] = /-maxrate\s+(\d+)k.*?-bufsize\s+(\d+)k/.exec(args) ?? [];
-      return maxrate !== undefined && Number(bufsize) <= Number(maxrate);
-    }),
-    `${label} bounded the VBV buffer to one second of the encoder budget`,
-  );
-}
-
-const client = new HttpClient(required(parsed, 'device-id'), address, Number(required(parsed, 'port')), undefined, {
-  usePersistentConnections: true,
-  subscriptionsUseSameConnection: true,
-});
-await client.pairSetup(required(parsed, 'pin'));
-console.log('paired one temporary controller');
-
-const sessions = [];
-const instanceLog = logMark(parsed.get('instance-log'));
-const pluginLog = logMark(parsed.get('jsonl'));
-try {
+await withPairedController(parsed, async (client, sessions) => {
+  const instanceLog = logMark(parsed.get('instance-log'));
+  const pluginLog = logMark(parsed.get('jsonl'));
   const { accessories } = await client.getAccessories();
   const cameras = selectCameras(accessories, {
     battery: parsed.has('battery'),
@@ -299,7 +223,7 @@ try {
   const late = primary.measured.report;
   await delay(Math.min(seconds, LATE_WINDOW_SECONDS) * 1_000);
   const streaming = primary.measured.report;
-  observeAdaptation('primary', 1, selection);
+  observeAdaptation(results, homebridgePid, 'primary', 1, selection);
   judgeWindow(results, {
     label: 'primary',
     window: measuredWindow(streaming, early),
@@ -361,7 +285,7 @@ try {
       (await primary.streamingStatus()) === STREAMING_IN_USE,
       'the accessory still reported an in-use streaming session after the snapshot',
     );
-    observeAdaptation('after-snapshot', 1, selection);
+    observeAdaptation(results, homebridgePid, 'after-snapshot', 1, selection);
   }
 
   if (!parsed.has('no-reconfigure') && streaming.packets > 0) {
@@ -386,7 +310,7 @@ try {
       (await primary.streamingStatus()) === STREAMING_IN_USE,
       'the accessory still reported an in-use streaming session',
     );
-    observeAdaptation('reconfigured', 1, reconfigured);
+    observeAdaptation(results, homebridgePid, 'reconfigured', 1, reconfigured);
     judgeWindow(results, {
       label: 'reconfigured',
       window: measuredWindow(after, reconfiguredAt),
@@ -425,7 +349,7 @@ try {
         primary.measured.report.packets > concurrentFrom.packets,
         'the first session kept streaming while the concurrent session ran',
       );
-      observeAdaptation('concurrent', 2);
+      observeAdaptation(results, homebridgePid, 'concurrent', 2);
       const beforeEnd = primary.measured.report;
       await secondary.end();
       await delay(TEARDOWN_GRACE_MS);
@@ -433,7 +357,7 @@ try {
         primary.measured.report.packets > beforeEnd.packets,
         'the first session survived the end of the concurrent session',
       );
-      observeAdaptation('after-concurrent-end', 1);
+      observeAdaptation(results, homebridgePid, 'after-concurrent-end', 1);
       check(
         (await secondary.streamingStatus()) === STREAMING_AVAILABLE,
         'the concurrent stream management returned to available',
@@ -443,20 +367,13 @@ try {
 
   await primary.end();
   await delay(TEARDOWN_GRACE_MS);
-  observeAdaptation('after-end', 0);
+  observeAdaptation(results, homebridgePid, 'after-end', 0);
   check(
     (await primary.streamingStatus()) === STREAMING_AVAILABLE,
     'the accessory returned to an available streaming status',
   );
   judgeInstanceLog(instanceLog);
   judgePluginLog(pluginLog);
-} finally {
-  for (const session of sessions) {
-    session.close();
-  }
-  await client.removePairing(client.pairingProtocol.iOSDevicePairingID);
-  client.close();
-  console.log('removed the temporary controller pairing');
-}
+});
 
 results.summarize();

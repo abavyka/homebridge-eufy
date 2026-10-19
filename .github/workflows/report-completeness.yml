@@ -23,8 +23,8 @@ name: Report completeness
 # a label: a reporter answers the other two in prose, and no label may depend on a body they will not edit.
 # The waiting state is set once, with the ask, so a maintainer who lifts it to work an issue keeps it lifted.
 #
-# `scripts/report-completeness-cases.mjs` drives the script below against a fake GitHub, over the reports
-# whose outcome is a decision rather than a default. Run it after editing this file — nothing else rehearses a
+# `test/contracts/report-completeness.test.ts` drives the script below against a fake GitHub, over the reports
+# whose outcome is a decision rather than a default, inside `npm run verify`, because nothing else rehearses a
 # judgement that lands on a stranger's issue.
 
 on:

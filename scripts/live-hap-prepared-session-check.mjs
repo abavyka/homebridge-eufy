@@ -46,11 +46,11 @@ import {
   STREAMING_AVAILABLE,
   STREAMING_IN_USE,
   accessoryModel,
-  adaptationProcesses,
   advertisedVideo,
   cameraStreamManagements,
   hasBattery,
   observations,
+  observeAdaptation,
   options,
   refuseUnadvertised,
   reportAdvertisedVideo,
@@ -58,6 +58,7 @@ import {
   selectCameras,
   videoSelection,
   waitFor,
+  withPairedController,
 } from './hap-live-harness.mjs';
 
 const FIRST_PACKET_TIMEOUT_MS = 25_000;
@@ -70,11 +71,6 @@ const idleSeconds = Number(parsed.get('idle-seconds') ?? 120);
 const streamSeconds = Number(parsed.get('stream-seconds') ?? 10);
 const selection = videoSelection(parsed);
 const homebridgePid = parsed.get('homebridge-pid');
-const controllerModule = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
-const { HttpClient } = await import(controllerModule).catch(() => {
-  throw new Error(`hap-controller is unavailable at ${controllerModule}; install it outside this repository`);
-});
-
 const results = observations('prepared session qualification');
 const check = results.check;
 
@@ -111,26 +107,7 @@ function observeReservation(label, port, expected) {
   );
 }
 
-/** Adaptation processes the plugin owns, counted only, because their arguments carry SRTP keys. */
-function observeAdaptation(label, expectedCount) {
-  const processes = adaptationProcesses(homebridgePid);
-  if (processes === undefined) {
-    results.unverified(`${label} adaptation processes=not-observed (pass --homebridge-pid to verify them)`);
-    return;
-  }
-  console.log(`${label} adaptation processes=${processes.length}`);
-  check(processes.length === expectedCount, `${label} ran exactly ${expectedCount} adaptation process(es)`);
-}
-
-const client = new HttpClient(required(parsed, 'device-id'), address, Number(required(parsed, 'port')), undefined, {
-  usePersistentConnections: true,
-  subscriptionsUseSameConnection: true,
-});
-await client.pairSetup(required(parsed, 'pin'));
-console.log('paired one temporary controller');
-
-const sessions = [];
-try {
+await withPairedController(parsed, async (client, sessions) => {
   const { accessories } = await client.getAccessories();
   const cameras = selectCameras(accessories, {
     battery: parsed.has('battery'),
@@ -162,7 +139,7 @@ try {
     (await idle.streamingStatus()) === STREAMING_IN_USE,
     'the prepared session reported an in-use streaming status',
   );
-  observeAdaptation('prepared', 0);
+  observeAdaptation(results, homebridgePid, 'prepared', 0);
 
   const contending = new LiveSession(client, accessory, address);
   sessions.push(contending);
@@ -204,7 +181,7 @@ try {
       check(ports.has(endpoints.accessoryVideoPort), `the reservation survived ${elapsed}s of an idle session`);
     }
   }
-  observeAdaptation('after-idle', 0);
+  observeAdaptation(results, homebridgePid, 'after-idle', 0);
 
   const startedAt = Date.now();
   await idle.start(selection);
@@ -227,7 +204,7 @@ try {
   await idle.end();
   await delay(RELEASE_GRACE_MS);
   observeReservation('after-end', endpoints.accessoryVideoPort, false);
-  observeAdaptation('after-end', 0);
+  observeAdaptation(results, homebridgePid, 'after-end', 0);
 
   console.log('abandoned prepared session, released by closing the controller connection');
   const abandoned = new LiveSession(client, accessory, address);
@@ -247,7 +224,7 @@ try {
       'closing the controller connection returned the stream management service to available',
     );
     observeReservation('after-connection-close', abandonedEndpoints.accessoryVideoPort, false);
-    observeAdaptation('after-connection-close', 0);
+    observeAdaptation(results, homebridgePid, 'after-connection-close', 0);
     let refused;
     try {
       await abandoned.start(selection);
@@ -267,13 +244,6 @@ try {
       await renegotiated.end();
     }
   }
-} finally {
-  for (const session of sessions) {
-    session.close();
-  }
-  await client.removePairing(client.pairingProtocol.iOSDevicePairingID);
-  await client.close();
-  console.log('removed the temporary controller pairing');
-}
+});
 
 results.summarize();

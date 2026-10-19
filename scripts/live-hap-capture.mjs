@@ -41,6 +41,7 @@ import {
   selectCameras,
   videoSelection,
   waitFor,
+  withPairedController,
 } from './hap-live-harness.mjs';
 
 const START_CODE = Buffer.from([0, 0, 0, 1]);
@@ -122,6 +123,7 @@ if (existsSync(join(output, '.git')) || existsSync(join(resolve(output, '..'), '
   throw new Error(`${output} is inside a git working tree; camera imagery must not be written there`);
 }
 mkdirSync(output, { recursive: true });
+console.log(`writing to ${output}`);
 const settings = {
   address: required(parsed, 'address'),
   output,
@@ -129,22 +131,7 @@ const settings = {
   warmup: Number(parsed.get('warmup') ?? 30),
   selection: videoSelection(parsed),
 };
-const controllerModule = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
-const { HttpClient } = await import(controllerModule).catch(() => {
-  throw new Error(`hap-controller is unavailable at ${controllerModule}; install it outside this repository`);
-});
-
-const client = new HttpClient(
-  required(parsed, 'device-id'),
-  settings.address,
-  Number(required(parsed, 'port')),
-  undefined,
-  { usePersistentConnections: true, subscriptionsUseSameConnection: true },
-);
-await client.pairSetup(required(parsed, 'pin'));
-console.log(`paired one temporary controller; writing to ${output}`);
-
-try {
+await withPairedController(parsed, async (client) => {
   const { accessories } = await client.getAccessories();
   const selected = selectCameras(accessories, {
     battery: parsed.has('battery'),
@@ -164,8 +151,4 @@ try {
       `  ${result.status}${result.packets === undefined ? '' : ` packets=${result.packets} frames=${result.frames} keyframes=${result.keyframes} coded=${result.coded}`}`,
     );
   }
-} finally {
-  await client.removePairing(client.pairingProtocol.iOSDevicePairingID);
-  client.close();
-  console.log('removed the temporary controller pairing');
-}
+});

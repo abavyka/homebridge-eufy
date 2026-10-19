@@ -42,6 +42,7 @@ import {
   selectCameras,
   videoSelection,
   waitFor,
+  withPairedController,
 } from './hap-live-harness.mjs';
 
 const FIRST_PACKET_TIMEOUT_MS = 35_000;
@@ -60,11 +61,6 @@ const aids = required(parsed, 'aids')
 if (aids.length !== 2 || new Set(aids).size !== 2) {
   throw new Error('--aids must name exactly two distinct accessory ids');
 }
-
-const controllerModule = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
-const { HttpClient } = await import(controllerModule).catch(() => {
-  throw new Error(`hap-controller is unavailable at ${controllerModule}; install it outside this repository`);
-});
 
 function positiveInteger(value, option) {
   const number = Number(value);
@@ -117,15 +113,8 @@ function exactSelection(report, expected) {
   );
 }
 
-const client = new HttpClient(required(parsed, 'device-id'), address, Number(required(parsed, 'port')), undefined, {
-  usePersistentConnections: true,
-  subscriptionsUseSameConnection: true,
-});
-await client.pairSetup(required(parsed, 'pin'));
-console.log('paired one temporary controller');
-
 const totals = new Map(aids.map((aid) => [aid, { passed: 0, failed: 0 }]));
-try {
+await withPairedController(parsed, async (client) => {
   const { accessories } = await client.getAccessories();
   const cameras = aids.map((aid) => selectCameras(accessories, { aid })[0]);
   if (cameras.some((camera) => !camera)) {
@@ -251,11 +240,7 @@ try {
       }
     }
   }
-} finally {
-  await client.removePairing(client.pairingProtocol.iOSDevicePairingID).catch(() => undefined);
-  client.close();
-  console.log('removed the temporary controller pairing');
-}
+});
 
 let failures = 0;
 for (const [aid, total] of totals) {

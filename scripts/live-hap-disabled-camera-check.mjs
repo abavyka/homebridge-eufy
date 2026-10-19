@@ -68,18 +68,17 @@ import {
   STREAMING_AVAILABLE,
   STREAMING_IN_USE,
   accessoryModel,
-  adaptationProcesses,
-  adaptationProcessRoles,
   advertisedVideo,
   announcedEnablement,
   appendedLines,
+  cameraEnabled,
   conditionCodes,
   hasBattery,
   judgeWindow,
   logMark,
   measuredWindow,
   observations,
-  cameraEnabled,
+  observeAdaptation,
   options,
   raisedConditions,
   refuseUnadvertised,
@@ -89,6 +88,7 @@ import {
   snapshotImage,
   videoSelection,
   waitFor,
+  withPairedController,
 } from './hap-live-harness.mjs';
 
 const FIRST_PACKET_TIMEOUT_MS = 20_000;
@@ -107,36 +107,8 @@ const detectTimeoutMs = Number(parsed.get('detect-timeout') ?? 180) * 1_000;
 const admitTimeoutMs = Number(parsed.get('admit-timeout') ?? 180) * 1_000;
 const homebridgePid = parsed.get('homebridge-pid');
 const selection = videoSelection(parsed);
-const controllerModule = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
-const { HttpClient } = await import(controllerModule).catch(() => {
-  throw new Error(`hap-controller is unavailable at ${controllerModule}; install it outside this repository`);
-});
-
 const results = observations('live disabled-camera qualification');
 const check = results.check;
-
-/**
- * Adaptation processes the plugin owns, judged by role rather than by a raw count, because a session that
- * negotiates audio legitimately runs a second process for it. Arguments are never printed: they carry SRTP
- * key material.
- */
-function observeAdaptation(label, { video, audio }) {
-  const processes = adaptationProcesses(homebridgePid);
-  if (processes === undefined) {
-    results.unverified(`${label} adaptation processes=not-observed (pass --homebridge-pid to verify them)`);
-    return;
-  }
-  const roles = adaptationProcessRoles(processes);
-  console.log(
-    `${label} adaptation processes=${processes.length}` +
-      ` video=${roles.video.length} audio=${roles.audio.length} return-audio=${roles.returnAudio.length}` +
-      ` other=${roles.other.length}`,
-  );
-  check(
-    roles.video.length === video && roles.audio.length === audio && roles.other.length === 0,
-    `${label} ran exactly ${video} outbound video and ${audio} outbound audio adaptation(s)`,
-  );
-}
 
 /**
  * Judges the conditions the plugin recorded for this run. The refusal code proves a gate acted at all and
@@ -202,7 +174,7 @@ function reportEnablementPath(mark) {
  * which a caller must interpret against a baseline: a camera whose acquisition never succeeds says nothing
  * about what being disabled changed.
  */
-async function snapshot(accessory, label) {
+async function snapshot(client, accessory, label) {
   try {
     const served = await snapshotImage(client, accessory.aid);
     console.log(`snapshot ${label} bytes=${served.bytes} digest=${served.digest}`);
@@ -221,160 +193,154 @@ if (originallyEnabled !== true) {
   throw new Error('this check starts from an enabled camera, so it can restore exactly what it changed');
 }
 
-const client = new HttpClient(required(parsed, 'device-id'), address, Number(required(parsed, 'port')), undefined, {
-  usePersistentConnections: true,
-  subscriptionsUseSameConnection: true,
-});
-await client.pairSetup(required(parsed, 'pin'));
-console.log('paired one temporary controller');
-
-const sessions = [];
-const instanceLog = logMark(parsed.get('instance-log'));
-const pluginLog = logMark(parsed.get('jsonl'));
 try {
-  const { accessories } = await client.getAccessories();
-  const accessory = selectCameras(accessories, { serial })[0];
-  if (!accessory) {
-    throw new Error('no represented camera accessory reports the requested serial');
-  }
-  console.log(
-    `camera aid=${accessory.aid} model="${accessoryModel(accessory)}" ${shortSerial(serial)}` +
-      ` power=${hasBattery(accessory) ? 'battery' : 'wired'}`,
-  );
-  const advertised = await advertisedVideo(client, accessory);
-  reportAdvertisedVideo(advertised);
-  refuseUnadvertised(advertised, selection, 'selection');
+  await withPairedController(parsed, async (client, sessions) => {
+    const instanceLog = logMark(parsed.get('instance-log'));
+    const pluginLog = logMark(parsed.get('jsonl'));
+    const { accessories } = await client.getAccessories();
+    const accessory = selectCameras(accessories, { serial })[0];
+    if (!accessory) {
+      throw new Error('no represented camera accessory reports the requested serial');
+    }
+    console.log(
+      `camera aid=${accessory.aid} model="${accessoryModel(accessory)}" ${shortSerial(serial)}` +
+        ` power=${hasBattery(accessory) ? 'battery' : 'wired'}`,
+    );
+    const advertised = await advertisedVideo(client, accessory);
+    reportAdvertisedVideo(advertised);
+    refuseUnadvertised(advertised, selection, 'selection');
 
-  const streaming = new LiveSession(client, accessory, address);
-  sessions.push(streaming);
-  const endpoints = await streaming.setup();
-  if (endpoints.status !== ENDPOINTS_ACCEPTED) {
-    throw new Error(`the enabled camera refused endpoint setup with status ${endpoints.status}`);
-  }
-  await streaming.start(selection);
-  const firstPacket = await waitFor(() => streaming.measured.report.packets > 0, FIRST_PACKET_TIMEOUT_MS);
-  check(firstPacket !== undefined, 'the enabled camera streamed before the camera was turned off');
-  check((await cameraEnabled(client, accessory)) === true, 'the enabled camera reported its power on to HomeKit');
-  const enabledSnapshot = await snapshot(accessory, 'while enabled');
-  const early = streaming.measured.report;
-  const observedFrom = Date.now();
-  await delay(seconds * 1_000);
-  const established = streaming.measured.report;
-  judgeWindow(results, {
-    label: 'enabled',
-    window: measuredWindow(established, early),
-    seconds: (Date.now() - observedFrom) / 1_000,
-    expected: selection,
-    session: established,
-    samples: streaming.samplesSince(observedFrom),
-  });
-  observeAdaptation('enabled', { video: 1, audio: 1 });
+    const streaming = new LiveSession(client, accessory, address);
+    sessions.push(streaming);
+    const endpoints = await streaming.setup();
+    if (endpoints.status !== ENDPOINTS_ACCEPTED) {
+      throw new Error(`the enabled camera refused endpoint setup with status ${endpoints.status}`);
+    }
+    await streaming.start(selection);
+    const firstPacket = await waitFor(() => streaming.measured.report.packets > 0, FIRST_PACKET_TIMEOUT_MS);
+    check(firstPacket !== undefined, 'the enabled camera streamed before the camera was turned off');
+    check((await cameraEnabled(client, accessory)) === true, 'the enabled camera reported its power on to HomeKit');
+    const enabledSnapshot = await snapshot(client, accessory, 'while enabled');
+    const early = streaming.measured.report;
+    const observedFrom = Date.now();
+    await delay(seconds * 1_000);
+    const established = streaming.measured.report;
+    judgeWindow(results, {
+      label: 'enabled',
+      window: measuredWindow(established, early),
+      seconds: (Date.now() - observedFrom) / 1_000,
+      expected: selection,
+      session: established,
+      samples: streaming.samplesSince(observedFrom),
+    });
+    observeAdaptation(results, homebridgePid, 'enabled', 1);
 
-  console.log(`${shortSerial(serial)} accepting power off`);
-  const disabledAt = Date.now();
-  await power.set(serial, false);
-  console.log(`${shortSerial(serial)} power off acknowledged after ${Date.now() - disabledAt}ms`);
+    console.log(`${shortSerial(serial)} accepting power off`);
+    const disabledAt = Date.now();
+    await power.set(serial, false);
+    console.log(`${shortSerial(serial)} power off acknowledged after ${Date.now() - disabledAt}ms`);
 
-  const ended = await waitFor(
-    async () => (await streaming.streamingStatus()) === STREAMING_AVAILABLE,
-    detectTimeoutMs,
-    STATUS_POLL_INTERVAL_MS,
-  );
-  const detectedMs = Date.now() - disabledAt;
-  check(ended !== undefined, `the plugin ended the session within ${detectTimeoutMs / 1_000}s of the camera going off`);
-  reportEnablementPath(pluginLog);
-  if (ended !== undefined) {
-    console.log(`session ended ${detectedMs}ms after the power-off command was acknowledged`);
-    const stopped = streaming.measured.report;
-    await delay(TEARDOWN_GRACE_MS);
+    const ended = await waitFor(
+      async () => (await streaming.streamingStatus()) === STREAMING_AVAILABLE,
+      detectTimeoutMs,
+      STATUS_POLL_INTERVAL_MS,
+    );
+    const detectedMs = Date.now() - disabledAt;
     check(
-      streaming.measured.report.packets === stopped.packets,
-      'no further video arrived once the session had been ended',
+      ended !== undefined,
+      `the plugin ended the session within ${detectTimeoutMs / 1_000}s of the camera going off`,
     );
-    observeAdaptation('after-disable', { video: 0, audio: 0 });
-  }
+    reportEnablementPath(pluginLog);
+    if (ended !== undefined) {
+      console.log(`session ended ${detectedMs}ms after the power-off command was acknowledged`);
+      const stopped = streaming.measured.report;
+      await delay(TEARDOWN_GRACE_MS);
+      check(
+        streaming.measured.report.packets === stopped.packets,
+        'no further video arrived once the session had been ended',
+      );
+      observeAdaptation(results, homebridgePid, 'after-disable', 0);
+    }
 
-  const presented = await waitFor(
-    async () => (await cameraEnabled(client, accessory)) === false,
-    detectTimeoutMs,
-    STATUS_POLL_INTERVAL_MS,
-  );
-  check(presented !== undefined, 'the accessory reported the switched-off camera as powered off to HomeKit');
-  if (presented !== undefined) {
-    console.log(`reported power off ${Date.now() - disabledAt}ms after the power-off command was acknowledged`);
-  }
-
-  const refused = new LiveSession(client, accessory, address);
-  sessions.push(refused);
-  const refusal = await refused.setup();
-  console.log(`endpoint setup while disabled returned status ${refusal.status}`);
-  check(
-    refusal.status === ENDPOINTS_REFUSED,
-    'the accessory answered endpoint setup with an error while the camera was off',
-  );
-  if (refusal.status === ENDPOINTS_BUSY) {
-    results.unverified(
-      'the refusal was answered BUSY, so a session still held that stream management service and nothing was proven',
+    const presented = await waitFor(
+      async () => (await cameraEnabled(client, accessory)) === false,
+      detectTimeoutMs,
+      STATUS_POLL_INTERVAL_MS,
     );
-  }
-  check(
-    (await refused.streamingStatus()) === STREAMING_AVAILABLE,
-    'a refused setup left the stream management available rather than reserved',
-  );
-  observeAdaptation('refused', { video: 0, audio: 0 });
+    check(presented !== undefined, 'the accessory reported the switched-off camera as powered off to HomeKit');
+    if (presented !== undefined) {
+      console.log(`reported power off ${Date.now() - disabledAt}ms after the power-off command was acknowledged`);
+    }
 
-  const disabledSnapshot = await snapshot(accessory, 'while disabled');
-  if (enabledSnapshot === undefined) {
-    results.unverified(
-      'snapshot reachability while disabled=not-observed (this camera does not serve a snapshot when enabled either)',
+    const refused = new LiveSession(client, accessory, address);
+    sessions.push(refused);
+    const refusal = await refused.setup();
+    console.log(`endpoint setup while disabled returned status ${refusal.status}`);
+    check(
+      refusal.status === ENDPOINTS_REFUSED,
+      'the accessory answered endpoint setup with an error while the camera was off',
     );
-  } else {
-    check(disabledSnapshot !== undefined, 'the snapshot path stayed reachable while the camera was off');
-  }
+    if (refusal.status === ENDPOINTS_BUSY) {
+      results.unverified(
+        'the refusal was answered BUSY, so a session still held that stream management service and nothing was proven',
+      );
+    }
+    check(
+      (await refused.streamingStatus()) === STREAMING_AVAILABLE,
+      'a refused setup left the stream management available rather than reserved',
+    );
+    observeAdaptation(results, homebridgePid, 'refused', 0);
 
-  console.log(`${shortSerial(serial)} accepting power on`);
-  const enabledAt = Date.now();
-  await power.set(serial, true);
-  let admitted;
-  const readmitted = await waitFor(
-    async () => {
-      const candidate = new LiveSession(client, accessory, address);
-      const answer = await candidate.setup();
-      if (answer.status === ENDPOINTS_ACCEPTED) {
-        admitted = candidate;
-        sessions.push(candidate);
-        return true;
-      }
-      candidate.close();
-      return false;
-    },
-    admitTimeoutMs,
-    ADMISSION_POLL_INTERVAL_MS,
-  );
-  check(readmitted !== undefined, `the plugin admitted a session again within ${admitTimeoutMs / 1_000}s`);
-  check(
-    (await cameraEnabled(client, accessory)) === true,
-    'the re-enabled camera reported its power on to HomeKit again',
-  );
-  if (admitted) {
-    console.log(`session admitted again ${Date.now() - enabledAt}ms after the power-on command`);
-    await admitted.start(selection);
-    const restored = await waitFor(() => admitted.measured.report.packets > 0, FIRST_PACKET_TIMEOUT_MS);
-    check(restored !== undefined, 'the re-enabled camera streamed again');
-    check((await admitted.streamingStatus()) === STREAMING_IN_USE, 'the re-admitted session reported an in-use status');
-    await admitted.end();
-    await delay(TEARDOWN_GRACE_MS);
-    observeAdaptation('after-end', { video: 0, audio: 0 });
-  }
+    const disabledSnapshot = await snapshot(client, accessory, 'while disabled');
+    if (enabledSnapshot === undefined) {
+      results.unverified(
+        'snapshot reachability while disabled=not-observed (this camera does not serve a snapshot when enabled either)',
+      );
+    } else {
+      check(disabledSnapshot !== undefined, 'the snapshot path stayed reachable while the camera was off');
+    }
 
-  judgeConditions(instanceLog, pluginLog);
+    console.log(`${shortSerial(serial)} accepting power on`);
+    const enabledAt = Date.now();
+    await power.set(serial, true);
+    let admitted;
+    const readmitted = await waitFor(
+      async () => {
+        const candidate = new LiveSession(client, accessory, address);
+        const answer = await candidate.setup();
+        if (answer.status === ENDPOINTS_ACCEPTED) {
+          admitted = candidate;
+          sessions.push(candidate);
+          return true;
+        }
+        candidate.close();
+        return false;
+      },
+      admitTimeoutMs,
+      ADMISSION_POLL_INTERVAL_MS,
+    );
+    check(readmitted !== undefined, `the plugin admitted a session again within ${admitTimeoutMs / 1_000}s`);
+    check(
+      (await cameraEnabled(client, accessory)) === true,
+      'the re-enabled camera reported its power on to HomeKit again',
+    );
+    if (admitted) {
+      console.log(`session admitted again ${Date.now() - enabledAt}ms after the power-on command`);
+      await admitted.start(selection);
+      const restored = await waitFor(() => admitted.measured.report.packets > 0, FIRST_PACKET_TIMEOUT_MS);
+      check(restored !== undefined, 'the re-enabled camera streamed again');
+      check(
+        (await admitted.streamingStatus()) === STREAMING_IN_USE,
+        'the re-admitted session reported an in-use status',
+      );
+      await admitted.end();
+      await delay(TEARDOWN_GRACE_MS);
+      observeAdaptation(results, homebridgePid, 'after-end', 0);
+    }
+
+    judgeConditions(instanceLog, pluginLog);
+  });
 } finally {
-  for (const session of sessions) {
-    session.close();
-  }
-  await client.removePairing(client.pairingProtocol.iOSDevicePairingID);
-  client.close();
-  console.log('removed the temporary controller pairing');
   try {
     await power.set(serial, originallyEnabled);
     console.log(`${shortSerial(serial)} restored to enabled=${originallyEnabled}`);
