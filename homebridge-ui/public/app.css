@@ -107,6 +107,11 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  accent-color: var(--accent);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .shell {
@@ -263,7 +268,8 @@ h2 {
   color: var(--muted);
 }
 
-.diagnostics-panel select {
+.diagnostics-panel select,
+.wizard-setting select {
   width: 100%;
   min-height: 44px;
   margin-top: 8px;
@@ -444,7 +450,7 @@ button.diagnostics-quiet-action {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 6px;
+  padding: 12px 8px;
   border: 1px solid var(--line-strong);
   background: transparent;
   color: var(--ink);
@@ -670,8 +676,8 @@ button.diagnostics-quiet-action {
 .dashboard-action:has(.diagnostics-name) {
   width: auto;
   grid-auto-flow: column;
-  gap: 6px;
-  padding: 0 10px;
+  gap: 8px;
+  padding: 0 12px;
 }
 
 .dashboard-action[data-collecting] {
@@ -712,7 +718,7 @@ button.diagnostics-quiet-action {
   width: 8px;
   height: 8px;
   border: 2px solid var(--panel);
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--alert);
 }
 
@@ -885,7 +891,7 @@ button.diagnostics-quiet-action {
   width: 8px;
   height: 8px;
   border: 2px solid var(--tile-bg);
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--alert);
   pointer-events: none;
 }
@@ -1307,7 +1313,7 @@ button.diagnostics-quiet-action {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 12px;
   align-items: center;
-  gap: 2px 8px;
+  gap: 4px 8px;
   cursor: pointer;
 }
 
@@ -1353,7 +1359,7 @@ button.diagnostics-quiet-action {
 }
 
 .arming-table thead th {
-  padding: 0 0 6px;
+  padding: 0 0 4px;
   border-bottom: 1px solid var(--line-strong);
   color: var(--muted);
   font-size: 10px;
@@ -1370,7 +1376,7 @@ button.diagnostics-quiet-action {
 
 .arming-table th[scope='row'] {
   width: 38%;
-  padding: 6px 10px 6px 0;
+  padding: 4px 8px 4px 0;
   color: var(--ink);
   font-size: 11px;
   font-weight: 600;
@@ -1382,7 +1388,7 @@ button.diagnostics-quiet-action {
 }
 
 .arming-table td {
-  padding: 6px 0;
+  padding: 4px 0;
 }
 
 .arming-table select {
@@ -1392,13 +1398,13 @@ button.diagnostics-quiet-action {
   border-radius: var(--radius-control);
   background: var(--panel);
   color: var(--ink);
-  padding: 2px 6px;
+  padding: 4px 8px;
   font-size: 11px;
 }
 
 /* The changed row carries the weight, so a pending map reads as which pairing moved rather than as a heavier table. */
 .arming-setting .snapshot-help {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .arming-table select.preference-control-changed {
@@ -1513,7 +1519,7 @@ button.diagnostics-quiet-action {
   left: 2px;
   width: 14px;
   height: 14px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--panel);
   box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
   transition: transform 140ms var(--ease-out);
@@ -1762,7 +1768,6 @@ button {
   text-align: center;
 }
 
-/* One setting per row, so a control that needs width gets it and nothing sits half-read beside it. */
 /*
  * Two lists with a column of transfer buttons between them, sharing the parent's rows so the three columns line up.
  *
@@ -1936,6 +1941,20 @@ button.diagnostics-quiet-action:hover:not(:disabled) {
   background: transparent;
 }
 
+.wizard-map-device:hover:not(:disabled, [aria-current='step']) {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+.wizard-map-device[aria-current='step']:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* The frame is black in both themes, so the fill is a fixed deep teal the white glyph reads against. */
+.wizard-live-play:hover:not(:disabled),
+.wizard-live-play:focus-visible {
+  background: color-mix(in srgb, var(--accent) 55%, #000000);
+}
+
 /*
  * The tile is the dashboard's primary target and artwork covers everything but its edge, so the edge carries the
  * hover. A step in `--line` alone was too quiet to register as feedback; the accent in the edge is not.
@@ -2004,7 +2023,6 @@ input:focus-visible {
     display: none;
   }
 
-
   .status-row {
     display: grid;
   }
@@ -2018,11 +2036,11 @@ input:focus-visible {
   }
 
   .legacy-notice {
-    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .legacy-notice button {
-    width: 100%;
+    grid-column: 1 / -1;
   }
 }
 
@@ -2069,10 +2087,6 @@ input:focus-visible {
 }
 
 @media (max-width: 520px) {
-  .advanced-fields {
-    grid-template-columns: 1fr;
-  }
-
   .diagnostics-actions button {
     width: 100%;
   }
@@ -2119,7 +2133,6 @@ input:focus-visible {
     gap: 4px;
     padding: 32px 16px 8px;
   }
-
 }
 
 .shell[data-theme='dark'] {
@@ -2176,8 +2189,8 @@ input:focus-visible {
   position: relative;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-radius: 12px;
-  background: #000;
+  border-radius: var(--radius-card);
+  background: #000000;
 }
 
 .wizard-live > img {
@@ -2196,21 +2209,16 @@ input:focus-visible {
   height: 52px;
   padding: 0;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: rgb(0 0 0 / 70%);
   transform: translate(-50%, -50%);
   cursor: pointer;
 }
 
-.wizard-live-play:hover,
-.wizard-live-play:focus-visible {
-  background: #e53935;
-}
-
 /* Stop stays out of the picture until the pointer or the keyboard is on the video. */
 .wizard-live-stop {
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity 150ms var(--ease-out);
 }
 
 .wizard-live:hover .wizard-live-stop,
@@ -2234,7 +2242,7 @@ input:focus-visible {
   inset: auto 0 0;
   margin: 0;
   padding: 8px 12px;
-  color: #fff;
+  color: var(--tile-scene-ink);
   background: linear-gradient(transparent, rgb(0 0 0 / 70%));
 }
 
@@ -2252,8 +2260,9 @@ input:focus-visible {
   flex-wrap: wrap;
   gap: 12px;
   padding: 12px;
-  border: 1px solid var(--border, rgb(128 128 128 / 30%));
-  border-radius: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--panel);
 }
 
 .wizard-map-group {
@@ -2261,7 +2270,7 @@ input:focus-visible {
 }
 
 .wizard-map-base {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   font-weight: 600;
 }
 
@@ -2269,14 +2278,14 @@ input:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding-left: 14px;
-  border-left: 2px solid rgb(128 128 128 / 40%);
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
 }
 
 .wizard-map-device {
   padding: 4px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -2284,7 +2293,8 @@ input:focus-visible {
 }
 
 .wizard-map-device[aria-current='step'] {
-  background: rgb(229 57 53 / 15%);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -2301,7 +2311,7 @@ input:focus-visible {
   width: 40px;
   height: 40px;
   padding: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
 }
 
 .wizard-arrow:disabled {
@@ -2310,8 +2320,9 @@ input:focus-visible {
 
 .wizard-card {
   padding: 12px 16px;
-  border: 1px solid var(--border, rgb(128 128 128 / 30%));
-  border-radius: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--panel);
 }
 
 .wizard-card h3 {
@@ -2325,8 +2336,8 @@ input:focus-visible {
   height: 48px;
   margin: -24px 0 0 -24px;
   border: 4px solid rgb(255 255 255 / 30%);
-  border-top-color: #fff;
-  border-radius: 50%;
+  border-top-color: var(--tile-scene-ink);
+  border-radius: var(--radius-pill);
   animation: wizard-live-spin 0.9s linear infinite;
 }
 
@@ -2350,5 +2361,7 @@ input:focus-visible {
 }
 
 .wizard-setting select {
+  width: auto;
   min-width: 160px;
+  margin-top: 0;
 }
