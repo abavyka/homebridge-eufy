@@ -233,11 +233,16 @@
           </button>
           <span class="wizard-live-spinner" data-wizard-live-spinner hidden aria-hidden="true"></span>
           <p class="wizard-live-status" role="status" aria-live="polite" data-wizard-live-status></p>
+          <p class="wizard-live-encoder" data-wizard-live-encoder hidden></p>
         </div>
         <button type="button" class="wizard-arrow" data-wizard-next data-i18n-aria-label="wizardNext">
           <img src="assets/icons/keyboard_arrow_right.svg" alt="" />
         </button>
       </div>
+      <p class="summary" data-wizard-live-diagnose hidden>
+        <span data-i18n="wizardLiveDiagnoseHelp"></span>
+        <button type="button" data-wizard-live-diagnose-start data-i18n="wizardLiveDiagnose"></button>
+      </p>
       <section class="wizard-card" data-wizard-homekit aria-labelledby="wizard-homekit-title">
         <h3 id="wizard-homekit-title" data-i18n="wizardHomeKitTitle"></h3>
         <p class="preference-note" data-i18n="wizardHomeKitHelp"></p>

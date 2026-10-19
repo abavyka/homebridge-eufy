@@ -7,6 +7,7 @@ import {
   recordFleet,
   recordHostEnvironment,
   reportAdaptationNotice,
+  reportLivePreview,
   reportLiveVideoEncoders,
   reportDiscardedV4Settings,
   reportHomeKitEvent,
@@ -118,16 +119,24 @@ export function createEufyPlatform(
         livePreview: (device, onPicture, onEnd) => {
           const camera = device.camera?.();
           const ffmpegPath = configuredConfig.ffmpegPath;
-          if (!ffmpegPath || typeof camera?.live !== 'function') return undefined;
+          if (!ffmpegPath || !liveMedia || typeof camera?.live !== 'function') return undefined;
           const live = camera.live.bind(camera);
           const claim = mediaBudget.claim();
           if (!claim) return undefined;
           const releaseStation = stationLiveSessions.hold(device.stationSn, device.sn, 'live');
-          return startLivePreview(ffmpegPath, { live }, onPicture, () => {
-            claim.release();
-            releaseStation();
-            onEnd();
-          });
+          return startLivePreview(
+            ffmpegPath,
+            liveMedia,
+            { live },
+            onPicture,
+            (result) => {
+              claim.release();
+              releaseStation();
+              reportLivePreview(diagnosticLog, { ...result, accessory: diagnostics.aliasFor(device.sn) });
+              onEnd(result.outcome === 'unplayable');
+            },
+            adaptationDiagnostics,
+          );
         },
       });
       this.runtime.subscribeState((state) => diagnostics.reportRuntimeState(state));

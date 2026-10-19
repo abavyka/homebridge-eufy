@@ -335,9 +335,10 @@ describe('runtime channel round trip', () => {
   });
 
   /**
-   * A camera's live preview crosses the channel as base64 JPEG pictures under one request until it ends. Aborting
-   * closes the connection, which stops the preview in the runtime. A picture too large for a frame is dropped, and
-   * a device without a preview, or an older runtime without the path, settles at once with nothing.
+   * A camera's live preview crosses the channel as base64 JPEG pictures under one request, each with the live
+   * encoder and rate it was decoded from, until it ends, saying whether the coded video yielded no picture.
+   * Aborting closes the connection, which stops the preview in the runtime. A picture too large for a frame is
+   * dropped, and a device without a preview, or an older runtime without the path, settles at once with nothing.
    */
   it('streams a live preview until it ends or the reader stops it', async () => {
     const stops: string[] = [];
@@ -347,19 +348,29 @@ describe('runtime channel round trip', () => {
       deviceLive: ({ serial }, onPicture, onEnd) => {
         if (serial === 'T8000P0000000003') return undefined;
         setImmediate(() => {
-          onPicture(Buffer.from([0xff, 0xd8, 0x01, 0xff, 0xd9]));
-          onPicture(Buffer.alloc(4096));
-          onPicture(Buffer.from([0xff, 0xd8, 0x02, 0xff, 0xd9]));
-          if (serial === 'T8000P0000000000') onEnd();
+          onPicture(Buffer.from([0xff, 0xd8, 0x01, 0xff, 0xd9]), { encoder: 'libx264' });
+          onPicture(Buffer.alloc(4096), { encoder: 'libx264' });
+          onPicture(Buffer.from([0xff, 0xd8, 0x02, 0xff, 0xd9]), { encoder: 'libx264', kbps: 287 });
+          if (serial === 'T8000P0000000000') onEnd(false);
+          if (serial === 'T8000P0000000002') onEnd(true);
         });
-        finish = () => onPicture(Buffer.from([0xff, 0xd8, 0x03, 0xff, 0xd9]));
+        finish = () => onPicture(Buffer.from([0xff, 0xd8, 0x03, 0xff, 0xd9]), { encoder: 'libx264' });
         return () => stops.push(serial);
       },
     });
 
-    const ended: string[] = [];
-    await client.liveDevice('T8000P0000000000', (jpeg) => ended.push(jpeg), new AbortController().signal);
-    expect(ended).toEqual(['/9gB/9k=', '/9gC/9k=']);
+    const ended: unknown[] = [];
+    await expect(
+      client.liveDevice('T8000P0000000000', (jpeg, coding) => ended.push([jpeg, coding]), new AbortController().signal),
+    ).resolves.toBe(false);
+    expect(ended).toEqual([
+      ['/9gB/9k=', { encoder: 'libx264' }],
+      ['/9gC/9k=', { encoder: 'libx264', kbps: 287 }],
+    ]);
+    await expect(
+      client.liveDevice('T8000P0000000002', () => undefined, new AbortController().signal),
+      'coded video that yielded no picture says so',
+    ).resolves.toBe(true);
 
     const watched: string[] = [];
     const reader = new AbortController();

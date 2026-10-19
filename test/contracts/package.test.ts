@@ -237,6 +237,9 @@ async function renderUi(
   const wizardLivePlay = interactiveElement({ hidden: false });
   const wizardLiveStop = interactiveElement({ hidden: true });
   const wizardLiveSpinner = { hidden: true };
+  const wizardLiveEncoder = { hidden: true, textContent: '' };
+  const wizardLiveDiagnose = { hidden: true };
+  const wizardLiveDiagnoseStart = interactiveElement({});
   const wizardFinish = interactiveElement({ textContent: '' });
   const wizardMap = interactiveElement({
     hidden: false,
@@ -452,6 +455,9 @@ async function renderUi(
           '[data-wizard-live-play]': wizardLivePlay,
           '[data-wizard-live-stop]': wizardLiveStop,
           '[data-wizard-live-spinner]': wizardLiveSpinner,
+          '[data-wizard-live-encoder]': wizardLiveEncoder,
+          '[data-wizard-live-diagnose]': wizardLiveDiagnose,
+          '[data-wizard-live-diagnose-start]': wizardLiveDiagnoseStart,
           '[data-wizard-finish]': wizardFinish,
           '[data-wizard-map]': wizardMap,
           '[data-wizard-stage]': wizardStage,
@@ -660,6 +666,9 @@ async function renderUi(
     wizardLivePlay,
     wizardLiveStop,
     wizardLiveSpinner,
+    wizardLiveEncoder,
+    wizardLiveDiagnose,
+    wizardLiveDiagnoseStart,
     wizardFinish,
     wizardMap,
     wizardEufy,
@@ -1137,6 +1146,8 @@ describe('packed plugin', () => {
           'wizardEufySettings',
           'wizardHomeKitHelp',
           'wizardHomeKitTitle',
+          'wizardLiveDiagnose',
+          'wizardLiveDiagnoseHelp',
           'wizardRestartSummary',
         ].sort(),
       );
@@ -1206,6 +1217,9 @@ describe('packed plugin', () => {
         'wizardClose',
         'wizardFinish',
         'wizardLiveFailed',
+        'wizardLiveEncoder',
+        'wizardLiveCamera',
+        'wizardLiveUnplayable',
         'wizardLiveStarting',
         'wizardMotionDetection',
         'wizardMapBase',
@@ -2858,11 +2872,18 @@ describe('setup wizard', () => {
     expect(ui.requests).toContainEqual({ path: '/device/live/start', body: { serial: camera.serial } });
     expect(ui.wizardLiveSpinner.hidden, 'a stream on its way spins').toBe(false);
     expect(ui.wizardLiveStop.hidden, 'and has nothing to stop yet').toBe(true);
-    ui.pushListeners['device-live']?.({ data: { serial: camera.serial, image: 'bGl2ZQ==' } });
+    ui.pushListeners['device-live']?.({ data: { serial: camera.serial, image: 'bGl2ZQ==', encoder: 'libx264' } });
     expect(ui.wizardLiveSpinner.hidden).toBe(true);
     expect(ui.wizardLiveStop.hidden, 'video offers its stop').toBe(false);
     expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,bGl2ZQ==');
+    expect(ui.wizardLiveEncoder.hidden, 'a rate needs a second of coded video').toBe(true);
+    ui.pushListeners['device-live']?.({
+      data: { serial: camera.serial, image: 'bGl2ZQ==', encoder: 'libx264', kbps: 287 },
+    });
+    expect(ui.wizardLiveEncoder.hidden).toBe(false);
+    expect(ui.wizardLiveEncoder.textContent).toBe('libx264 coded this video at 287 kbps, as HomeKit receives it.');
     await ui.wizardLiveStop.dispatch('click');
+    expect(ui.wizardLiveEncoder.hidden).toBe(true);
     expect(ui.requests.filter(({ path }) => path === '/device/live/stop')).toHaveLength(1);
     expect(ui.wizardLivePlay.hidden).toBe(false);
     expect(ui.wizardLiveStop.hidden).toBe(true);
@@ -2871,6 +2892,17 @@ describe('setup wizard', () => {
     ui.pushListeners['device-live-end']?.({ data: { serial: camera.serial } });
     expect(ui.wizardLiveStatus.textContent, 'a stream that sent nothing says so').toBe(en.wizardLiveFailed);
     expect(ui.wizardLivePlay.hidden, 'and can be played again').toBe(false);
+    await ui.wizardLivePlay.dispatch('click');
+    ui.pushListeners['device-live-end']?.({ data: { serial: camera.serial, unplayable: true } });
+    expect(ui.wizardLiveStatus.textContent, 'coded video that decoded to nothing says so').toBe(
+      en.wizardLiveUnplayable,
+    );
+    expect(ui.wizardLiveDiagnose.hidden, 'and offers a capture in place').toBe(false);
+    await ui.wizardLiveDiagnoseStart.dispatch('click');
+    expect(ui.requests, 'which starts a live media capture').toContainEqual({
+      path: '/diagnostics/authorize',
+      body: { profile: 'live-media' },
+    });
 
     const select = (ui.wizardSettings.children[0] as { children: Array<Record<string, unknown>> }).children[1];
     select.value = '0';

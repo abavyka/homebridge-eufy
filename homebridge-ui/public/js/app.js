@@ -100,6 +100,9 @@ const wizardLiveStatus = document.querySelector('[data-wizard-live-status]');
 const wizardLivePlay = document.querySelector('[data-wizard-live-play]');
 const wizardLiveStop = document.querySelector('[data-wizard-live-stop]');
 const wizardLiveSpinner = document.querySelector('[data-wizard-live-spinner]');
+const wizardLiveEncoder = document.querySelector('[data-wizard-live-encoder]');
+const wizardLiveDiagnose = document.querySelector('[data-wizard-live-diagnose]');
+const wizardLiveDiagnoseStart = document.querySelector('[data-wizard-live-diagnose-start]');
 const wizardSettings = document.querySelector('[data-wizard-settings]');
 const wizardControls = document.querySelector('[data-wizard-controls]');
 const wizardBack = document.querySelector('[data-wizard-back]');
@@ -887,6 +890,8 @@ async function openSetupWizard(trigger) {
 }
 
 function stopWizardLive() {
+  wizardLiveEncoder.hidden = true;
+  wizardLiveDiagnose.hidden = true;
   if (!wizardLiveSerial) return;
   wizardLiveSerial = undefined;
   wizardLivePictures = 0;
@@ -926,12 +931,15 @@ function startWizardLive(serial) {
   void requestWithinDeadline('/device/live/start', { serial }, 12000).catch(() => endWizardLive(serial));
 }
 
-function endWizardLive(serial) {
+/** Ends the stream on screen, saying why where no picture came: coded video that decoded to nothing, or no video. */
+function endWizardLive(serial, unplayable) {
   if (serial !== wizardLiveSerial) return;
   const watched = wizardLivePictures > 0;
   wizardLiveSerial = undefined;
   wizardLivePictures = 0;
-  wizardLiveStatus.textContent = watched ? '' : (messages.wizardLiveFailed ?? '');
+  const failure = unplayable ? messages.wizardLiveUnplayable : messages.wizardLiveFailed;
+  wizardLiveStatus.textContent = watched ? '' : (failure ?? '');
+  wizardLiveDiagnose.hidden = watched;
   wizardLivePlay.hidden = false;
   wizardLiveStop.hidden = true;
   wizardLiveSpinner.hidden = true;
@@ -946,8 +954,16 @@ homebridge.addEventListener('device-live', (event) => {
   wizardLiveImage.src = `data:image/jpeg;base64,${event.data.image}`;
   wizardLiveImage.hidden = false;
   wizardLiveStatus.textContent = '';
+  if (typeof event.data.kbps !== 'number') return;
+  // The rate is the encoder's own output, the video HomeKit would be sent, not these pictures.
+  const encoder = event.data.encoder === 'copy' ? messages.wizardLiveCamera : event.data.encoder;
+  wizardLiveEncoder.textContent = (messages.wizardLiveEncoder ?? '')
+    .replace('{encoder}', encoder ?? '')
+    .replace('{kbps}', String(event.data.kbps));
+  wizardLiveEncoder.hidden = false;
 });
-homebridge.addEventListener('device-live-end', (event) => endWizardLive(event.data?.serial));
+wizardLiveDiagnoseStart.addEventListener('click', () => openDiagnostics({ profile: 'live-media' }));
+homebridge.addEventListener('device-live-end', (event) => endWizardLive(event.data?.serial, event.data?.unplayable));
 
 /** One control per eufy setting the device states and can change, named and valued the way the camera describes it. */
 function eufySettingControl(setting) {

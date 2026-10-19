@@ -27,6 +27,7 @@ import {
   reportAdaptationNotice,
   reportHomeKitEvent,
   reportInvalidSnapshotCache,
+  reportLivePreview,
   reportRuntimeNotice,
 } from '../../src/diagnostics.js';
 
@@ -609,6 +610,66 @@ describe('guided diagnostics session', () => {
         .split('\n')
         .map((line) => JSON.parse(line));
       expect(records.map(({ scope }) => scope)).toEqual(['runtime-notice']);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  /**
+   * The result of a settings-page live preview is kept with no capture open, as one record of allowlisted labels
+   * and bounded numbers per run; a field outside its allowlist is dropped, and a record whose outcome is not one
+   * is dropped whole. The preview's FFmpeg records stay gated like a live session's, kept only under a profile
+   * that declares FFmpeg evidence.
+   */
+  it('keeps every live preview result, and its FFmpeg records only inside a live media capture', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-guided-'));
+    const selection = { profile: 'high', level: '4.0', width: 1280, height: 720, fps: 30, maxBitRate: 299 };
+    const recorded = { profile: 'high', levelName: '4.0', width: 1280, height: 720, fps: 30, maxBitRate: 299 };
+    const read = () =>
+      readFileSync(join(root, 'logs', 'homebridge-eufy.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line))
+        .map(({ timestamp: _timestamp, ...record }) => record);
+
+    try {
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root);
+      const accessory = 'accessory-1a3abd19-1355-416e-a698-ed95767be1cb';
+      reportLivePreview(logger, {
+        outcome: 'picture',
+        selection,
+        encoder: 'libx264',
+        source: 'h264',
+        kbps: 287,
+        accessory,
+      });
+      reportLivePreview(logger, { outcome: 'unplayable', selection, encoder: 'h264_rogue', source: 'h264' });
+      reportLivePreview(logger, { outcome: 'exploded', selection, encoder: 'libx264' });
+      reportAdaptationNotice(logger, { role: 'preview-encode', event: 'started', encoder: 'libx264' });
+      await logger.flush?.();
+      expect(read()).toEqual([
+        {
+          scope: 'live-preview',
+          level: 'info',
+          ...recorded,
+          encoder: 'libx264',
+          source: 'h264',
+          kbps: 287,
+          outcome: 'picture',
+          accessory,
+        },
+        { scope: 'live-preview', level: 'info', ...recorded, source: 'h264', outcome: 'unplayable' },
+      ]);
+
+      const diagnostics = new GuidedDiagnostics(root);
+      await diagnostics.authorize('live-media', 'now');
+      reportAdaptationNotice(logger, { role: 'preview-encode', event: 'started', encoder: 'libx264' });
+      reportAdaptationNotice(logger, { role: 'preview-decode', event: 'output', stderr: ['bitrate= 287.0kbits/s'] });
+      await logger.flush?.();
+      expect(read().slice(2)).toEqual([
+        { scope: 'ffmpeg', level: 'debug', role: 'preview-encode', event: 'started', encoder: 'libx264' },
+        { scope: 'ffmpeg', level: 'debug', role: 'preview-decode', event: 'output', stderr: ['bitrate= 287.0kbits/s'] },
+      ]);
     } finally {
       rmSync(root, { force: true, recursive: true });
     }

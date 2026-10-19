@@ -73,8 +73,9 @@ export const RUNTIME_DEVICE_SETTINGS_PATH = '/runtime/device-settings';
 export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write';
 
 /**
- * The path one camera's live preview streams on: a base64 JPEG frame per picture under the request's id, then a
- * refusal once it ends. Closing the connection stops it.
+ * The path one camera's live preview streams on: a base64 JPEG frame per picture under the request's id, beside
+ * the encoder it was decoded from and that encoder's rate, then a refusal once it ends, carrying `unplayable`
+ * where the coded video yielded no picture. Closing the connection stops it.
  */
 export const RUNTIME_DEVICE_LIVE_PATH = '/runtime/device-live';
 
@@ -87,6 +88,15 @@ export const RUNTIME_DEVICE_LIVE_PATH = '/runtime/device-live';
 export const DEVICE_SETTINGS = ['motionDetection', 'nightVision', 'notificationStyle'] as const;
 
 export type DeviceSettingName = (typeof DEVICE_SETTINGS)[number];
+
+/** The end reason a live preview refusal carries where the coded video yielded no picture. */
+export const LIVE_UNPLAYABLE = 'unplayable';
+
+/** The live encoder a preview picture was decoded from, and the kilobits a second it has coded at once known. */
+export interface RuntimeChannelLiveCoding {
+  encoder: string;
+  kbps?: number;
+}
 
 /** Room a live picture leaves in its frame for the envelope around it. */
 const LIVE_FRAME_MARGIN = 1024;
@@ -210,6 +220,8 @@ export interface RuntimeChannelResponse {
   id: number;
   ok: boolean;
   data?: RuntimeChannelStatus | RuntimeChannelDevice[] | RuntimeChannelDeviceSetting[] | string;
+  /** The live encoder and rate a preview picture was decoded from. */
+  coding?: RuntimeChannelLiveCoding;
 }
 
 /** The address the runtime channel is served and consumed on, and what its location implies. */
@@ -497,8 +509,8 @@ interface RuntimeChannelServerOptions {
   writeDeviceSetting?: (write: RuntimeChannelDeviceSettingWrite) => Promise<boolean>;
   deviceLive?: (
     query: RuntimeChannelDeviceSettingsQuery,
-    onPicture: (jpeg: Buffer) => void,
-    onEnd: () => void,
+    onPicture: (jpeg: Buffer, coding: RuntimeChannelLiveCoding) => void,
+    onEnd: (unplayable: boolean) => void,
   ) => (() => void) | undefined;
 }
 
@@ -716,8 +728,9 @@ export class RuntimeChannelServer {
     request: RuntimeChannelRequest,
     deviceLive: NonNullable<RuntimeChannelServerOptions['deviceLive']>,
   ): void {
-    const ended = (): void => {
-      if (!connection.destroyed) connection.write(`${JSON.stringify({ id: request.id, ok: false })}\n`);
+    const ended = (unplayable = false): void => {
+      const response = { id: request.id, ok: false, ...(unplayable ? { data: LIVE_UNPLAYABLE } : {}) };
+      if (!connection.destroyed) connection.write(`${JSON.stringify(response)}\n`);
     };
     const query = noticedDeviceSettingsQuery(request.body);
     let stop: (() => void) | undefined;
@@ -725,11 +738,12 @@ export class RuntimeChannelServer {
       stop = query
         ? deviceLive(
             query,
-            (jpeg) => {
+            (jpeg, coding) => {
               const data = jpeg.toString('base64');
               if (connection.destroyed || connection.writableNeedDrain) return;
               if (data.length > this.frameBytes - LIVE_FRAME_MARGIN) return;
-              connection.write(`${JSON.stringify({ id: request.id, ok: true, data })}\n`);
+              const { encoder, kbps } = coding;
+              connection.write(`${JSON.stringify({ id: request.id, ok: true, data, coding: { encoder, kbps } })}\n`);
             },
             ended,
           )

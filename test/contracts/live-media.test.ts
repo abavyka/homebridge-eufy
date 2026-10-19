@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 
 import type {
@@ -30,6 +33,7 @@ import {
   type MediaProcess,
   type QualificationRun,
 } from '../../src/media/live-stream.js';
+import { startLivePreview } from '../../src/media/live-preview.js';
 import { StallingAdaptationInput } from './stalling-adaptation-input.js';
 
 const NEGOTIATED_VIDEO: NegotiatedLiveVideo = {
@@ -2818,6 +2822,51 @@ describe('a live session on a qualified encoder', () => {
     expect(constant.encoder).toBe('libx264');
     expect(constant.args[constant.args.indexOf('-crf') + 1]).toBe('23');
     expect(constant.args).not.toContain('-b:v');
+  });
+
+  /**
+   * A live preview is coded by the encoder a session picks for an iPhone's Wi-Fi selection, High 4.0 1280x720 at
+   * 30 fps and 299 kbps over a 1378-byte MTU, with that session's argument list: only the output differs, the
+   * coded H.264 elementary stream on stdout instead of SRTP, which a second FFmpeg decodes into the pictures.
+   */
+  it('previews through the encoder and arguments a live session runs', async () => {
+    const { media, open } = hardwareMedia();
+    await media.qualify(DARWIN, qualificationRun().run);
+    const session = await open({ ...QUALIFIED_MAIN, profile: 'high', level: '4.0' });
+    session.prepared.stop();
+    const directory = await mkdtemp(join(tmpdir(), 'live-preview-'));
+    const ffmpeg = join(directory, 'ffmpeg');
+    await writeFile(ffmpeg, `#!/bin/sh\nprintf '%s\\n' "$@" > "$0.$$"\nexec cat\n`);
+    await chmod(ffmpeg, 0o755);
+    const stream = new SyntheticLiveStream();
+    const encoders: string[] = [];
+    const stop = startLivePreview(
+      ffmpeg,
+      media,
+      { live: async () => stream },
+      (_jpeg, coding) => encoders.push(coding.encoder),
+      () => undefined,
+    );
+    await settle();
+    stream.video({ ...KEYFRAME, data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) });
+    await vi.waitFor(() => expect(encoders).toEqual(['h264_videotoolbox']));
+    stop();
+    const runs = await Promise.all(
+      (await readdir(directory))
+        .filter((name) => name !== 'ffmpeg')
+        .map(async (name) => (await readFile(join(directory, name), 'utf8')).trimEnd().split('\n')),
+    );
+    await rm(directory, { recursive: true, force: true });
+
+    expect(session.encoder).toBe('h264_videotoolbox');
+    expect(runs.find((args) => args.includes('h264_videotoolbox'))).toEqual([
+      ...session.args.slice(0, session.args.indexOf('-payload_type')),
+      ...['-f', 'h264', 'pipe:1'],
+    ]);
+    expect(
+      runs.find((args) => args.includes('mjpeg')),
+      'the coded stream is decoded into pictures',
+    ).toEqual(expect.arrayContaining(['-f', 'h264', '-i', 'pipe:0', '-c:v', 'mjpeg']));
   });
 });
 

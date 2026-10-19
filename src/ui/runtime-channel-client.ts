@@ -8,6 +8,7 @@ import {
   areRuntimeChannelDeviceSettings,
   FrameReader,
   isRuntimeChannelStatus,
+  LIVE_UNPLAYABLE,
   ownedSocket,
   RUNTIME_CHANNEL_CONNECT_TIMEOUT_MS,
   RUNTIME_CHANNEL_PROTOCOL,
@@ -28,6 +29,7 @@ import {
   type RuntimeChannelDeviceSettingWrite,
   type RuntimeChannelEndpoint,
   type RuntimeChannelGreeting,
+  type RuntimeChannelLiveCoding,
   type RuntimeChannelResponse,
   type RuntimeChannelStatus,
 } from '../runtime/channel.js';
@@ -113,10 +115,15 @@ export interface RuntimeDeviceSettingsChannel {
   readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined>;
   writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean>;
   /**
-   * Streams one camera's live preview as base64 JPEG pictures until it ends, the runtime is gone, or `signal`
-   * aborts. Settles once it has stopped; a runtime without the path, or with no preview to give, settles at once.
+   * Streams one camera's live preview as base64 JPEG pictures, each with the live encoder and rate it was decoded
+   * from, until it ends, the runtime is gone, or `signal` aborts. Settles once it has stopped, true where the coded
+   * video yielded no picture; a runtime without the path, or with no preview to give, settles at once.
    */
-  liveDevice(serial: string, onPicture: (jpeg: string) => void, signal: AbortSignal): Promise<void>;
+  liveDevice(
+    serial: string,
+    onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
+    signal: AbortSignal,
+  ): Promise<boolean>;
 }
 
 interface RuntimeChannelClientOptions {
@@ -180,8 +187,12 @@ export class RuntimeChannelClient
     return accepted === true;
   }
 
-  async liveDevice(serial: string, onPicture: (jpeg: string) => void, signal: AbortSignal): Promise<void> {
-    await this.over(undefined, (connection) => this.streamed(connection, serial, onPicture, signal));
+  async liveDevice(
+    serial: string,
+    onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    return this.over(false, (connection) => this.streamed(connection, serial, onPicture, signal));
   }
 
   async read(): Promise<RuntimeChannelReading | undefined> {
@@ -278,8 +289,8 @@ export class RuntimeChannelClient
       };
       const reader = new FrameReader();
       let greeted = false;
-      connection.once('error', conclude);
-      connection.once('close', conclude);
+      connection.once('error', () => conclude());
+      connection.once('close', () => conclude());
       connection.on('data', (chunk) => {
         const frames = reader.accept(chunk);
         if (!frames) {
@@ -434,13 +445,13 @@ export class RuntimeChannelClient
   private streamed(
     connection: Socket,
     serial: string,
-    onPicture: (jpeg: string) => void,
+    onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
     signal: AbortSignal,
-  ): Promise<undefined> {
-    return new Promise<undefined>((resolve) => {
-      const conclude = (): void => resolve(undefined);
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const conclude = (unplayable = false): void => resolve(unplayable);
       if (signal.aborted) return conclude();
-      signal.addEventListener('abort', conclude, { once: true });
+      signal.addEventListener('abort', () => conclude(), { once: true });
       const reader = new FrameReader();
       let requested = false;
       connection.once('error', conclude);
@@ -464,8 +475,10 @@ export class RuntimeChannelClient
           }
           const response = parsed as RuntimeChannelResponse;
           if (response?.id !== SETTINGS_REQUEST) continue;
-          if (!response.ok || typeof response.data !== 'string') return conclude();
-          onPicture(response.data);
+          if (!response.ok) return conclude(response.data === LIVE_UNPLAYABLE);
+          if (typeof response.data !== 'string' || typeof response.coding?.encoder !== 'string') return conclude();
+          const { encoder, kbps } = response.coding;
+          onPicture(response.data, typeof kbps === 'number' ? { encoder, kbps } : { encoder });
         }
       });
     });

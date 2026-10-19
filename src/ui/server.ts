@@ -350,9 +350,9 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
       const live = new AbortController();
       this.live = live;
       void this.runtimeChannel
-        .liveDevice(serial, (image) => this.pushEvent('device-live', { serial, image }), live.signal)
-        .finally(() => {
-          if (!live.signal.aborted) this.pushEvent('device-live-end', { serial });
+        .liveDevice(serial, (image, coding) => this.pushEvent('device-live', { serial, image, ...coding }), live.signal)
+        .then((unplayable) => {
+          if (!live.signal.aborted) this.pushEvent('device-live-end', { serial, unplayable });
         });
       return { started: true };
     });

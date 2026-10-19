@@ -29,6 +29,7 @@ import {
   RuntimeChannelServer,
   runtimeChannelEndpointForHost,
   type RuntimeChannelDevice,
+  type RuntimeChannelLiveCoding,
   type RuntimeChannelStatus,
 } from './channel.js';
 import { readDeviceSettings, writeDeviceSetting } from './device-settings.js';
@@ -98,11 +99,15 @@ export interface RuntimeChannelHost {
   close(): void;
 }
 
-/** One camera's live preview as JPEG pictures, started by the composition root that owns media. */
+/**
+ * One camera's live preview as JPEG pictures decoded from the live encoder's output, each with that encoder and
+ * the rate it coded at, started by the composition root that owns media. `onEnd` says whether the coded video
+ * yielded no picture.
+ */
 export type RuntimeLivePreview = (
   device: Device,
-  onPicture: (jpeg: Buffer) => void,
-  onEnd: () => void,
+  onPicture: (jpeg: Buffer, coding: RuntimeChannelLiveCoding) => void,
+  onEnd: (unplayable: boolean) => void,
 ) => (() => void) | undefined;
 
 export interface RuntimeOwnerOptions {

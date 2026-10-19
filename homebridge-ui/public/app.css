@@ -2250,6 +2250,16 @@ input:focus-visible {
   display: none;
 }
 
+/* Over the picture, so showing it does not move the play and stop buttons under the pointer. */
+.wizard-live-encoder {
+  position: absolute;
+  inset: 0 0 auto;
+  margin: 0;
+  padding: 8px 12px;
+  color: #fff;
+  background: linear-gradient(rgb(0 0 0 / 70%), transparent);
+}
+
 .wizard-nav {
   display: flex;
   justify-content: flex-end;

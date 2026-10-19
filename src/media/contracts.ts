@@ -143,7 +143,13 @@ export type TalkbackOutcome =
  * These are the processes this domain owns. Whoever records a notice may recognise more — the SDK runs FFmpeg
  * of its own — so its allowlist is a superset of this one, and nothing here may claim a role it does not own.
  */
-export type AdaptationRole = 'live-video' | 'live-audio' | 'return-audio' | 'recording';
+export type AdaptationRole =
+  | 'live-video'
+  | 'live-audio'
+  | 'return-audio'
+  | 'recording'
+  | 'preview-encode'
+  | 'preview-decode';
 
 /**
  * What one adaptation process did, at the granularity that decides where to look next.
