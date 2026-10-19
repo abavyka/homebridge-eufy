@@ -10,11 +10,11 @@ import {
   AdaptationStderr,
   commonArguments,
   type FfmpegLiveMedia,
-  PROCESS_STOP_GRACE_MS,
+  stopProcess,
 } from './live-stream.js';
 
 /** How long one preview runs before it ends on its own, so a page left open does not hold a camera. */
-export const LIVE_PREVIEW_MAX_MS = 3 * 60_000;
+const LIVE_PREVIEW_MAX_MS = 3 * 60_000;
 
 /** How long coded video may flow without decoding to a picture before the HomeKit side ends as unplayable. */
 export const LIVE_PREVIEW_PICTURE_MS = 10_000;
@@ -28,14 +28,14 @@ const JPEG_END = Buffer.from([0xff, 0xd9]);
 const STILLS = ['-an', '-vf', 'fps=5,scale=640:-2', '-q:v', '8', '-f', 'image2pipe', '-c:v', 'mjpeg', 'pipe:1'];
 
 /** Which picture a preview still shows: the camera's own, or the camera coded as HomeKit receives it. */
-export type LivePreviewSide = 'raw' | 'homekit';
+type LivePreviewSide = 'raw' | 'homekit';
 
 /**
  * How one run of a preview's HomeKit side ended, and what it was coded with: `picture` showed at least one
  * HomeKit picture, `stopped` was stopped or restarted before one, `unplayable` showed the camera but no HomeKit
  * picture, and `no-video` ended without even a camera picture.
  */
-export interface LivePreviewResult extends LivePreviewAdaptation {
+interface LivePreviewResult extends LivePreviewAdaptation {
   outcome: 'picture' | 'unplayable' | 'no-video' | 'stopped';
   selection: Pick<NegotiatedLiveVideo, 'profile' | 'level' | 'width' | 'height' | 'fps' | 'maxBitRate'>;
   encoder?: string;
@@ -102,18 +102,11 @@ export function startLivePreview(
   let wanted = true;
   let last: LivePreviewResult | undefined;
   let ended = false;
-  const halt = (process: ChildProcess): void => {
-    process.stdin?.destroy();
-    process.kill('SIGTERM');
-    const kill = setTimeout(() => process.kill('SIGKILL'), PROCESS_STOP_GRACE_MS);
-    kill.unref();
-    process.once('exit', () => clearTimeout(kill));
-  };
   const finish = (stopped: boolean): void => {
     const run = homekit;
     homekit = undefined;
     clearTimeout(run?.pictureless);
-    run?.processes.forEach(halt);
+    run?.processes.forEach(stopProcess);
     const { profile, level, width, height, fps, maxBitRate } = IPHONE_ASKS[adaptation.ask];
     last = {
       outcome: run?.pictures ? 'picture' : stopped ? 'stopped' : rawPictures ? 'unplayable' : 'no-video',
@@ -136,7 +129,7 @@ export function startLivePreview(
       live = undefined;
     }
     if (homekit || !last) finish(stopped);
-    if (raw) halt(raw);
+    if (raw) stopProcess(raw);
     onEnd(last?.outcome === 'unplayable');
   };
   const fail = (): void => {

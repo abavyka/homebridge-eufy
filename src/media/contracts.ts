@@ -97,7 +97,7 @@ export type LiveSessionFailure =
   | 'adaptation-failed';
 
 /** The live-start boundary at which a bounded session failure became observable. */
-export type LiveSessionFailureStage =
+type LiveSessionFailureStage =
   | 'sdk-source-acquisition'
   | 'first-source-keyframe'
   | 'first-adapted-output'

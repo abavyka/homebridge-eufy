@@ -59,7 +59,7 @@ const PACKAGED_IMAGES = {
 } as const;
 
 /** Which packaged image a presentation decision calls for. */
-export type PackagedImage = keyof typeof PACKAGED_IMAGES;
+type PackagedImage = keyof typeof PACKAGED_IMAGES;
 
 const packagedImages = new Map<PackagedImage, Promise<Buffer | undefined>>();
 
@@ -159,15 +159,6 @@ function unansweredBy(error: unknown): SnapshotFailure {
  */
 const UNBILLED: MediaSessionClaim = { release: () => undefined };
 
-/**
- * What an acquisition counts against when no ceiling was declared: nothing.
- *
- * Normalising the absent budget to one that admits everything keeps a single encoding of "no ceiling". Reading
- * the absence at each decision instead would make one `undefined` mean both "nothing was declared" and "the
- * host has no room", which are opposite answers.
- */
-const UNBOUNDED_MEDIA: MediaSessionBudget = { claim: () => UNBILLED };
-
 /** The plugin-owned last successful image required by every snapshot acquisition policy. */
 export interface LastSuccessfulImages {
   read(serial: string): Promise<Buffer | undefined>;
@@ -184,8 +175,8 @@ export class SnapshotAcquisition implements SnapshotMediaAdapter {
   private readonly failedLive = new Map<string, SnapshotFailure>();
 
   constructor(
-    private readonly images?: LastSuccessfulImages,
-    private readonly budget?: MediaSessionBudget,
+    private readonly images: LastSuccessfulImages | undefined,
+    private readonly budget: MediaSessionBudget,
     private readonly packaged: (name: PackagedImage) => Promise<Buffer | undefined> = packagedImage,
     private readonly random: () => number = Math.random,
     private readonly stations?: StationLiveSessionRegistry,
@@ -378,7 +369,7 @@ export class SnapshotAcquisition implements SnapshotMediaAdapter {
     if (this.pendingLive.has(scope.identity)) {
       return UNBILLED;
     }
-    return (this.budget ?? UNBOUNDED_MEDIA).claim();
+    return this.budget.claim();
   }
 
   private live(

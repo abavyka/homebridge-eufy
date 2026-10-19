@@ -1,6 +1,6 @@
 import type { FragmentRecordingHandle, MediaFragment } from '@mega-yfue/eufy-sdk';
-import { StationKeyUnavailableError, StationUnreachableError } from '@mega-yfue/eufy-sdk';
 import { spawn } from 'node:child_process';
+import { EventEmitter, on } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 
 import type {
@@ -15,24 +15,13 @@ import type {
   RecordingMediaSource,
 } from './contracts.js';
 import {
+  adaptationReporter,
   AdaptationStderr,
   type MediaProcess,
-  PROCESS_STOP_GRACE_MS,
   SOURCE_START_BACKSTOP_MS,
+  sourceFailure,
+  stopProcess,
 } from './live-stream.js';
-
-/**
- * Why a source stopped producing, as this domain's bounded vocabulary.
- *
- * A station names its own failures apart from the camera's: every camera behind a base that did not connect
- * fails together, and a sealed start the station gave no key for does not resolve by retrying.
- */
-function sourceFailure(error: unknown): RecordingFailure {
-  if (error instanceof StationUnreachableError) {
-    return 'station-unreachable';
-  }
-  return error instanceof StationKeyUnavailableError ? 'station-key-unavailable' : 'source-error';
-}
 
 /**
  * How long the adaptation is given to write out what the source already handed it, once the source has
@@ -61,11 +50,11 @@ const SOURCE_FRAGMENT_SECONDS = 1;
  * An adaptation process whose output is the recording itself, so unlike a live one its `stdout` is read
  * rather than discarded.
  */
-export interface RecordingMediaProcess extends MediaProcess {
+interface RecordingMediaProcess extends MediaProcess {
   readonly stdout: Readable;
 }
 
-export type RecordingMediaProcessFactory = (executable: string, args: readonly string[]) => RecordingMediaProcess;
+type RecordingMediaProcessFactory = (executable: string, args: readonly string[]) => RecordingMediaProcess;
 
 /**
  * Adapts an SDK fragment recording into fragmented MP4 output that honours a negotiated HomeKit recording
@@ -107,7 +96,15 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
     negotiated: NegotiatedRecording,
     lifecycle?: RecordingLifecycle,
   ): AdaptedRecording {
-    const units = new RecordedFragmentQueue();
+    const units = new EventEmitter();
+    const pending = on(units, 'unit', { close: ['end'] });
+    let settled = false;
+    const settle = (failure?: Error): void => {
+      if (!settled) {
+        settled = true;
+        units.emit(failure ? 'error' : 'end', failure);
+      }
+    };
     let handle: FragmentRecordingHandle | undefined;
     let child: RecordingMediaProcess | undefined;
     let stopped = false;
@@ -125,11 +122,7 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
       clearTimeout(flushDeadline);
       handle?.stop();
       if (child) {
-        child.stdin.destroy();
-        child.kill('SIGTERM');
-        const killDeadline = setTimeout(() => child?.kill('SIGKILL'), PROCESS_STOP_GRACE_MS);
-        killDeadline.unref?.();
-        child.on('exit', () => clearTimeout(killDeadline));
+        stopProcess(child);
       }
     };
     /**
@@ -138,7 +131,7 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
      */
     const stop = (): void => {
       teardown();
-      units.end();
+      settle();
     };
     /**
      * Ends the recording on a failure, naming which bounded reason ended it.
@@ -148,37 +141,37 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
      * unbounded and may carry device material; the reason is the bounded vocabulary this domain owns.
      */
     const fail = (reason: RecordingFailure): void => {
-      if (units.settled) {
+      if (settled) {
         return;
       }
       teardown();
       lifecycle?.onOutcome?.({ outcome: 'failed', reason });
-      units.fail(new Error(`recording produced no further usable output: ${reason}`));
+      settle(new Error(`recording produced no further usable output: ${reason}`));
     };
     /**
      * Ends the recording once its adaptation has written everything the source gave it, marking the last
      * unit so the controller is told the recording is complete rather than merely interrupted.
      */
     const finish = (): void => {
-      if (units.settled) {
+      if (settled) {
         return;
       }
       for (const [index, data] of trailing.entries()) {
-        units.push({ data, last: index === trailing.length - 1 });
+        units.emit('unit', { data, last: index === trailing.length - 1 });
       }
       trailing.length = 0;
       teardown();
-      units.end();
+      settle();
     };
 
     const emit = (data: Buffer, initialization: boolean): void => {
-      if (units.settled) {
+      if (settled) {
         return;
       }
       if (initialization) {
         clearTimeout(outputBackstop);
         outputBackstop = undefined;
-        units.push({ data, last: false });
+        units.emit('unit', { data, last: false });
         lifecycle?.onOutcome?.({ outcome: 'recording' });
         return;
       }
@@ -186,7 +179,7 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
         trailing.push(data);
         return;
       }
-      units.push({ data, last: false });
+      units.emit('unit', { data, last: false });
     };
 
     try {
@@ -201,7 +194,7 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
     }
     if (!handle) {
       fail('source-unavailable');
-      return recordingOf(units, stop);
+      return recordingOf(pending, stop);
     }
     handle.on('budget', (notice) => {
       if (!stopped) {
@@ -214,31 +207,16 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
     } catch {
       this.adaptationDiagnostics?.report({ role: 'recording', event: 'spawn-failed' });
       fail('adaptation-failed');
-      return recordingOf(units, stop);
+      return recordingOf(pending, stop);
     }
     const adaptation = child;
     const output = new Fmp4OutputReader(emit);
     const stderr = new AdaptationStderr();
     let producedOutput = false;
-    /**
-     * Reports what this recording's adaptation did, whether or not the recording fails for it. An `output`
-     * report carries nothing but the tail, so a silent process that ended as intended is not reported.
-     */
     let sourceFragments = 0;
-    const report = (event: AdaptationEvent, code?: number | null, signal?: NodeJS.Signals | null): void => {
-      const tail = stderr.tail();
-      if (event === 'output' && tail.length === 0) {
-        return;
-      }
-      this.adaptationDiagnostics?.report({
-        role: 'recording',
-        event,
-        ...(typeof code === 'number' ? { code } : {}),
-        ...(typeof signal === 'string' ? { signal } : {}),
-        sourceFragments,
-        ...(tail.length ? { stderr: tail } : {}),
-      });
-    };
+    const reportAdaptation = adaptationReporter(this.adaptationDiagnostics);
+    const report = (event: AdaptationEvent, code?: number | null, signal?: NodeJS.Signals | null): void =>
+      reportAdaptation('recording', event, stderr, code, signal, { sourceFragments });
     adaptation.stderr.on('data', (chunk: Buffer) => stderr.observe(chunk));
     adaptation.stdout.on('data', (chunk: Buffer) => {
       producedOutput = true;
@@ -301,7 +279,7 @@ export class FfmpegRecordingMedia implements RecordingMediaAdapter {
       }
     })();
 
-    return recordingOf(units, stop);
+    return recordingOf(pending, stop);
   }
 }
 
@@ -352,85 +330,20 @@ function drained(stdin: Writable): Promise<void> {
   });
 }
 
-function recordingOf(units: RecordedFragmentQueue, stop: () => void): AdaptedRecording {
+function recordingOf(pending: AsyncIterator<unknown[]>, stop: () => void): AdaptedRecording {
   return {
     stop,
-    [Symbol.asyncIterator](): AsyncIterator<RecordedFragment> {
-      return {
-        next: () => units.next(),
-        return: async () => {
-          stop();
-          units.end();
-          return { done: true, value: undefined };
-        },
-      };
-    },
+    [Symbol.asyncIterator]: () => ({
+      next: async () => {
+        const result = await pending.next();
+        return result.done ? result : { done: false, value: result.value[0] as RecordedFragment };
+      },
+      return: async () => {
+        stop();
+        return { done: true, value: undefined };
+      },
+    }),
   };
-}
-
-/**
- * Hands adapted units from the event-driven adaptation to the one consumer iterating them.
- *
- * A recording is settled exactly once: either the source ran out and the last unit was marked, or the
- * recording failed. Units produced after that are dropped rather than delivered, because a HomeKit
- * controller closes a stream the moment it is told the recording ended.
- */
-class RecordedFragmentQueue {
-  private readonly pending: RecordedFragment[] = [];
-  private waiting?: { resolve: (result: IteratorResult<RecordedFragment>) => void; reject: (error: unknown) => void };
-  private ended = false;
-  private failure?: unknown;
-
-  get settled(): boolean {
-    return this.ended || this.failure !== undefined;
-  }
-
-  push(fragment: RecordedFragment): void {
-    if (this.settled) {
-      return;
-    }
-    if (this.waiting) {
-      const waiting = this.waiting;
-      this.waiting = undefined;
-      waiting.resolve({ done: false, value: fragment });
-      return;
-    }
-    this.pending.push(fragment);
-  }
-
-  end(): void {
-    if (this.settled) {
-      return;
-    }
-    this.ended = true;
-    this.waiting?.resolve({ done: true, value: undefined });
-    this.waiting = undefined;
-  }
-
-  fail(error: unknown): void {
-    if (this.settled) {
-      return;
-    }
-    this.failure = error;
-    this.waiting?.reject(error);
-    this.waiting = undefined;
-  }
-
-  next(): Promise<IteratorResult<RecordedFragment>> {
-    const ready = this.pending.shift();
-    if (ready) {
-      return Promise.resolve({ done: false, value: ready });
-    }
-    if (this.failure !== undefined) {
-      return Promise.reject(this.failure);
-    }
-    if (this.ended) {
-      return Promise.resolve({ done: true, value: undefined });
-    }
-    return new Promise((resolve, reject) => {
-      this.waiting = { resolve, reject };
-    });
-  }
 }
 
 const BOX_HEADER_BYTES = 8;

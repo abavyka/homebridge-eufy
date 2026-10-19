@@ -5,9 +5,13 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { PersistedLastSuccessfulImages } from '../../src/media/last-successful-image.js';
+import { DeclaredMediaSessionBudget } from '../../src/media/session-budget.js';
 import { SnapshotAcquisition } from '../../src/media/snapshot.js';
 import type { LastSuccessfulImages } from '../../src/media/snapshot.js';
 import type { StationLiveSessionRegistry } from '../../src/media/contracts.js';
+
+/** A budget that declares no ceiling, so it admits every acquisition. */
+const NO_CEILING = new DeclaredMediaSessionBudget(0);
 
 function jpeg(marker: string): Buffer {
   return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from(marker, 'utf8'), Buffer.from([0xff, 0xd9])]);
@@ -50,7 +54,7 @@ describe('live refresh spread', () => {
     try {
       const images = retainedImages(serials.map((serial) => [serial, jpeg(`retained ${serial}`)]));
       const draws = [0, 1];
-      const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => draws.shift() ?? 0);
+      const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => draws.shift() ?? 0);
       const cameras = serials.map((serial) => camera(`refreshed ${serial}`));
       const scopes = serials.map((serial) => ({ identity: {}, serial }));
 
@@ -86,7 +90,7 @@ describe('live refresh spread', () => {
       const [serial] = serials;
       const images = retainedImages([[serial, jpeg('retained')]]);
       const draws = [1, 0, 0, 0, 0];
-      const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => draws.shift() ?? 0);
+      const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => draws.shift() ?? 0);
       const source = camera('refreshed');
       const scope = { identity: {}, serial };
 
@@ -133,7 +137,7 @@ describe('live refresh against a busy station', () => {
 
   it('does not open a burst while the station is serving a live session', async () => {
     const images = retainedImages([[SERIAL, jpeg('retained')]]);
-    const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0, stations(BASE));
+    const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => 0, stations(BASE));
     const source = camera('refreshed');
 
     await acquisition.acquire({ identity: {}, serial: SERIAL, stationSn: BASE }, source, 'Refresh');
@@ -144,7 +148,7 @@ describe('live refresh against a busy station', () => {
   it('still answers the request from the retained image', async () => {
     const retained = jpeg('retained');
     const images = retainedImages([[SERIAL, retained]]);
-    const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0, stations(BASE));
+    const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => 0, stations(BASE));
 
     const answered = await acquisition.acquire(
       { identity: {}, serial: SERIAL, stationSn: BASE },
@@ -157,7 +161,7 @@ describe('live refresh against a busy station', () => {
 
   it('opens a burst when another station is the busy one', async () => {
     const images = retainedImages([[SERIAL, jpeg('retained')]]);
-    const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0, stations('T9999P0000000000'));
+    const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => 0, stations('T9999P0000000000'));
     const source = camera('refreshed');
 
     await acquisition.acquire({ identity: {}, serial: SERIAL, stationSn: BASE }, source, 'Refresh');
@@ -168,7 +172,7 @@ describe('live refresh against a busy station', () => {
   /** A camera whose station the SDK did not state cannot be placed, so nothing defers it. */
   it('opens a burst for a camera with no station stated', async () => {
     const images = retainedImages([[SERIAL, jpeg('retained')]]);
-    const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0, stations(BASE));
+    const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => 0, stations(BASE));
     const source = camera('refreshed');
 
     await acquisition.acquire({ identity: {}, serial: SERIAL }, source, 'Refresh');
@@ -205,7 +209,7 @@ describe('a still asked to yield the station', () => {
   it('is told to abandon through the signal it passed the source', async () => {
     const { registry, yieldNow } = yieldable();
     const images = retainedImages([[SERIAL, jpeg('retained')]]);
-    const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0, registry);
+    const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => 0, registry);
     let observed: AbortSignal | undefined;
     const source = {
       snapshotLive: vi.fn(async (options?: { signal?: AbortSignal }) => {
@@ -232,7 +236,7 @@ describe('a still asked to yield the station', () => {
       },
     };
     const images = retainedImages([[SERIAL, jpeg('retained')]]);
-    const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0, registry);
+    const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => 0, registry);
 
     await acquisition
       .acquire({ identity: {}, serial: SERIAL, stationSn: BASE }, camera('refreshed'), 'Refresh')
@@ -265,7 +269,7 @@ describe('push thumbnail under refresh', () => {
             }),
         ),
       };
-      const acquisition = new SnapshotAcquisition(images, undefined, undefined, () => 0);
+      const acquisition = new SnapshotAcquisition(images, NO_CEILING, undefined, () => 0);
       await images.write(scope.serial, jpeg('earlier live'), 'live');
 
       vi.setSystemTime(Date.now() + 150_000);

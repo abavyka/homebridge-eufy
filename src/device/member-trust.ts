@@ -1,11 +1,7 @@
 import type { BatteryActions, CameraActions } from '@mega-yfue/eufy-sdk';
 import { unreflectedMembers } from '@mega-yfue/eufy-sdk';
 
-import {
-  satisfiesMemberRequirements,
-  type DeviceMemberEvidence,
-  type DeviceMemberRequirement,
-} from './member-evidence.js';
+import { satisfiesMemberRequirements, type DeviceMemberEvidence } from './member-evidence.js';
 
 /**
  * The exact enablement observation a reading is admitted against.
@@ -14,7 +10,7 @@ import {
  * it presents a switch. This is the reading alone, admitted only where the manifest reports it as a boolean
  * read, because no other member shape carries that meaning.
  */
-export const CAMERA_ENABLED_READ: DeviceMemberRequirement = {
+export const CAMERA_ENABLED_READ: DeviceMemberEvidence = {
   id: 'camera.enabled.read',
   kind: 'read',
   type: 'bool',
@@ -50,37 +46,12 @@ export function observesCameraEnablement(
 }
 
 /**
- * What the reading says, for a surface already admitted.
+ * A reader of what a camera's enablement reading says, where it may be relied on, gated once.
  *
- * Nothing is answered for a value that is absent, that is not a boolean, or whose read faults: unobserved is
+ * The gate is a statement about a device family and its manifest, neither of which changes while one surface
+ * is bound, so it is answered when the reader is made. Nothing is read for a surface the gate declines, and
+ * nothing is answered for a value that is absent, that is not a boolean, or whose read faults: unobserved is
  * not disabled, and treating it as disabled would withdraw a working camera.
- */
-function readEnablement(camera: CameraActions): boolean | undefined {
-  try {
-    return typeof camera.enabled === 'boolean' ? camera.enabled : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * What a camera's enablement reading says, where it may be relied on.
- *
- * Gated by the same question it is answered under, so a caller cannot read a value it was not entitled to.
- */
-export function cameraEnablement(
-  camera: CameraActions,
-  evidence: ReadonlyMap<string, DeviceMemberEvidence>,
-): boolean | undefined {
-  return observesCameraEnablement(camera, evidence) ? readEnablement(camera) : undefined;
-}
-
-/**
- * A reader for a surface whose admission is settled once.
- *
- * For a caller that reads the same surface repeatedly. The gate is a statement about a device family and its
- * manifest, neither of which changes while one surface is bound, so answering it per read would spend an SDK
- * call on a question already answered.
  */
 export function cameraEnablementReader(
   camera: CameraActions,
@@ -89,7 +60,13 @@ export function cameraEnablementReader(
   if (!observesCameraEnablement(camera, evidence)) {
     return () => undefined;
   }
-  return () => readEnablement(camera);
+  return () => {
+    try {
+      return typeof camera.enabled === 'boolean' ? camera.enabled : undefined;
+    } catch {
+      return undefined;
+    }
+  };
 }
 
 /**
@@ -98,7 +75,7 @@ export function cameraEnablementReader(
  * A device reporting a level at all is what proves it is battery powered, so this one requirement carries both
  * that fact and the admission of the reading itself.
  */
-export const BATTERY_LEVEL_READ: DeviceMemberRequirement = {
+export const BATTERY_LEVEL_READ: DeviceMemberEvidence = {
   id: 'battery.level.read',
   kind: 'read',
   type: 'number',
@@ -108,11 +85,6 @@ export const BATTERY_LEVEL_READ: DeviceMemberRequirement = {
 /** Whether a value is a battery level: a percentage, which is the only shape this reading is accepted in. */
 export function isBatteryLevel(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100;
-}
-
-/** Whether a device reports a battery level, which is the same evidence that proves it runs on a battery. */
-export function observesBatteryLevel(evidence: ReadonlyMap<string, DeviceMemberEvidence>): boolean {
-  return satisfiesMemberRequirements(evidence, [BATTERY_LEVEL_READ]);
 }
 
 /**
@@ -127,7 +99,7 @@ export function batteryLevel(
   battery: BatteryActions,
   evidence: ReadonlyMap<string, DeviceMemberEvidence>,
 ): number | undefined {
-  if (!observesBatteryLevel(evidence)) {
+  if (!satisfiesMemberRequirements(evidence, [BATTERY_LEVEL_READ])) {
     return undefined;
   }
   try {

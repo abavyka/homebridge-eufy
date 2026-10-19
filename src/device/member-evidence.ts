@@ -1,6 +1,6 @@
 import type { DeviceManifest, PropertyValueType } from '@mega-yfue/eufy-sdk';
 
-export type DeviceMemberKind = 'read' | 'event' | 'persistent-operation' | 'momentary-action';
+type DeviceMemberKind = 'read' | 'event' | 'persistent-operation' | 'momentary-action';
 
 /** Installed SDK member evidence indexed by its stable semantic row identifier. */
 export interface DeviceMemberEvidence {
@@ -27,11 +27,8 @@ export interface DeviceMemberEvidence {
   readonly labels?: Readonly<Record<string, string>>;
 }
 
-/** Exact SDK evidence an adapter requires before it may attach. */
-export interface DeviceMemberRequirement extends DeviceMemberEvidence {}
-
 /** Product identity evidence retained without deriving capability meaning from presentation fields. */
-export interface DeviceProductEvidence {
+interface DeviceProductEvidence {
   readonly model?: string;
 }
 
@@ -69,7 +66,7 @@ function addEvidence(evidence: Map<string, DeviceMemberEvidence>, member: Device
 }
 
 /** Indexes one described device without assigning HomeKit meaning to its members. */
-export function indexDeviceMemberEvidence(manifest: DeviceManifest): ReadonlyMap<string, DeviceMemberEvidence> {
+function indexDeviceMemberEvidence(manifest: DeviceManifest): ReadonlyMap<string, DeviceMemberEvidence> {
   const evidence = new Map<string, DeviceMemberEvidence>();
   for (const detail of manifest.details) {
     for (const read of detail.reads) {
@@ -126,10 +123,10 @@ export function satisfiesProductRequirement(
 /** Matches every required member plus at least one alternative when alternatives are declared. */
 export function satisfiesMemberRequirements(
   evidence: ReadonlyMap<string, DeviceMemberEvidence>,
-  requirements: readonly DeviceMemberRequirement[],
-  alternatives: readonly DeviceMemberRequirement[] = [],
+  requirements: readonly DeviceMemberEvidence[],
+  alternatives: readonly DeviceMemberEvidence[] = [],
 ): boolean {
-  const matches = (requirement: DeviceMemberRequirement): boolean => {
+  const matches = (requirement: DeviceMemberEvidence): boolean => {
     const installed = evidence.get(requirement.id);
     return (
       installed?.kind === requirement.kind &&

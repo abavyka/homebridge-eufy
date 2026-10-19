@@ -6,7 +6,7 @@ export interface CompleteDeviceSnapshot {
   devices: DeviceManifest[];
 }
 
-export interface DiscoveryDevice {
+interface DiscoveryDevice {
   describe(): DeviceManifest;
 }
 
@@ -18,7 +18,7 @@ export interface DiscoveryClient<T extends DiscoveryDevice = DiscoveryDevice> {
   getDevice(serial: string): Promise<T>;
 }
 
-export interface CompleteDeviceDiscovery<T extends DiscoveryDevice = DiscoveryDevice> {
+interface CompleteDeviceDiscovery<T extends DiscoveryDevice = DiscoveryDevice> {
   registry: ReadonlyMap<string, T>;
   snapshot: CompleteDeviceSnapshot;
 }
@@ -162,7 +162,7 @@ function copyManifest(manifest: DeviceManifest): DeviceManifest {
 }
 
 /** Builds the allowlisted persisted view of one complete SDK discovery. */
-export function createCompleteDeviceSnapshot(manifests: readonly DeviceManifest[]): CompleteDeviceSnapshot {
+function createCompleteDeviceSnapshot(manifests: readonly DeviceManifest[]): CompleteDeviceSnapshot {
   const serials = new Set<string>();
   const devices = manifests.map((manifest) => {
     if (!manifest.sn || serials.has(manifest.sn)) {
@@ -176,30 +176,13 @@ export function createCompleteDeviceSnapshot(manifests: readonly DeviceManifest[
 
 /** Rejects malformed or incomplete persisted snapshots without treating them as device truth. */
 export function parseCompleteDeviceSnapshot(value: unknown): CompleteDeviceSnapshot {
-  if (
-    typeof value !== 'object' ||
-    value === null ||
-    Array.isArray(value) ||
-    (value as Partial<CompleteDeviceSnapshot>).version !== 1 ||
-    (value as Partial<CompleteDeviceSnapshot>).complete !== true ||
-    !Array.isArray((value as Partial<CompleteDeviceSnapshot>).devices)
-  ) {
+  if (!isRecord(value) || value.version !== 1 || value.complete !== true || !Array.isArray(value.devices)) {
     throw new TypeError('device snapshot is not a complete version 1 snapshot');
   }
-  const snapshot = value as CompleteDeviceSnapshot;
-  for (const device of snapshot.devices) {
-    if (!isManifest(device)) {
-      throw new TypeError('device snapshot contains a malformed manifest');
-    }
+  if (!value.devices.every(isManifest)) {
+    throw new TypeError('device snapshot contains a malformed manifest');
   }
-  return createCompleteDeviceSnapshot(snapshot.devices);
-}
-
-/** Resolves every listed device and rejects SDK evidence that the inventory was partial. */
-export async function discoverCompleteDeviceSnapshot<T extends DiscoveryDevice>(
-  client: DiscoveryClient<T>,
-): Promise<CompleteDeviceSnapshot> {
-  return (await discoverCompleteDeviceRegistry(client)).snapshot;
+  return createCompleteDeviceSnapshot(value.devices);
 }
 
 /** Builds the canonical registry and its snapshot from the same complete inventory pass. */

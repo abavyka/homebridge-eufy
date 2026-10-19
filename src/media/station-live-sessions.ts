@@ -11,7 +11,7 @@ import type { StationLiveClaim, StationLiveSessionRegistry } from './contracts.j
  *
  * Carries claims alone. A station identity is a serial, and no retained record holds one.
  */
-export type StationClaimDecision =
+type StationClaimDecision =
   | { readonly action: 'held'; readonly claim: StationLiveClaim }
   | { readonly action: 'released'; readonly claim: StationLiveClaim }
   | { readonly action: 'yielded'; readonly claim: StationLiveClaim; readonly to: StationLiveClaim }
@@ -52,23 +52,6 @@ export class StationLiveSessions implements StationLiveSessionRegistry {
   private readonly sessions = new Map<string, Set<Session>>();
 
   constructor(private readonly decided: (decision: StationClaimDecision) => void = () => undefined) {}
-
-  /** How many stations are currently holding at least one session. */
-  get held(): number {
-    return this.sessions.size;
-  }
-
-  /** The claim currently held on `stationSn`, preferring a continuous one, or `undefined` where nothing does. */
-  heldFor(stationSn: string): StationLiveClaim | undefined {
-    let holder: StationLiveClaim | undefined;
-    for (const session of this.sessions.get(stationSn) ?? []) {
-      if (CONTINUOUS.has(session.claim)) {
-        return session.claim;
-      }
-      holder ??= session.claim;
-    }
-    return holder;
-  }
 
   /**
    * Whether `claim` may take this station now.
