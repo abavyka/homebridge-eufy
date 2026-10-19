@@ -1,11 +1,7 @@
 import type { AnyDeviceEvent, ArmingMode, AvailabilityObservation, Device } from '@mega-yfue/eufy-sdk';
 import type { Characteristic, HAP, HapStatusError, PlatformAccessory, Service } from 'homebridge';
 
-import type {
-  DeviceMemberEvidence,
-  DeviceMemberRequirement,
-  DeviceProductRequirement,
-} from '../device/member-evidence.js';
+import type { DeviceMemberEvidence, DeviceProductRequirement } from '../device/member-evidence.js';
 import type {
   LiveMediaAdapter,
   LiveVideoSettings,
@@ -171,8 +167,8 @@ export interface HomeKitAdapter {
   readonly key: string;
   readonly role: 'primary-purpose' | 'supplemental';
   readonly requiresProduct?: DeviceProductRequirement;
-  readonly requires: readonly DeviceMemberRequirement[];
-  readonly requiresAny?: readonly DeviceMemberRequirement[];
+  readonly requires: readonly DeviceMemberEvidence[];
+  readonly requiresAny?: readonly DeviceMemberEvidence[];
   /** The stable evidence ids of every SDK member this adapter represents. */
   readonly coverage: readonly string[];
   attach(context: AdapterAttachmentContext): AttachedAdapter | undefined;

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseConfig } from '../../src/configuration.js';
 import { AccountSessionPersistence, type AccountPersistenceBoundary } from '../../src/account/persistence.js';
 import { TemporaryAuthentication } from '../../src/account/temporary-authentication.js';
-import { discoverCompleteDeviceSnapshot, type CompleteDeviceSnapshot } from '../../src/device/snapshot.js';
+import { discoverCompleteDeviceRegistry, type CompleteDeviceSnapshot } from '../../src/device/snapshot.js';
 
 const roots: string[] = [];
 
@@ -299,7 +299,7 @@ describe('atomic account replacement', () => {
       getDevice: vi.fn(async () => ({ describe: () => manifest })),
     };
 
-    await expect(discoverCompleteDeviceSnapshot(client)).rejects.toThrow('incomplete device discovery');
+    await expect(discoverCompleteDeviceRegistry(client)).rejects.toThrow('incomplete device discovery');
     expect(client.getDevice).toHaveBeenCalledWith('listed-device');
     expect(client.off).toHaveBeenCalledWith('error', errorListener);
   });

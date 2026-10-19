@@ -2,7 +2,7 @@ import type { FcmStore, LoginResult, SessionStore } from '@mega-yfue/eufy-sdk';
 
 import type { EufyConfig } from '../configuration.js';
 import {
-  discoverCompleteDeviceSnapshot,
+  discoverCompleteDeviceRegistry,
   type CompleteDeviceSnapshot,
   type DiscoveryClient,
 } from '../device/snapshot.js';
@@ -54,7 +54,7 @@ export function observationOnlyAuthenticationClient(client: AuthenticatingSdkCli
     login: () => client.login(),
     solveCaptcha: (answer) => client.solveCaptcha(answer),
     submitVerifyCode: (code) => client.submitVerifyCode(code),
-    discover: () => discoverCompleteDeviceSnapshot(client),
+    discover: async () => (await discoverCompleteDeviceRegistry(client)).snapshot,
     disconnect: () => client.disconnect(),
   };
 }

@@ -23,7 +23,7 @@ import {
   type UnconfirmedWrite,
 } from '../diagnostics.js';
 import { indexDeviceEvidence } from '../device/member-evidence.js';
-import { batteryLevel, cameraEnablement } from '../device/member-trust.js';
+import { batteryLevel, cameraEnablementReader } from '../device/member-trust.js';
 import { parseCompleteDeviceSnapshot, type CompleteDeviceSnapshot } from '../device/snapshot.js';
 import {
   RuntimeChannelServer,
@@ -746,7 +746,7 @@ export class RuntimeOwner {
   private observedEnablement(device: Device | undefined, manifest: DeviceManifest): boolean | undefined {
     try {
       const camera = device?.camera?.();
-      return camera ? cameraEnablement(camera, indexDeviceEvidence(manifest).members) : undefined;
+      return camera ? cameraEnablementReader(camera, indexDeviceEvidence(manifest).members)() : undefined;
     } catch {
       return undefined;
     }

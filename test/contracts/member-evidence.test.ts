@@ -3,11 +3,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   indexDeviceEvidence,
-  indexDeviceMemberEvidence,
   satisfiesMemberRequirements,
   satisfiesProductRequirement,
 } from '../../src/device/member-evidence.js';
-import { cameraEnablement, observesCameraEnablement } from '../../src/device/member-trust.js';
+import { cameraEnablementReader, observesCameraEnablement } from '../../src/device/member-trust.js';
 
 function manifest(details: CapabilityDescriptor[]): DeviceManifest {
   return {
@@ -35,7 +34,7 @@ function contactDetail(writable = false): CapabilityDescriptor {
 
 describe('device member evidence', () => {
   it('indexes semantic members without assigning HomeKit meaning', () => {
-    const evidence = indexDeviceMemberEvidence(manifest([contactDetail()]));
+    const evidence = indexDeviceEvidence(manifest([contactDetail()])).members;
 
     expect([...evidence.values()]).toEqual([
       {
@@ -59,7 +58,7 @@ describe('device member evidence', () => {
    */
   it('carries the SDK labels of an enumerated read, keyed by the value it answers with', () => {
     const labels: Record<string, string> = { '0': 'away', '1': 'home', '63': 'disarmed' };
-    const evidence = indexDeviceMemberEvidence(
+    const evidence = indexDeviceEvidence(
       manifest([
         {
           capability: 'arming',
@@ -70,7 +69,7 @@ describe('device member evidence', () => {
           events: [],
         },
       ]),
-    );
+    ).members;
 
     expect(evidence.get('arming.mode.read')?.labels).toEqual({ '0': 'away', '1': 'home', '63': 'disarmed' });
     labels['2'] = 'schedule';
@@ -78,13 +77,13 @@ describe('device member evidence', () => {
       evidence.get('arming.mode.read')?.labels,
       'the index holds its own copy, so a later discovery cannot change what an attached adapter reads',
     ).toEqual({ '0': 'away', '1': 'home', '63': 'disarmed' });
-    expect(indexDeviceMemberEvidence(manifest([contactDetail()])).get('contact.open.read')).not.toHaveProperty(
+    expect(indexDeviceEvidence(manifest([contactDetail()])).members.get('contact.open.read')).not.toHaveProperty(
       'labels',
     );
   });
 
   it('rejects conflicting duplicate semantic evidence', () => {
-    expect(() => indexDeviceMemberEvidence(manifest([contactDetail(), contactDetail(true)]))).toThrow(
+    expect(() => indexDeviceEvidence(manifest([contactDetail(), contactDetail(true)])).members).toThrow(
       'device manifest contains conflicting member evidence: contact.open.read',
     );
   });
@@ -93,13 +92,13 @@ describe('device member evidence', () => {
     const renamed = contactDetail();
     renamed.reads = [{ accessor: 'open', property: 'synthetic_contact_state', type: 'bool', writable: false }];
 
-    expect(() => indexDeviceMemberEvidence(manifest([contactDetail(), renamed]))).toThrow(
+    expect(() => indexDeviceEvidence(manifest([contactDetail(), renamed])).members).toThrow(
       'device manifest contains conflicting member evidence: contact.open.read',
     );
   });
 
   it('matches a required member without constraining the flat property name it is announced under', () => {
-    const evidence = indexDeviceMemberEvidence(manifest([contactDetail()]));
+    const evidence = indexDeviceEvidence(manifest([contactDetail()])).members;
 
     expect(satisfiesMemberRequirements(evidence, [{ id: 'contact.open.read', kind: 'read', type: 'bool' }])).toBe(true);
     expect(evidence.get('contact.open.read')?.property).toBe('synthetic_contact_open');
@@ -109,13 +108,13 @@ describe('device member evidence', () => {
     const detail = contactDetail();
     detail.actions.push({ name: 'synthetic', form: 'future-form' } as never);
 
-    expect(() => indexDeviceMemberEvidence(manifest([detail]))).toThrow(
+    expect(() => indexDeviceEvidence(manifest([detail])).members).toThrow(
       'device manifest contains an unsupported action form: future-form',
     );
   });
 
   it('requires every fixed member and at least one declared alternative', () => {
-    const evidence = indexDeviceMemberEvidence(manifest([contactDetail()]));
+    const evidence = indexDeviceEvidence(manifest([contactDetail()])).members;
     const required = [{ id: 'contact.open.read', kind: 'read' as const }];
 
     expect(
@@ -196,20 +195,20 @@ describe('camera enablement trust', () => {
    * reading that is absent, of the wrong type, or that faults is unobserved rather than disabled.
    */
   it('answers nothing rather than disabled for a reading it may not rely on', () => {
-    expect(cameraEnablement({ enabled: false } as never, observing)).toBe(false);
-    expect(cameraEnablement({ enabled: true } as never, observing)).toBe(true);
-    expect(cameraEnablement({ enabled: true } as never, blind)).toBeUndefined();
-    expect(cameraEnablement(unreflectedCamera({ enabled: false }) as never, observing)).toBeUndefined();
-    expect(cameraEnablement({ enabled: 'yes' } as never, observing)).toBeUndefined();
+    expect(cameraEnablementReader({ enabled: false } as never, observing)()).toBe(false);
+    expect(cameraEnablementReader({ enabled: true } as never, observing)()).toBe(true);
+    expect(cameraEnablementReader({ enabled: true } as never, blind)()).toBeUndefined();
+    expect(cameraEnablementReader(unreflectedCamera({ enabled: false }) as never, observing)()).toBeUndefined();
+    expect(cameraEnablementReader({ enabled: 'yes' } as never, observing)()).toBeUndefined();
     expect(
-      cameraEnablement(
+      cameraEnablementReader(
         {
           get enabled(): boolean {
             throw new Error('surface faults');
           },
         } as never,
         observing,
-      ),
+      )(),
     ).toBeUndefined();
   });
 
@@ -230,6 +229,6 @@ describe('camera enablement trust', () => {
     );
 
     expect(observesCameraEnablement(faulting as never, observing)).toBe(false);
-    expect(cameraEnablement(faulting as never, observing)).toBeUndefined();
+    expect(cameraEnablementReader(faulting as never, observing)()).toBeUndefined();
   });
 });
