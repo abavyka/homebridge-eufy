@@ -57,7 +57,8 @@ or dependency edge requires updating this section and the architecture contract 
 - `homekit/` may import device and types from `media/contracts.ts`. It never imports account, runtime,
   UI, or concrete media implementations. Within it, `homekit/device-control.ts` owns the one contract two
   camera bundles share: issuing a bounded HomeKit-initiated SDK operation and reading an authoritative
-  observation fail-closed. Adapters keep their own policy.
+  observation fail-closed, plus the coalescing write queue the persistent-write adapters share. Adapters
+  keep their own policy.
 - `platform.ts` and `ui/server.ts` are composition roots. The UI server may consume diagnostics to
   manage explicitly initiated support sessions and media retention to clear account-bound images after
   successful account replacement, and the `ui/` dashboard projection may consume

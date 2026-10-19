@@ -229,3 +229,263 @@ export function observationReader<T extends 'boolean' | 'number'>(
     return value as T extends 'boolean' ? boolean : number;
   };
 }
+
+/** How long a completed write's projection waits for the device to report before the gap is diagnosed. */
+const RECONCILIATION_WINDOW_MS = 60_000;
+
+interface WriteRequest<T> {
+  value: T;
+  settled: boolean;
+  deadline?: ReturnType<typeof setTimeout>;
+  resolve(): void;
+  reject(error: unknown): void;
+}
+
+interface WriteBatch<T> {
+  value: T;
+  requests: WriteRequest<T>[];
+  reconciled: boolean;
+  abandoned: boolean;
+}
+
+/**
+ * Serializes one persistent member's writes, coalescing to the newest value, and holds the requested value as
+ * a bounded projection until the device reports.
+ *
+ * A successful command acknowledges delivery and nothing more, so the projection only answers HomeKit until
+ * an observation supersedes it; one that never comes is diagnosed once the reconciliation window closes. A
+ * member the SDK refuses as unsupported is latched and every later request refused the same way.
+ */
+export class PersistentMemberWrites<T> {
+  private active?: WriteBatch<T>;
+  private queued?: WriteBatch<T>;
+  private reconciliation?: ReturnType<typeof setTimeout>;
+  private projection?: T;
+  private blockedError?: unknown;
+  private detached = false;
+
+  constructor(
+    private readonly hap: AdapterAttachmentContext['hap'],
+    private readonly issue: (value: T) => Promise<void>,
+    private readonly diagnose: (
+      condition: 'operation' | 'reconciliation',
+      active: boolean,
+      reason: 'operation-failure' | 'capability-not-supported' | 'timeout' | 'expired' | 'recovered',
+    ) => void,
+    /** Hands HomeKit back to the adapter, which decides per cause whether to re-present anything. */
+    private readonly restore: (cause: 'completed' | 'late-completed' | 'failed' | 'timed-out' | 'expired') => void,
+    private readonly policy: {
+      /** Keep a write whose every request timed out in flight until the SDK settles it, so a late completion lands. */
+      readonly holdAbandoned?: boolean;
+      /**
+       * An observation only supersedes the projection: it neither marks the writes in flight reconciled nor
+       * clears a warning, and each request's deadline starts when its write is issued rather than requested.
+       */
+      readonly supersedeOnly?: boolean;
+    } = {},
+  ) {}
+
+  read(): T | undefined {
+    return this.projection;
+  }
+
+  request(value: T): Promise<void> {
+    if (this.blockedError) {
+      return Promise.reject(this.blockedError);
+    }
+    this.projection = value;
+    return new Promise<void>((resolve, reject) => {
+      const request: WriteRequest<T> = { value, settled: false, resolve, reject };
+      if (!this.policy.supersedeOnly) {
+        request.deadline = setTimeout(() => this.timeout(request), OPERATION_DEADLINE_MS);
+      }
+      if (!this.active) {
+        this.start({ value, requests: [request], reconciled: false, abandoned: false });
+      } else if (this.queued) {
+        this.queued.value = value;
+        this.queued.reconciled = false;
+        this.queued.requests.push(request);
+      } else {
+        this.queued = { value, requests: [request], reconciled: false, abandoned: false };
+      }
+    });
+  }
+
+  /** Settles the window a write opened, because the device has since said what it actually did. */
+  observe(): void {
+    this.projection = undefined;
+    if (this.reconciliation) {
+      clearTimeout(this.reconciliation);
+      this.reconciliation = undefined;
+    }
+    if (this.policy.supersedeOnly) {
+      return;
+    }
+    if (this.active) {
+      this.active.reconciled = true;
+    }
+    if (this.queued) {
+      this.queued.reconciled = true;
+    }
+    if (!this.blockedError) {
+      this.diagnose('operation', false, 'recovered');
+    }
+    this.diagnose('reconciliation', false, 'recovered');
+  }
+
+  detach(): void {
+    this.detached = true;
+    if (this.reconciliation) {
+      clearTimeout(this.reconciliation);
+    }
+    for (const request of [...(this.active?.requests ?? []), ...(this.queued?.requests ?? [])]) {
+      this.settle(request, 'reject', this.communicationFailure());
+    }
+    this.active = undefined;
+    this.queued = undefined;
+    this.projection = undefined;
+    this.reconciliation = undefined;
+  }
+
+  private communicationFailure(): unknown {
+    return new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+  }
+
+  private start(batch: WriteBatch<T>): void {
+    if (this.detached) {
+      return;
+    }
+    if (this.reconciliation) {
+      clearTimeout(this.reconciliation);
+      this.reconciliation = undefined;
+    }
+    this.active = batch;
+    if (this.policy.supersedeOnly) {
+      for (const request of batch.requests) {
+        request.deadline = setTimeout(() => this.timeout(request), OPERATION_DEADLINE_MS);
+      }
+    }
+    Promise.resolve()
+      .then(() => this.issue(batch.value))
+      .then(
+        () => this.complete(batch),
+        (error) => this.fail(batch, error),
+      );
+  }
+
+  private complete(batch: WriteBatch<T>): void {
+    if (this.active !== batch) {
+      return;
+    }
+    if (batch.abandoned && this.queued?.requests.some(({ settled }) => !settled)) {
+      this.active = undefined;
+      this.startQueued();
+      return;
+    }
+    for (const request of batch.requests) {
+      this.settle(request, 'resolve');
+    }
+    if (batch.abandoned && !batch.reconciled) {
+      this.projection = batch.value;
+      this.restore('late-completed');
+    }
+    this.diagnose('operation', false, 'recovered');
+    if (this.policy.supersedeOnly ? this.projection !== undefined : !batch.reconciled) {
+      this.reconciliation = setTimeout(() => {
+        this.reconciliation = undefined;
+        this.projection = undefined;
+        this.restore('expired');
+        this.diagnose('reconciliation', true, 'expired');
+      }, RECONCILIATION_WINDOW_MS);
+    }
+    this.active = undefined;
+    this.restore('completed');
+    this.startQueued();
+  }
+
+  private fail(batch: WriteBatch<T>, cause: unknown): void {
+    if (this.active !== batch) {
+      return;
+    }
+    const nonRetryable = cause instanceof CapabilityNotSupportedError;
+    const { hap } = this;
+    const error = new hap.HapStatusError(
+      nonRetryable ? hap.HAPStatus.NOT_ALLOWED_IN_CURRENT_STATE : hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
+    );
+    for (const request of batch.requests) {
+      this.settle(request, 'reject', error);
+    }
+    if (nonRetryable) {
+      this.blockedError = error;
+      for (const request of this.queued?.requests ?? []) {
+        this.settle(request, 'reject', error);
+      }
+      this.queued = undefined;
+    }
+    this.projection = this.queued?.value;
+    this.restore('failed');
+    if (batch.abandoned && !nonRetryable) {
+      this.active = undefined;
+      this.startQueued();
+      return;
+    }
+    this.diagnose('operation', true, nonRetryable ? 'capability-not-supported' : 'operation-failure');
+    this.active = undefined;
+    this.startQueued();
+  }
+
+  private timeout(request: WriteRequest<T>): void {
+    if (request.settled) {
+      return;
+    }
+    this.settle(request, 'reject', this.communicationFailure());
+    this.diagnose('operation', true, 'timeout');
+    if (this.active?.requests.every(({ settled }) => settled)) {
+      this.projection = this.queued?.value;
+      this.restore('timed-out');
+      if (this.policy.holdAbandoned) {
+        this.active.abandoned = true;
+      } else {
+        this.active = undefined;
+        this.startQueued();
+      }
+      return;
+    }
+    if (this.queued) {
+      this.queued.requests = this.queued.requests.filter(({ settled }) => !settled);
+      if (this.queued.requests.length === 0) {
+        this.queued = undefined;
+        this.projection = this.active?.value;
+      } else {
+        this.queued.value = this.queued.requests.at(-1)!.value;
+      }
+    }
+  }
+
+  private startQueued(): void {
+    const queued = this.queued;
+    this.queued = undefined;
+    if (!queued) {
+      return;
+    }
+    queued.requests = queued.requests.filter(({ settled }) => !settled);
+    if (queued.requests.length > 0) {
+      queued.value = queued.requests.at(-1)!.value;
+      this.projection = queued.reconciled ? undefined : queued.value;
+      this.start(queued);
+    }
+  }
+
+  private settle(request: WriteRequest<T>, result: 'resolve' | 'reject', error?: unknown): void {
+    if (request.settled) {
+      return;
+    }
+    request.settled = true;
+    clearTimeout(request.deadline);
+    if (result === 'resolve') {
+      request.resolve();
+    } else {
+      request.reject(error);
+    }
+  }
+}
