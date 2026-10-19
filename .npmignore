@@ -6,8 +6,8 @@ src
 *.xcf
 
 # Development material with no role on an installed host: the contract specifications, the documentation
-# site, the maintainer and qualification scripts, the agent skill definitions, and editor and formatter
-# configuration.
+# site, the maintainer and qualification scripts, the agent skill definitions, the UI design system, and
+# editor and formatter configuration.
 test
 docs
 /scripts
@@ -20,6 +20,8 @@ docs
 FUNDING.yml
 CODING_STANDARDS.md
 CONTEXT.md
+DESIGN.md
+.impeccable
 
 # ------------- Defaults ------------- #
 
