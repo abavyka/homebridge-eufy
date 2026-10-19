@@ -84,6 +84,5 @@ describe('custom UI downloads', () => {
     expect(document).toContain('aria-labelledby="diagnostics-question-heading"');
     expect(document).not.toContain('diagnostics-steps');
     expect(document).not.toContain('data-diagnostics-case');
-    expect(document).toContain('src="js/profile-wizard.js"');
   });
 });

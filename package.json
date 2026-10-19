@@ -26,12 +26,9 @@
   "scripts": {
     "lint": "prettier --check 'src/**/*.ts' 'test/**/*.ts'",
     "lint-fix": "prettier --write 'src/**/*.ts' 'test/**/*.ts'",
-    "build": "npm run build-plugin",
-    "build-plugin": "rimraf ./dist && tsc",
+    "build": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\" && tsc",
     "guard:no-ecs": "bash scripts/guard-no-ecs.sh",
     "qualify:release": "node scripts/qualify-release.mjs",
-    "docs:dev": "npm -C docs run dev",
-    "docs:build": "npm -C docs run build",
     "test": "vitest run",
     "verify": "npm run lint && npm run guard:no-ecs && npm run build && npm test",
     "prepublishOnly": "npm run build && npm run qualify:release && npm run verify"
@@ -55,7 +52,6 @@
     "@types/node": "^26.6.4",
     "homebridge": "^2.4.0",
     "prettier": "^3.9.9",
-    "rimraf": "^6.1.3",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   },
