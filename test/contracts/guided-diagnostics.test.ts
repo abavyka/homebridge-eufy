@@ -1578,7 +1578,9 @@ describe('guided diagnostics session', () => {
             encoders: {
               h264_videotoolbox: {
                 'main@3.1': 'qualified',
-                'high@4.0': 'bytes',
+                'high@4.0': ['bytes', 442_368, 336_375],
+                'high@3.1': 'bytes',
+                'high@3.2': ['bytes', 'over', 336_375],
                 'main@3.2': 'invented',
                 'main@5.1': 'qualified',
                 'main@3.1@x': 'qualified',
@@ -1605,7 +1607,10 @@ describe('guided diagnostics session', () => {
       expect(environment.ffmpeg).toEqual({
         path: '/synthetic/bin/ffmpeg',
         source: 'bundled',
-        encoders: { h264_videotoolbox: { 'main@3.1': 'qualified', 'high@4.0': 'bytes' }, h264_amf: {} },
+        encoders: {
+          h264_videotoolbox: { 'main@3.1': 'qualified', 'high@4.0': ['bytes', 442_368, 336_375] },
+          h264_amf: {},
+        },
       });
     } finally {
       rmSync(root, { force: true, recursive: true });

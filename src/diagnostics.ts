@@ -683,7 +683,7 @@ interface PersistedFfmpegEnvironment {
   source: 'bundled' | 'configured';
   version?: string;
   /** Each hardware encoder qualification tried, with its outcome per `profile@level` selection. */
-  encoders?: Record<string, Record<string, string>>;
+  encoders?: Record<string, Record<string, string | readonly ['bytes', number, number]>>;
 }
 
 /**
@@ -864,9 +864,11 @@ function readFfmpegIdentity(value: unknown): PersistedFfmpegEnvironment | undefi
 
 /**
  * The recorded encoder qualification, keeping only encoder names, `profile@level` selections and outcomes this
- * build names, so the record is bounded by those three closed sets.
+ * build names, so the record is bounded by those three closed sets, and a `bytes` outcome's two integers.
  */
-function readEncoderQualification(recorded: Record<string, unknown>): Record<string, Record<string, string>> {
+function readEncoderQualification(
+  recorded: Record<string, unknown>,
+): NonNullable<PersistedFfmpegEnvironment['encoders']> {
   return Object.fromEntries(
     LIVE_VIDEO_ENCODERS.filter((name) => Object.hasOwn(recorded, name)).map((name) => {
       const outcomes = recorded[name] && typeof recorded[name] === 'object' ? Object.entries(recorded[name]) : [];
@@ -875,7 +877,13 @@ function readEncoderQualification(recorded: Record<string, unknown>): Record<str
         Object.fromEntries(
           outcomes.flatMap(([selection, value]) => {
             const [profile, level] = selection.split('@');
-            const outcome = allowlistedLabel(value, QUALIFICATION_OUTCOMES);
+            const outcome =
+              Array.isArray(value) &&
+              value.length === 3 &&
+              value[0] === 'bytes' &&
+              value.slice(1).every(Number.isSafeInteger)
+                ? (value as ['bytes', number, number])
+                : allowlistedLabel(value, QUALIFICATION_OUTCOMES);
             return HOMEKIT_LIVE_VIDEO_PROFILES.has(profile!) &&
               HOMEKIT_LIVE_VIDEO_LEVELS.has(level!) &&
               selection === `${profile}@${level}` &&
@@ -2352,7 +2360,7 @@ const LIVE_VIDEO_ENCODERS = [
   'h264_vaapi',
   'h264_v4l2m2m',
 ] as const;
-/** What qualifying a hardware encoder for one selection found: `qualified`, or the first check it failed. */
+/** What qualifying a hardware encoder for one selection found, but `bytes`, which is read with its two integers. */
 const QUALIFICATION_OUTCOMES = [
   'qualified',
   'budget',
@@ -2362,7 +2370,6 @@ const QUALIFICATION_OUTCOMES = [
   'level',
   'geometry',
   'frames',
-  'bytes',
 ] as const;
 /** The codec a live video source delivers. */
 const LIVE_VIDEO_SOURCES = ['h264', 'h265', 'av1'] as const;
@@ -2899,7 +2906,7 @@ export function reportDiscardedV4Settings(
 /** States once which encoders code live video on this host: every qualified hardware encoder, then `libx264`. */
 export function reportLiveVideoEncoders(
   target: Pick<PlatformLogger, 'info'>,
-  encoders: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  encoders: Readonly<Record<string, Readonly<Record<string, unknown>>>>,
 ): void {
   const names = [
     ...LIVE_VIDEO_ENCODERS.filter(

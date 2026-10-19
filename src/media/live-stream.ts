@@ -520,9 +520,19 @@ const runQualification: QualificationRun = (executable, args, input, timeoutMs) 
  * What qualifying one hardware encoder for one selection found: `qualified`, or the first check it failed.
  *
  * `budget` is qualification's deadline reached before a run, `encode` a coding run that exited non-zero, failed
- * to start, or timed out, and `trace` a tracing run that did. The rest name the coded fact that differed.
+ * to start, or timed out, and `trace` a tracing run that did. The rest name the coded fact that differed, and
+ * `bytes` carries the coded bytes beside the bound they exceeded.
  */
-type QualificationOutcome = 'qualified' | 'budget' | 'encode' | 'trace' | 'profile' | 'level' | 'geometry' | 'frames' | 'bytes';
+type QualificationOutcome =
+  | 'qualified'
+  | 'budget'
+  | 'encode'
+  | 'trace'
+  | 'profile'
+  | 'level'
+  | 'geometry'
+  | 'frames'
+  | readonly ['bytes', number, number];
 
 /**
  * Qualifies `encoder` for `selection` before `deadline`.
@@ -579,9 +589,12 @@ async function qualification(
         field('pic_height_in_map_units_minus1') + 1 === Math.ceil(selection.height / 16),
     ],
     ['frames', (traced.stderr.match(/\bPacket: /g)?.length ?? 0) === selection.fps * QUALIFICATION_SECONDS],
-    ['bytes', coded.stdout.length * 8 <= videoBudgetInsideCeiling(selection) * 1_000 * (QUALIFICATION_SECONDS + 1)],
   ];
-  return checks.find(([, passed]) => !passed)?.[0] ?? 'qualified';
+  const bound = videoBudgetInsideCeiling(selection) * 125 * (QUALIFICATION_SECONDS + 1);
+  return (
+    checks.find(([, passed]) => !passed)?.[0] ??
+    (coded.stdout.length <= bound ? 'qualified' : ['bytes', coded.stdout.length, bound])
+  );
 }
 
 /** The live video packet size an administrator can choose for networks that drop the negotiated one. */
