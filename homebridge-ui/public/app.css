@@ -1949,9 +1949,10 @@ button.diagnostics-quiet-action:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
-/* The frame is black in both themes, so the fill is a fixed deep teal the white glyph reads against. */
-.wizard-live-play:hover:not(:disabled),
-.wizard-live-play:focus-visible {
+/* The frame is black in both themes, so the icon's fill is a fixed deep teal the white glyph reads against; the
+   button itself covers the whole frame and stays transparent. */
+.wizard-live-play:hover:not(:disabled) img,
+.wizard-live-play:focus-visible img {
   background: color-mix(in srgb, var(--accent) 55%, #000000);
 }
 
@@ -2258,11 +2259,6 @@ input:focus-visible {
   padding: 8px 18px;
   border-radius: var(--radius-card);
   background: rgb(0 0 0 / 70%);
-}
-
-.wizard-live-play:hover img,
-.wizard-live-play:focus-visible img {
-  background: var(--accent);
 }
 
 /* Stop stays out of the picture until the pointer or the keyboard is on the video. */
