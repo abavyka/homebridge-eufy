@@ -2677,14 +2677,18 @@ describe('hardware encoder qualification', () => {
   });
 
   /** A selection that fails qualification is recorded with the first check it failed. */
-  it.each<[string, string, (honest: CodedSelection) => CodedSelection | 'failed' | 'untraced']>([
+  it.each<[string, unknown, (honest: CodedSelection) => CodedSelection | 'failed' | 'untraced']>([
     ['a coded profile above the negotiated one', 'profile', (honest) => ({ ...honest, profile_idc: 100 })],
     ['a Baseline that is not Constrained Baseline', 'profile', (honest) => ({ ...honest, profile_idc: 66 })],
     ['another level', 'level', (honest) => ({ ...honest, level_idc: 32 })],
     ['another width', 'geometry', (honest) => ({ ...honest, pic_width_in_mbs_minus1: 59 })],
     ['another height', 'geometry', (honest) => ({ ...honest, pic_height_in_map_units_minus1: 33 })],
     ['a frame short', 'frames', (honest) => ({ ...honest, frames: 59 })],
-    ['more bytes than the budget and its one second of buffer', 'bytes', (honest) => ({ ...honest, bytes: 107_626 })],
+    [
+      'more bytes than the budget and its one second of buffer, with both',
+      ['bytes', 107_626, 107_625],
+      (honest) => ({ ...honest, bytes: 107_626 }),
+    ],
     ['an encoder that exited non-zero or outlived its timeout', 'encode', () => 'failed'],
     ['a coded stream the trace could not read', 'trace', () => 'untraced'],
   ])('rejects %s as %s', async (_case, outcome, mismatch) => {
