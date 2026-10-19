@@ -1,10 +1,17 @@
 import type { AudioActions, CameraActions, LightActions } from '@mega-yfue/eufy-sdk';
 
 import { untrusted } from '../../device/member-trust.js';
-import type { AdapterAttachmentContext, AdapterEventTrace, AttachedAdapter, HomeKitAdapter } from '../adapter.js';
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
+} from '../adapter.js';
 import {
   deviceOperationIssuer,
   enablementAnnouncement,
+  CAMERA_ENABLED_WRITE,
   INVALID_OBSERVATION_CONDITION,
   observationReader,
   OPERATION_FAILED_CONDITION,
@@ -94,12 +101,6 @@ const CAMERA_CONTROL_ROWS = [
   AUDIO_VOLUME_READ,
   AUDIO_VOLUME_WRITE,
 ] as const;
-/**
- * Writing the camera's power, gated here without a coverage row of its own: the camera streaming bundle
- * carries HomeKit's own camera-active state to this same member and declares the operation once, so a second
- * row would claim one operation twice.
- */
-const CAMERA_ENABLED_WRITE = { id: 'camera.enabled.persistent-operation', kind: 'persistent-operation' } as const;
 const CAMERA_CONTROL_REQUIREMENTS = [...CAMERA_CONTROL_ROWS, CAMERA_ENABLED_WRITE] as const;
 type CameraControlRequirement = (typeof CAMERA_CONTROL_REQUIREMENTS)[number];
 
@@ -175,25 +176,10 @@ function attachCameraControls(context: AdapterAttachmentContext): AttachedAdapte
    * range HomeKit accepts rather than clamping it, because a value out of range is a value this plugin has
    * not understood.
    */
-  const readPercent = (capability: string, member: string, minimum: number, read: () => unknown): number => {
-    const value = readNumber(capability, member, read);
-    if (!Number.isInteger(value) || value < minimum || value > 100) {
-      context.diagnose({
-        code: INVALID_OBSERVATION_CONDITION,
-        capability,
-        member,
-        active: true,
-        reason: 'malformed',
-      });
-      throw new hap.HapStatusError(hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
-    }
-    return value;
-  };
+  const readPercent = (capability: string, member: string, minimum: number, read: () => unknown): number =>
+    readNumber(capability, member, read, (value) => Number.isInteger(value) && value >= minimum && value <= 100);
 
-  const enabledService = own(
-    accessory.getServiceById(hap.Service.Switch, CAMERA_ENABLED_SERVICE_KEY) ??
-      accessory.addService(hap.Service.Switch, 'Camera Enabled', CAMERA_ENABLED_SERVICE_KEY),
-  );
+  const enabledService = own(ownService(accessory, hap.Service.Switch, 'Camera Enabled', CAMERA_ENABLED_SERVICE_KEY));
   const enabledPower = enabledService.getCharacteristic(hap.Characteristic.On);
   const readEnabled = (): boolean => readBoolean('camera', 'enabled', () => camera.enabled);
   enabledPower.onGet(readEnabled);
@@ -326,10 +312,7 @@ function attachCameraControls(context: AdapterAttachmentContext): AttachedAdapte
       }
     } else {
       unavailable('light', 'isOn', false, 'recovered');
-      const physicalLight = own(
-        accessory.getServiceById(hap.Service.Lightbulb, CAMERA_LIGHT_SERVICE_KEY) ??
-          accessory.addService(hap.Service.Lightbulb, 'Camera Light', CAMERA_LIGHT_SERVICE_KEY),
-      );
+      const physicalLight = own(ownService(accessory, hap.Service.Lightbulb, 'Camera Light', CAMERA_LIGHT_SERVICE_KEY));
       const power = physicalLight.getCharacteristic(hap.Characteristic.On);
       const readPower = (): boolean => readBoolean('light', 'isOn', () => light.isOn);
       power.onGet(readPower);
@@ -414,8 +397,7 @@ function attachCameraControls(context: AdapterAttachmentContext): AttachedAdapte
     } else {
       unavailable('audio', 'microphone', false, 'recovered');
       const microphone = own(
-        accessory.getServiceById(hap.Service.Microphone, CAMERA_MICROPHONE_SERVICE_KEY) ??
-          accessory.addService(hap.Service.Microphone, 'Microphone', CAMERA_MICROPHONE_SERVICE_KEY),
+        ownService(accessory, hap.Service.Microphone, 'Microphone', CAMERA_MICROPHONE_SERVICE_KEY),
       );
       const mute = microphone.getCharacteristic(hap.Characteristic.Mute);
       const readMute = (): boolean => !readBoolean('audio', 'microphone', () => audio.microphone);
@@ -459,10 +441,7 @@ function attachCameraControls(context: AdapterAttachmentContext): AttachedAdapte
       }
     } else {
       unavailable('audio', 'speaker', false, 'recovered');
-      const speaker = own(
-        accessory.getServiceById(hap.Service.Speaker, CAMERA_SPEAKER_SERVICE_KEY) ??
-          accessory.addService(hap.Service.Speaker, 'Speaker', CAMERA_SPEAKER_SERVICE_KEY),
-      );
+      const speaker = own(ownService(accessory, hap.Service.Speaker, 'Speaker', CAMERA_SPEAKER_SERVICE_KEY));
       const mute = speaker.getCharacteristic(hap.Characteristic.Mute);
       const readMute = (): boolean => !readBoolean('audio', 'speaker', () => audio.speaker);
       mute.onGet(readMute);

@@ -23,12 +23,13 @@ const SLOT_ORDER = ['home', 'away', 'night', 'off'] as const;
 /** One of the four states HomeKit's security system names. */
 type ArmingSlot = (typeof SLOT_ORDER)[number];
 
-import type {
-  AdapterAttachmentContext,
-  AdapterDiagnostic,
-  AdapterEventTrace,
-  AttachedAdapter,
-  HomeKitAdapter,
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterDiagnostic,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
 } from '../adapter.js';
 import { PersistentMemberWrites } from '../device-control.js';
 
@@ -168,9 +169,7 @@ function attachSecuritySystem(context: AdapterAttachmentContext): AttachedAdapte
   });
   context.observed('arming-capability-unavailable');
 
-  const service =
-    accessory.getServiceById(hap.Service.SecuritySystem, SECURITY_SYSTEM_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.SecuritySystem, accessory.displayName, SECURITY_SYSTEM_ADAPTER_KEY);
+  const service = ownService(accessory, hap.Service.SecuritySystem, accessory.displayName, SECURITY_SYSTEM_ADAPTER_KEY);
   const previousState = SECURITY_SYSTEM_STATES.get(service);
   const owner = Symbol('security-system-owner');
   const state: SecuritySystemState = previousState ?? {

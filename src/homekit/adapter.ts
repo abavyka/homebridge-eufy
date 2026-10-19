@@ -1,5 +1,5 @@
 import type { AnyDeviceEvent, ArmingMode, AvailabilityObservation, Device } from '@mega-yfue/eufy-sdk';
-import type { Characteristic, HAP, HapStatusError, PlatformAccessory, Service } from 'homebridge';
+import type { HAP, PlatformAccessory, Service, WithUUID } from 'homebridge';
 
 import type {
   DeviceMemberEvidence,
@@ -20,30 +20,27 @@ import type {
 } from '../media/contracts.js';
 
 /** The HAP definitions required by any self-hosted capability adapter. */
-export interface HomeKitDefinitions {
-  readonly Service: typeof Service;
-  readonly Characteristic: typeof Characteristic;
-  readonly HAPStatus: {
-    readonly SERVICE_COMMUNICATION_FAILURE: number;
-    readonly INVALID_VALUE_IN_REQUEST: number;
-    readonly NOT_ALLOWED_IN_CURRENT_STATE: number;
-  };
-  readonly HapStatusError: typeof HapStatusError;
-  readonly CameraController: HAP['CameraController'];
-  readonly H264Profile: HAP['H264Profile'];
-  readonly H264Level: HAP['H264Level'];
-  readonly AudioStreamingCodecType: HAP['AudioStreamingCodecType'];
-  readonly AudioStreamingSamplerate: HAP['AudioStreamingSamplerate'];
-  readonly SRTPCryptoSuites: HAP['SRTPCryptoSuites'];
-  readonly VideoCodecType: HAP['VideoCodecType'];
-  readonly MediaContainerType: HAP['MediaContainerType'];
-  readonly AudioRecordingCodecType: HAP['AudioRecordingCodecType'];
-  readonly AudioRecordingSamplerate: HAP['AudioRecordingSamplerate'];
-  readonly AudioBitrate: HAP['AudioBitrate'];
-  readonly EventTriggerOption: HAP['EventTriggerOption'];
-  readonly HDSProtocolError: HAP['HDSProtocolError'];
-  readonly HDSProtocolSpecificErrorReason: HAP['HDSProtocolSpecificErrorReason'];
-}
+export type HomeKitDefinitions = Pick<
+  HAP,
+  | 'Service'
+  | 'Characteristic'
+  | 'HAPStatus'
+  | 'HapStatusError'
+  | 'CameraController'
+  | 'H264Profile'
+  | 'H264Level'
+  | 'AudioStreamingCodecType'
+  | 'AudioStreamingSamplerate'
+  | 'SRTPCryptoSuites'
+  | 'VideoCodecType'
+  | 'MediaContainerType'
+  | 'AudioRecordingCodecType'
+  | 'AudioRecordingSamplerate'
+  | 'AudioBitrate'
+  | 'EventTriggerOption'
+  | 'HDSProtocolError'
+  | 'HDSProtocolSpecificErrorReason'
+>;
 
 /** An allowlisted capability condition emitted without physical-device identity. */
 export interface AdapterDiagnostic {
@@ -74,7 +71,7 @@ export interface AdapterEventTrace {
 }
 
 /** An identity-free account of one live video selection made by a HomeKit controller. */
-export type AdapterLiveVideoTrace = Pick<
+type AdapterLiveVideoTrace = Pick<
   NegotiatedLiveVideo,
   'profile' | 'level' | 'width' | 'height' | 'fps' | 'mtu' | 'maxBitRate'
 > & {
@@ -85,7 +82,7 @@ export type AdapterLiveVideoTrace = Pick<
 };
 
 /** An identity-free live-session failure or release milestone. */
-export type AdapterLiveSessionTrace =
+type AdapterLiveSessionTrace =
   | (Extract<LiveSessionOutcome, { outcome: 'failed' }> & { event: 'live-session-failed' })
   /**
    * A session gave its source back, and whether it was asked to or ended itself.
@@ -176,4 +173,14 @@ export interface HomeKitAdapter {
   /** The stable evidence ids of every SDK member this adapter represents. */
   readonly coverage: readonly string[];
   attach(context: AdapterAttachmentContext): AttachedAdapter | undefined;
+}
+
+/** This accessory's service of one type under the stable key its adapter owns, created on first use. */
+export function ownService(
+  accessory: PlatformAccessory,
+  type: WithUUID<typeof Service>,
+  name: string,
+  key: string,
+): Service {
+  return accessory.getServiceById(type, key) ?? accessory.addService(type, name, key);
 }

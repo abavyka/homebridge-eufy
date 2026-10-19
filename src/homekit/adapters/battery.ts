@@ -2,12 +2,13 @@ import type { AnyDeviceEvent, BatteryActions } from '@mega-yfue/eufy-sdk';
 
 import { satisfiesMemberRequirements } from '../../device/member-evidence.js';
 import { BATTERY_LEVEL_READ, isBatteryLevel } from '../../device/member-trust.js';
-import type {
-  AdapterAttachmentContext,
-  AdapterDiagnostic,
-  AdapterEventTrace,
-  AttachedAdapter,
-  HomeKitAdapter,
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterDiagnostic,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
 } from '../adapter.js';
 
 export const BATTERY_ADAPTER_KEY = 'battery.status';
@@ -42,7 +43,7 @@ export interface BatterySdkDevice {
   battery?: () => BatteryActions | undefined;
 }
 
-export type BatteryDiagnosticReason = 'missing' | 'malformed' | 'sdk-fault' | 'hot' | 'recovered';
+type BatteryDiagnosticReason = 'missing' | 'malformed' | 'sdk-fault' | 'hot' | 'recovered';
 
 /** Structured conditions emitted by the battery adapter. */
 export interface BatteryDiagnostic extends AdapterDiagnostic {
@@ -97,9 +98,7 @@ function attachBattery(context: AdapterAttachmentContext): AttachedAdapter | und
     reason: 'recovered',
   });
 
-  const service =
-    accessory.getServiceById(hap.Service.Battery, BATTERY_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.Battery, accessory.displayName, BATTERY_ADAPTER_KEY);
+  const service = ownService(accessory, hap.Service.Battery, accessory.displayName, BATTERY_ADAPTER_KEY);
   const state = BATTERY_STATES.get(service) ?? { lowAlert: false };
   BATTERY_STATES.set(service, state);
   const owner = Symbol('battery-owner');

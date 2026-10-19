@@ -39,7 +39,7 @@ function hapRevision(reported: string): string | undefined {
 }
 
 /** The typed SDK identity accessor consumed by HomeKit. */
-export interface InformationSdkDevice {
+interface InformationSdkDevice {
   info?: () => DeviceInfo | undefined;
 }
 

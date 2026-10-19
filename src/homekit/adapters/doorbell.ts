@@ -1,8 +1,12 @@
 import type { AnyDeviceEvent } from '@mega-yfue/eufy-sdk';
 
-import type { Service } from 'homebridge';
-
-import type { AdapterAttachmentContext, AdapterEventTrace, AttachedAdapter, HomeKitAdapter } from '../adapter.js';
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
+} from '../adapter.js';
 
 export const DOORBELL_ADAPTER_KEY = 'doorbell.press';
 const DOORBELL_OWNERS = new WeakMap<object, symbol>();
@@ -20,22 +24,6 @@ export function hasAdmittedDoorbellPress(evidence: AdapterAttachmentContext['evi
   return evidence.has(DOORBELL_PRESS_REQUIREMENT.id);
 }
 
-/**
- * This accessory's one doorbell service, created on first use under the stable key this adapter owns.
- *
- * A camera bundle configuring HomeKit Secure Video has to hand the same service to its controller, because
- * a press is only a recording trigger when the controller that advertises it owns the service carrying it.
- * Both callers resolve it here so one accessory can only ever carry one doorbell service, whichever
- * attaches first.
- */
-export function doorbellPressService(context: Pick<AdapterAttachmentContext, 'accessory' | 'hap'>): Service {
-  const { accessory, hap } = context;
-  return (
-    accessory.getServiceById(hap.Service.Doorbell, DOORBELL_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.Doorbell, accessory.displayName, DOORBELL_ADAPTER_KEY)
-  );
-}
-
 /** Complete HomeKit policy for admitted physical doorbell presses. */
 export const DOORBELL_ADAPTER = {
   key: DOORBELL_ADAPTER_KEY,
@@ -48,14 +36,14 @@ export const DOORBELL_ADAPTER = {
 /** Attaches verified SDK press events to one official HomeKit Doorbell service. */
 function attachDoorbell(context: AdapterAttachmentContext): AttachedAdapter {
   const { accessory, hap } = context;
-  const service = doorbellPressService(context);
+  const service = ownService(accessory, hap.Service.Doorbell, accessory.displayName, DOORBELL_ADAPTER_KEY);
   const owner = Symbol('doorbell-owner');
   DOORBELL_OWNERS.set(service, owner);
   const characteristic = service.getCharacteristic(hap.Characteristic.ProgrammableSwitchEvent);
 
   return {
     event(event: AnyDeviceEvent): AdapterEventTrace | undefined {
-      if (event.eventName !== 'doorbellPress') {
+      if (event.eventName !== DOORBELL_PRESS_EVENT) {
         return undefined;
       }
       characteristic.sendEventNotification(hap.Characteristic.ProgrammableSwitchEvent.SINGLE_PRESS);

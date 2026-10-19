@@ -2,7 +2,13 @@ import type { AnyDeviceEvent } from '@mega-yfue/eufy-sdk';
 
 import type { Service } from 'homebridge';
 
-import type { AdapterAttachmentContext, AdapterEventTrace, AttachedAdapter, HomeKitAdapter } from '../adapter.js';
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
+} from '../adapter.js';
 
 export const MOTION_ADAPTER_KEY = 'motion.sensor';
 
@@ -46,10 +52,7 @@ export function hasAdmittedMotionEvents(evidence: AdapterAttachmentContext['evid
  */
 export function motionSensorService(context: Pick<AdapterAttachmentContext, 'accessory' | 'hap'>): Service {
   const { accessory, hap } = context;
-  return (
-    accessory.getServiceById(hap.Service.MotionSensor, MOTION_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.MotionSensor, accessory.displayName, MOTION_ADAPTER_KEY)
-  );
+  return ownService(accessory, hap.Service.MotionSensor, accessory.displayName, MOTION_ADAPTER_KEY);
 }
 
 /** Complete HomeKit policy for admitted detection pulses. */

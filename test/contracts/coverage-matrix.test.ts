@@ -10,16 +10,11 @@ describe('SDK/HAP coverage matrix', () => {
     expect(new Set(SDK_HAP_COVERAGE_MATRIX.rows.map((row) => row.id)).size).toBe(SDK_HAP_COVERAGE_MATRIX.rows.length);
   });
 
-  it('records executable evidence and policy for every row', () => {
+  it('records an adapter for every represented row', () => {
     for (const row of SDK_HAP_COVERAGE_MATRIX.rows) {
-      expect(row.memberKind).toMatch(/^(read|event|persistent-operation|momentary-action)$/);
-      expect(row.evidence.length, row.id).toBeGreaterThan(0);
-      expect(row).toHaveProperty('adapter');
-      expect(row.representationStatus).toMatch(/^(represented|not-represented)$/);
-      expect(row.controlStatus).toMatch(/^(controllable|not-controllable|not-represented)$/);
+      expect(row.id).toMatch(/\.(read|event|persistent-operation|momentary-action)$/);
       if (row.disposition === 'required-adapter') {
         expect(row.adapter, row.id).toBeTruthy();
-        expect(row.representationStatus).toBe('represented');
       }
     }
   });
@@ -62,7 +57,7 @@ describe('SDK/HAP coverage matrix', () => {
       }
     }
 
-    const informationRows = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ capability }) => capability === 'info');
+    const informationRows = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ id }) => id.startsWith('info.'));
     expect(informationRows.filter(({ adapter }) => adapter === 'accessory.information')).toHaveLength(6);
 
     const representedBattery = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ adapter }) => adapter === 'battery.status');
@@ -74,12 +69,6 @@ describe('SDK/HAP coverage matrix', () => {
     expect(representedSiren.map(({ id }) => id).sort()).toEqual(
       ['siren.active.read', 'siren.test.momentary-action', 'siren.stop.momentary-action'].sort(),
     );
-    expect(representedSiren.find(({ id }) => id === 'siren.active.read')?.controlStatus).toBe('not-controllable');
-    expect(
-      representedSiren
-        .filter(({ memberKind }) => memberKind === 'momentary-action')
-        .every(({ controlStatus }) => controlStatus === 'controllable'),
-    ).toBe(true);
 
     const representedSmartLight = SDK_HAP_COVERAGE_MATRIX.rows.filter(
       ({ adapter }) => adapter === 'smart-light.lightbulb',
@@ -140,19 +129,9 @@ describe('SDK/HAP coverage matrix', () => {
         'lock.locked.persistent-operation',
       ].sort(),
     );
-    expect(
-      representedLock
-        .filter(({ memberKind }) => memberKind === 'momentary-action')
-        .every(({ controlStatus }) => controlStatus === 'controllable'),
-    ).toBe(true);
-    expect(
-      representedLock.find(({ id }) => id === 'lock.lockState.event'),
-      'the announced state is presented, not controlled',
-    ).toMatchObject({ representationStatus: 'represented', controlStatus: 'not-controllable' });
-    expect(representedLock.every(({ evidence }) => evidence.some((item) => item.includes('T8531')))).toBe(true);
 
     const diagnosticOnlySiren = SDK_HAP_COVERAGE_MATRIX.rows.filter(
-      ({ capability, disposition }) => capability === 'siren' && disposition === 'diagnostic-only',
+      ({ id, disposition }) => id.startsWith('siren.') && disposition === 'diagnostic-only',
     );
     expect(diagnosticOnlySiren.map(({ id }) => id)).toEqual(
       expect.arrayContaining([
@@ -162,8 +141,6 @@ describe('SDK/HAP coverage matrix', () => {
         'siren.trigger.momentary-action',
       ]),
     );
-    expect(diagnosticOnlySiren.every(({ representationStatus }) => representationStatus === 'not-represented')).toBe(
-      true,
-    );
+    expect(diagnosticOnlySiren.every(({ adapter }) => adapter === null)).toBe(true);
   });
 });

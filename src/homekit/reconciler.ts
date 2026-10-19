@@ -50,14 +50,14 @@ export interface HomeKitAccessoryStore {
 }
 
 /** Aggregate condition for recognized devices that cannot be represented. */
-export interface RepresentationDiagnostic {
+interface RepresentationDiagnostic {
   code: 'recognized-device-not-represented';
   active: boolean;
   reason: 'no-primary-purpose-member' | 'primary-adapter-unavailable' | 'recovered';
 }
 
 export type HomeKitDiagnostic = RepresentationDiagnostic | AdapterDiagnostic;
-export type HomeKitDiagnosticSink = (diagnostic: HomeKitDiagnostic, affectedDeviceIds: readonly string[]) => void;
+type HomeKitDiagnosticSink = (diagnostic: HomeKitDiagnostic, affectedDeviceIds: readonly string[]) => void;
 
 /**
  * Redacted debug evidence that an SDK event reached one self-hosted adapter, and the device it is about.
@@ -75,9 +75,9 @@ export type HomeKitEventReport = ({ adapter: string; serial: string } & AdapterT
  */
 type UnroutedEventReport = { event: 'event-unrouted'; kind: string; target: 'none' | 'station' | 'unattached' };
 
-export type HomeKitEventReportSink = (trace: HomeKitEventReport) => void;
+type HomeKitEventReportSink = (trace: HomeKitEventReport) => void;
 
-export type HomeKitEntityPreferences = Readonly<
+type HomeKitEntityPreferences = Readonly<
   Record<
     string,
     {
@@ -103,7 +103,7 @@ interface AccessoryContext {
 /** Reconciles complete runtime registry publications into stable HomeKit accessory containers. */
 export class HomeKitReconciler {
   private readonly accessories = new Map<string, PlatformAccessory>();
-  private readonly representedSerials = new Set<string>();
+  private representedSerials = new Set<string>();
   private readonly attachedAdapters = new Map<string, ReadonlyMap<string, AttachedAdapter>>();
   private readonly activeAdapters = new Map<string, ReadonlySet<string>>();
   private readonly representationDiagnostics = new Map<
@@ -317,10 +317,7 @@ export class HomeKitReconciler {
         this.detachAdapters(serial);
       }
     }
-    this.representedSerials.clear();
-    for (const serial of nextRepresented) {
-      this.representedSerials.add(serial);
-    }
+    this.representedSerials = nextRepresented;
     this.lastPublication = publication;
   }
 

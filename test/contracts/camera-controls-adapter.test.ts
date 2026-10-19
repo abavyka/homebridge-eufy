@@ -189,9 +189,12 @@ describe('camera controls capability adapter', () => {
 
   it('faults malformed authoritative observations instead of borrowing another boolean member', async () => {
     const target = accessory();
+    const diagnostics: AdapterDiagnostic[] = [];
     attach(
       target,
       device({ enabled: true }, { isOn: 'malformed' as never, brightness: 0, set: vi.fn(), setBrightness: vi.fn() }),
+      EVIDENCE,
+      (diagnostic) => diagnostics.push(diagnostic),
     );
 
     await expect(
@@ -206,6 +209,12 @@ describe('camera controls capability adapter', () => {
         .getCharacteristic(Characteristic.Brightness)
         .handleGetRequest(),
     ).rejects.toBe(HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+    expect(
+      diagnostics.filter(
+        ({ code, member }) => code === 'invalid-camera-control-observation' && member === 'brightness',
+      ),
+      'an out-of-range reading is raised once, never recovered first',
+    ).toEqual([expect.objectContaining({ active: true, reason: 'malformed' })]);
   });
 
   it('faults evidenced controls whose typed SDK operations are unavailable', () => {

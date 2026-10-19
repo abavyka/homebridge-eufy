@@ -16,9 +16,9 @@ import type {
 import { satisfiesMemberRequirements } from '../../device/member-evidence.js';
 import { cameraEnablementReader, observesCameraEnablement, untrusted } from '../../device/member-trust.js';
 import {
+  CAMERA_ENABLED_WRITE,
   deviceOperationIssuer,
   enablementAnnouncement,
-  INVALID_OBSERVATION_CONDITION,
   observationReader,
   type DeviceOperationIssuer,
   type DeviceOperationState,
@@ -82,7 +82,7 @@ const ADVERTISED_RESOLUTIONS: readonly (readonly [number, number, number])[] = [
  * HomeKit Secure Video recording, and therefore has no controller-owned service to carry the presented
  * state.
  */
-export const CAMERA_OPERATING_MODE_SERVICE_KEY = 'camera.operating-mode';
+const CAMERA_OPERATING_MODE_SERVICE_KEY = 'camera.operating-mode';
 
 const CAMERA_LIVE_SESSION_CONDITION = 'camera-live-session-failed';
 const CAMERA_LIVE_REFUSED_CONDITION = 'camera-live-session-refused';
@@ -165,9 +165,6 @@ const CAMERA_NIGHT_VISION_WRITE = {
   kind: 'persistent-operation',
 } as const;
 
-/** The operation that turns this camera off and on again, which HomeKit's own camera-active state drives. */
-const CAMERA_ENABLED_WRITE = { id: 'camera.enabled.persistent-operation', kind: 'persistent-operation' } as const;
-
 /** The night-vision modes the SDK declares, which are the only readings this plugin will project. */
 const NIGHT_VISION_MODES: ReadonlySet<number> = new Set(Object.values(NightVision));
 
@@ -225,7 +222,7 @@ const CAMERA_STREAMING_STATES = new WeakMap<
 >();
 
 /** The typed SDK camera media accessor consumed by the live bundle. */
-export interface CameraStreamingSdkDevice {
+interface CameraStreamingSdkDevice {
   readonly sn: string;
   camera?: () => CameraActions | undefined;
 }
@@ -348,7 +345,7 @@ function attachCameraStreaming(context: AdapterAttachmentContext): AttachedAdapt
    * cannot be stopped at all — a station that serves one camera at a time then stays held by work nobody is
    * waiting for, and refuses every other camera behind it meanwhile.
    */
-  const source: CameraMediaSource = {
+  const source: LiveMediaSource & SnapshotMediaSource & RecordingMediaSource = {
     live: (options) => openLiveSource({ ...liveSourceOptions, ...options }),
     ...(storedAvailable ? { snapshotStored: camera.snapshotStored!.bind(camera) } : {}),
     ...(acquireLiveSnapshot
@@ -727,8 +724,8 @@ interface OperatingModeControls {
   readonly enablement: () => boolean | undefined;
   readonly observed: boolean;
   readonly issue: DeviceOperationIssuer;
-  readonly readBoolean: (capability: string, member: string, read: () => unknown) => boolean;
-  readonly readNumber: (capability: string, member: string, read: () => unknown) => number;
+  readonly readBoolean: ReturnType<typeof observationReader<'boolean'>>;
+  readonly readNumber: ReturnType<typeof observationReader<'number'>>;
 }
 
 /** Reports the enablement observation behind an announced change, and withdraws what this bundle attached. */
@@ -924,11 +921,7 @@ function homeKitActiveOperation(
 function nightVisionPresentation(
   context: AdapterAttachmentContext,
   service: ReturnType<typeof operatingModeService>,
-  {
-    camera,
-    issue,
-    readNumber,
-  }: Pick<OperatingModeControls, 'camera' | 'issue'> & Pick<OperatingModeControls, 'readNumber'>,
+  { camera, issue, readNumber }: Pick<OperatingModeControls, 'camera' | 'issue' | 'readNumber'>,
 ): void {
   const { hap } = context;
   interface NightVisionContext {
@@ -942,17 +935,12 @@ function nightVisionPresentation(
       ? stored.mode
       : undefined;
   const mode = (): number => {
-    const reading = readNumber('camera', 'nightVision', () => camera.nightVision);
-    if (!NIGHT_VISION_MODES.has(reading)) {
-      context.diagnose({
-        code: INVALID_OBSERVATION_CONDITION,
-        capability: 'camera',
-        member: 'nightVision',
-        active: true,
-        reason: 'malformed',
-      });
-      throw new hap.HapStatusError(hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
-    }
+    const reading = readNumber(
+      'camera',
+      'nightVision',
+      () => camera.nightVision,
+      (value) => NIGHT_VISION_MODES.has(value),
+    );
     if (reading !== NightVision.Off && lit !== reading) {
       lit = reading;
       retained.homebridgeEufyCameraNightVision = { version: 1, mode: reading };
@@ -1107,14 +1095,12 @@ interface PendingSession {
   videoSsrc: number;
   audioSsrc?: number;
   selection?: StartStreamRequest;
-  source?: CameraMediaSource;
+  source?: LiveMediaSource & SnapshotMediaSource;
   snapshotMedia?: SnapshotMediaAdapter;
   capturedFallback?: boolean;
   /** The family of address this session's media is sent to, as the prepare request declared it. */
   addressVersion: 'ipv4' | 'ipv6';
 }
-
-interface CameraMediaSource extends LiveMediaSource, SnapshotMediaSource, RecordingMediaSource {}
 
 /**
  * Why live view is unavailable for a camera an admitted observation reports as disabled: it was refused
@@ -1122,9 +1108,6 @@ interface CameraMediaSource extends LiveMediaSource, SnapshotMediaSource, Record
  * camera did accept answered with audio and never a video frame.
  */
 type LiveAdmissionRefusal = 'disabled' | 'disabled-mid-session' | 'disabled-no-video';
-
-/** Why live view is unavailable for a camera the declared concurrent media ceiling had no room for. */
-type MediaCapacityRefusal = 'at-capacity';
 
 /**
  * What an attachment given no budget counts against: nothing, because nothing was declared.
@@ -1149,7 +1132,7 @@ interface LiveCameraBinding {
   readonly stationSn?: string;
   /** Where a live session is recorded, so opportunistic work elsewhere on the station stands aside. */
   readonly stations?: StationLiveSessionRegistry;
-  readonly source: CameraMediaSource;
+  readonly source: LiveMediaSource & SnapshotMediaSource;
   readonly media: LiveMediaAdapter;
   readonly snapshotMedia?: SnapshotMediaAdapter;
   readonly liveVideoSettings?: LiveVideoSettings;
@@ -1165,7 +1148,8 @@ interface LiveCameraBinding {
   ) => void;
   readonly reportTalkback: (outcome: TalkbackOutcome) => void;
   readonly reportAdmission: (refusal?: LiveAdmissionRefusal) => void;
-  readonly reportCapacity: (refusal?: MediaCapacityRefusal) => void;
+  /** Reports `at-capacity` when the declared concurrent media ceiling had no room, and nothing once it does. */
+  readonly reportCapacity: (refusal?: 'at-capacity') => void;
   readonly budget?: MediaSessionBudget;
   readonly reportSnapshot: (failure?: SnapshotUnavailability) => void;
   readonly reportSelection?: AdapterAttachmentContext['trace'];
@@ -1691,9 +1675,6 @@ function h264Level(level: number, hap: HomeKitDefinitions): '3.1' | '3.2' | '4.0
   return level === hap.H264Level.LEVEL4_0 ? '4.0' : level === hap.H264Level.LEVEL3_2 ? '3.2' : '3.1';
 }
 
-/** Why a recording was refused before any transport was opened. */
-type RecordingAdmissionRefusal = 'disabled';
-
 /** Everything one attachment supplies to the stable recording delegate, rebound on each reconciliation. */
 interface RecordingCameraBinding {
   /** This camera's own serial, which tells its recording apart from a sibling's work on one station. */
@@ -1702,13 +1683,14 @@ interface RecordingCameraBinding {
   readonly stationSn?: string;
   /** Where a recording is recorded, so a still stands aside for it and a live view takes the station from it. */
   readonly stations?: StationLiveSessionRegistry;
-  readonly source: CameraMediaSource;
+  readonly source: RecordingMediaSource;
   readonly media: RecordingMediaAdapter;
   readonly audioEnabled: boolean;
   readonly prebufferLengthMs: number;
   readonly enablement: () => boolean | undefined;
   readonly reportRecording: (outcome: RecordingOutcome) => void;
-  readonly reportAdmission: (refusal?: RecordingAdmissionRefusal) => void;
+  /** Reports `disabled` when a recording was refused before any transport was opened. */
+  readonly reportAdmission: (refusal?: 'disabled') => void;
 }
 
 /**
