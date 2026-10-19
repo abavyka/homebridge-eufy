@@ -339,9 +339,19 @@ describe('runtime channel round trip', () => {
    * the HomeKit side's live encoder and rate, until it ends, saying whether the coded video yielded no picture.
    * Aborting closes the connection, which stops the preview in the runtime. A picture too large for a frame is
    * dropped, and a device without a preview, or an older runtime without the path, settles at once with nothing.
+   * While it runs, an adapt request with settings that narrow reaches it, and none reaches it once it stopped.
    */
   it('streams a live preview until it ends or the reader stops it', async () => {
     const stops: string[] = [];
+    const adapts: string[] = [];
+    const wifi = {
+      ask: 'wifi',
+      smallVideoPackets: false,
+      liveVideoPassthrough: false,
+      hardwareVideoEncoder: true,
+      ignoreHomeBitRate: false,
+    } as const;
+    const camera = (serial: string) => ({ serial, adaptation: wifi });
     let finish: (() => void) | undefined;
     const client = await serve(() => status(), {
       frameBytes: 4096,
@@ -355,27 +365,31 @@ describe('runtime channel round trip', () => {
           if (serial === 'T8000P0000000002') onEnd(true);
         });
         finish = () => onPicture(Buffer.from([0xff, 0xd8, 0x03, 0xff, 0xd9]), { side: 'raw', encoder: 'libx264' });
-        return () => stops.push(serial);
+        return { stop: () => stops.push(serial), adapt: (next) => adapts.push(`${serial} ${next.ask}`) };
       },
     });
 
     const ended: unknown[] = [];
     await expect(
-      client.liveDevice('T8000P0000000000', (jpeg, coding) => ended.push([jpeg, coding]), new AbortController().signal),
+      client.liveDevice(
+        camera('T8000P0000000000'),
+        (jpeg, coding) => ended.push([jpeg, coding]),
+        new AbortController().signal,
+      ),
     ).resolves.toBe(false);
     expect(ended).toEqual([
       ['/9gB/9k=', { side: 'raw', encoder: 'libx264' }],
       ['/9gC/9k=', { side: 'homekit', encoder: 'libx264', kbps: 287 }],
     ]);
     await expect(
-      client.liveDevice('T8000P0000000002', () => undefined, new AbortController().signal),
+      client.liveDevice(camera('T8000P0000000002'), () => undefined, new AbortController().signal),
       'coded video that yielded no picture says so',
     ).resolves.toBe(true);
 
     const watched: string[] = [];
     const reader = new AbortController();
     const watching = client.liveDevice(
-      'T8000P0000000001',
+      camera('T8000P0000000001'),
       (jpeg) => {
         watched.push(jpeg);
         if (watched.length === 2) reader.abort();
@@ -387,10 +401,23 @@ describe('runtime channel round trip', () => {
     finish?.();
     expect(watched).toHaveLength(2);
 
+    const adapting = new AbortController();
+    let shown = 0;
+    void client.liveDevice(camera('T8000P0000000004'), () => (shown += 1), adapting.signal);
+    await vi.waitFor(() => expect(shown).toBe(2));
+    const cellular = { ...camera('T8000P0000000004'), adaptation: { ...wifi, ask: 'cellular' as const } };
+    await expect(client.adaptLive(cellular)).resolves.toBe(true);
+    const satellite = { ...cellular, adaptation: { ...wifi, ask: 'satellite' } };
+    await expect(client.adaptLive(satellite as never), 'an ask outside the closed set').resolves.toBe(false);
+    adapting.abort();
+    await vi.waitFor(() => expect(stops).toContain('T8000P0000000004'));
+    await expect(client.adaptLive(cellular), 'a stopped preview').resolves.toBe(false);
+    expect(adapts).toEqual(['T8000P0000000004 cellular']);
+
     const none: string[] = [];
-    await client.liveDevice('T8000P0000000003', (jpeg) => none.push(jpeg), new AbortController().signal);
+    await client.liveDevice(camera('T8000P0000000003'), (jpeg) => none.push(jpeg), new AbortController().signal);
     const older = await serve(() => status());
-    await older.liveDevice('T8000P0000000000', (jpeg) => none.push(jpeg), new AbortController().signal);
+    await older.liveDevice(camera('T8000P0000000000'), (jpeg) => none.push(jpeg), new AbortController().signal);
     expect(none).toEqual([]);
   });
 

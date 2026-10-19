@@ -235,6 +235,17 @@ async function renderUi(
   const wizardLiveImage = { hidden: true, src: '' };
   const wizardLiveHomeKit = { hidden: true, src: '' };
   const wizardLiveCamera = { hidden: true };
+  const wizardLiveHomeKitSpinner = { hidden: true };
+  const wizardLiveControls = interactiveElement({
+    hidden: true,
+    elements: {
+      ask: { value: 'wifi' },
+      liveVideoPassthrough: { checked: false },
+      ignoreHomeBitRate: { checked: false },
+      hardwareVideoEncoder: { checked: false },
+      smallVideoPackets: { checked: false },
+    } as Record<string, { value?: string; checked?: boolean }>,
+  });
   const wizardLiveStatus = { textContent: '' };
   const wizardLivePlay = interactiveElement({ hidden: false });
   const wizardLiveStop = interactiveElement({ hidden: true });
@@ -453,6 +464,8 @@ async function renderUi(
           '[data-wizard-live-image]': wizardLiveImage,
           '[data-wizard-live-homekit]': wizardLiveHomeKit,
           '[data-wizard-live-camera]': wizardLiveCamera,
+          '[data-wizard-live-homekit-spinner]': wizardLiveHomeKitSpinner,
+          '[data-wizard-live-controls]': wizardLiveControls,
           '[data-wizard-live-status]': wizardLiveStatus,
           '[data-wizard-live-play]': wizardLivePlay,
           '[data-wizard-live-stop]': wizardLiveStop,
@@ -664,6 +677,8 @@ async function renderUi(
     wizardLiveImage,
     wizardLiveHomeKit,
     wizardLiveCamera,
+    wizardLiveHomeKitSpinner,
+    wizardLiveControls,
     wizardLiveStatus,
     wizardLivePlay,
     wizardLiveStop,
@@ -868,7 +883,7 @@ describe('packed plugin', () => {
         ),
         'no build byproduct, editable master, or recorded media ships',
       ).toEqual([]);
-      expect(result.unpackedSize, 'the package holds a bounded number of bytes').toBeLessThanOrEqual(14_000_000);
+      expect(result.unpackedSize, 'the package holds a bounded number of bytes').toBeLessThanOrEqual(14_100_000);
     } finally {
       rmSync(directory, { force: true, recursive: true });
     }
@@ -1146,6 +1161,9 @@ describe('packed plugin', () => {
           'wizardEufySettings',
           'wizardHomeKitHelp',
           'wizardHomeKitTitle',
+          'wizardLiveAsk',
+          'wizardLiveAskCellular',
+          'wizardLiveAskWifi',
           'wizardLiveCamera',
           'wizardLiveDiagnose',
           'wizardLiveDiagnoseHelp',
@@ -2857,6 +2875,7 @@ describe('setup wizard', () => {
 
     const visit = (serial: string) =>
       ui.wizardMap.dispatch('click', { target: { closest: () => ({ dataset: { serial } }) } } as never);
+    ui.advancedSmallVideoPackets.checked = true;
     await visit(camera.serial);
     await vi.waitFor(() => expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,c3ludGhldGlj'));
     expect(ui.wizardTitle.textContent).toBe('Synthetic Camera');
@@ -2869,7 +2888,18 @@ describe('setup wizard', () => {
     await vi.waitFor(() => expect(ui.wizardEufy.hidden).toBe(false));
 
     await ui.wizardLivePlay.dispatch('click');
-    expect(ui.requests).toContainEqual({ path: '/device/live/start', body: { serial: camera.serial } });
+    const adaptation = {
+      ask: 'wifi',
+      liveVideoPassthrough: false,
+      ignoreHomeBitRate: false,
+      hardwareVideoEncoder: false,
+      smallVideoPackets: true,
+    };
+    expect(ui.wizardLiveControls.hidden, 'a camera offers the HomeKit settings to try').toBe(false);
+    expect(ui.requests, 'starting from the settings form as it stands').toContainEqual({
+      path: '/device/live/start',
+      body: { serial: camera.serial, adaptation },
+    });
     expect(ui.wizardLiveSpinner.hidden, 'a stream on its way spins').toBe(false);
     expect(ui.wizardLiveStop.hidden, 'and has nothing to stop yet').toBe(true);
     const still = { serial: camera.serial, encoder: 'libx264' };
@@ -2884,6 +2914,19 @@ describe('setup wizard', () => {
     expect(ui.wizardLiveEncoder.textContent, 'a rate needs a second of coded video').toBe(en.wizardLiveHomeKit);
     ui.pushListeners['device-live']?.({ data: { ...still, side: 'homekit', image: 'bGl2ZQ==', kbps: 287 } });
     expect(ui.wizardLiveEncoder.textContent).toBe('libx264 coded this video at 287 kbps, as HomeKit receives it.');
+    ui.wizardLiveControls.elements.ask!.value = 'cellular';
+    await ui.wizardLiveControls.dispatch('change');
+    expect(ui.requests, 'a changed setting restarts the HomeKit side alone').toContainEqual({
+      path: '/device/live/adapt',
+      body: { serial: camera.serial, adaptation: { ...adaptation, ask: 'cellular' } },
+    });
+    expect(ui.wizardLiveHomeKitSpinner.hidden, 'which spins until its next picture').toBe(false);
+    ui.pushListeners['device-live']?.({ data: { ...still, side: 'homekit', image: '' } });
+    expect(ui.wizardLiveHomeKitSpinner.hidden).toBe(true);
+    expect(ui.wizardLiveHomeKit.hidden, 'a HomeKit run with no picture leaves the camera whole').toBe(true);
+    ui.pushListeners['device-live']?.({ data: { ...still, side: 'raw', image: 'cmF3' } });
+    expect(ui.wizardLiveStatus.textContent, 'and says so while the camera plays on').toBe(en.wizardLiveUnplayable);
+    expect(ui.wizardLiveDiagnose.hidden).toBe(false);
     await ui.wizardLiveStop.dispatch('click');
     expect(ui.wizardLiveEncoder.textContent).toBe(en.wizardLiveHomeKit);
     expect(ui.requests.filter(({ path }) => path === '/device/live/stop')).toHaveLength(1);
@@ -2927,6 +2970,7 @@ describe('setup wizard', () => {
     await visit(sensor.serial);
     expect(ui.wizardTitle.textContent).toBe('Synthetic Sensor');
     expect(ui.wizardLive.hidden, 'nor has a sensor').toBe(true);
+    expect(ui.wizardLiveControls.hidden, 'nor settings to try').toBe(true);
 
     await ui.wizardFinish.dispatch('click');
     expect(ui.wizardPanel.hidden).toBe(true);

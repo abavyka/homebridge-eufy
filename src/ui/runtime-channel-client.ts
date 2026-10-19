@@ -12,6 +12,7 @@ import {
   ownedSocket,
   RUNTIME_CHANNEL_CONNECT_TIMEOUT_MS,
   RUNTIME_CHANNEL_PROTOCOL,
+  RUNTIME_DEVICE_LIVE_ADAPT_PATH,
   RUNTIME_CHANNEL_RESPONSE_TIMEOUT_MS,
   RUNTIME_CHANNEL_STAND_DOWN_TIMEOUT_MS,
   RUNTIME_CHANNEL_WRITE_TIMEOUT_MS,
@@ -30,6 +31,7 @@ import {
   type RuntimeChannelEndpoint,
   type RuntimeChannelGreeting,
   type RuntimeChannelLiveCoding,
+  type RuntimeChannelLivePreviewQuery,
   type RuntimeChannelResponse,
   type RuntimeChannelStatus,
 } from '../runtime/channel.js';
@@ -116,14 +118,17 @@ export interface RuntimeDeviceSettingsChannel {
   writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean>;
   /**
    * Streams one camera's live preview as base64 JPEG pictures, each with its side and the live encoder and rate
-   * of the HomeKit side, until it ends, the runtime is gone, or `signal` aborts. Settles once it has stopped, true where the coded
-   * video yielded no picture; a runtime without the path, or with no preview to give, settles at once.
+   * of the HomeKit side, until it ends, the runtime is gone, or `signal` aborts. Settles once it has stopped, true
+   * where the last HomeKit run yielded no picture; a runtime without the path, or with no preview to give, settles
+   * at once.
    */
   liveDevice(
-    serial: string,
+    query: RuntimeChannelLivePreviewQuery,
     onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
     signal: AbortSignal,
   ): Promise<boolean>;
+  /** Restarts the HomeKit side of the camera's running preview with other settings; false where none runs. */
+  adaptLive(query: RuntimeChannelLivePreviewQuery): Promise<boolean>;
 }
 
 interface RuntimeChannelClientOptions {
@@ -188,11 +193,20 @@ export class RuntimeChannelClient
   }
 
   async liveDevice(
-    serial: string,
+    query: RuntimeChannelLivePreviewQuery,
     onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
     signal: AbortSignal,
   ): Promise<boolean> {
-    return this.over(false, (connection) => this.streamed(connection, serial, onPicture, signal));
+    return this.over(false, (connection) => this.streamed(connection, query, onPicture, signal));
+  }
+
+  async adaptLive(query: RuntimeChannelLivePreviewQuery): Promise<boolean> {
+    const accepted = await this.over(undefined, (connection) =>
+      this.requested(connection, RUNTIME_DEVICE_LIVE_ADAPT_PATH, query, this.responseTimeoutMs, (response) =>
+        response.ok ? true : undefined,
+      ),
+    );
+    return accepted === true;
   }
 
   async read(): Promise<RuntimeChannelReading | undefined> {
@@ -444,7 +458,7 @@ export class RuntimeChannelClient
   /** Sends one live request after the greeting and hands on each picture, settling once the stream ends. */
   private streamed(
     connection: Socket,
-    serial: string,
+    query: RuntimeChannelLivePreviewQuery,
     onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
     signal: AbortSignal,
   ): Promise<boolean> {
@@ -470,7 +484,7 @@ export class RuntimeChannelClient
             if ((parsed as RuntimeChannelGreeting)?.protocol !== RUNTIME_CHANNEL_PROTOCOL) return conclude();
             requested = true;
             const request = { v: RUNTIME_CHANNEL_PROTOCOL, id: SETTINGS_REQUEST, path: RUNTIME_DEVICE_LIVE_PATH };
-            connection.write(`${JSON.stringify({ ...request, body: { serial } })}\n`);
+            connection.write(`${JSON.stringify({ ...request, body: query })}\n`);
             continue;
           }
           const response = parsed as RuntimeChannelResponse;

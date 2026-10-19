@@ -617,7 +617,8 @@ describe('guided diagnostics session', () => {
 
   /**
    * The result of a settings-page live preview is kept with no capture open, as one record of allowlisted labels
-   * and bounded numbers per run; a field outside its allowlist is dropped, and a record whose outcome is not one
+   * and bounded numbers per HomeKit run, with the ask and the settings it was coded with; a field outside its
+   * allowlist is dropped, and a record whose outcome is not one
    * is dropped whole. The preview's FFmpeg records stay gated like a live session's, kept only under a profile
    * that declares FFmpeg evidence.
    */
@@ -635,16 +636,25 @@ describe('guided diagnostics session', () => {
     try {
       const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root);
       const accessory = 'accessory-1a3abd19-1355-416e-a698-ed95767be1cb';
+      const tried = {
+        ask: 'cellular',
+        smallVideoPackets: true,
+        liveVideoPassthrough: false,
+        hardwareVideoEncoder: true,
+        ignoreHomeBitRate: false,
+      };
       reportLivePreview(logger, {
         outcome: 'picture',
         selection,
+        ...tried,
         encoder: 'libx264',
         source: 'h264',
         kbps: 287,
         accessory,
       });
-      reportLivePreview(logger, { outcome: 'unplayable', selection, encoder: 'h264_rogue', source: 'h264' });
-      reportLivePreview(logger, { outcome: 'exploded', selection, encoder: 'libx264' });
+      const rogue = { ...tried, ask: 'satellite', smallVideoPackets: 'yes' } as never as typeof tried;
+      reportLivePreview(logger, { outcome: 'unplayable', selection, ...rogue, encoder: 'h264_rogue', source: 'h264' });
+      reportLivePreview(logger, { outcome: 'exploded', selection, ...tried, encoder: 'libx264' });
       reportAdaptationNotice(logger, { role: 'preview-encode', event: 'started', encoder: 'libx264' });
       await logger.flush?.();
       expect(read()).toEqual([
@@ -652,13 +662,23 @@ describe('guided diagnostics session', () => {
           scope: 'live-preview',
           level: 'info',
           ...recorded,
+          ...tried,
           encoder: 'libx264',
           source: 'h264',
           kbps: 287,
           outcome: 'picture',
           accessory,
         },
-        { scope: 'live-preview', level: 'info', ...recorded, source: 'h264', outcome: 'unplayable' },
+        {
+          scope: 'live-preview',
+          level: 'info',
+          ...recorded,
+          liveVideoPassthrough: false,
+          hardwareVideoEncoder: true,
+          ignoreHomeBitRate: false,
+          source: 'h264',
+          outcome: 'unplayable',
+        },
       ]);
 
       const diagnostics = new GuidedDiagnostics(root);

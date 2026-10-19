@@ -5,6 +5,7 @@ import { execFile, spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Readable, Writable } from 'node:stream';
 
+import type { LiveVideoSettings } from '../configuration.js';
 import type {
   AdaptationCause,
   AdaptationDiagnostics,
@@ -680,26 +681,35 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
   /**
    * What a session codes `selection` from a `codec` source with: `copy` for a passed-through H.264 source,
    * {@link CONSTANT_QUALITY} where the negotiated bit rate is ignored, else the first hardware encoder qualified
-   * for `selection`, or `libx264` where none is.
+   * for `selection`, or `libx264` where none is or `settings` turn hardware off. Without `settings`, this
+   * adapter's own.
    */
-  private encoderFor(codec: LiveVideoConfig['codec'], selection: NegotiatedLiveVideo): LiveVideoEncoder | 'copy' {
-    if (this.copyVideo && codec === 'h264') return 'copy';
-    if (this.constantQuality) return CONSTANT_QUALITY;
+  private encoderFor(
+    codec: LiveVideoConfig['codec'],
+    selection: NegotiatedLiveVideo,
+    settings?: LiveVideoSettings,
+  ): LiveVideoEncoder | 'copy' {
+    if ((settings?.liveVideoPassthrough ?? this.copyVideo) && codec === 'h264') return 'copy';
+    if (settings?.ignoreHomeBitRate ?? this.constantQuality) return CONSTANT_QUALITY;
+    if (settings?.hardwareVideoEncoder === false) return LIBX264;
     const key = `${selection.profile}@${selection.level}`;
     return HARDWARE_ENCODERS.find((encoder) => this.qualified.get(encoder.name)?.has(key)) ?? LIBX264;
   }
 
   /**
    * The encoder and the argument list a session would code `selection` from a `codec` source with, its video
-   * written to `output` instead of RTP: every argument before `output` is the session's own.
+   * written to `output` instead of RTP: every argument before `output` is the session's own, or that of a session
+   * of an adapter configured with `settings`.
    */
   videoAdaptation(
     codec: LiveVideoConfig['codec'],
     selection: NegotiatedLiveVideo,
     output: readonly string[],
+    settings?: LiveVideoSettings,
   ): { encoder: string; args: string[] } {
-    const video = { ...selection, mtu: Math.min(selection.mtu, this.maxVideoPacketSize) };
-    const encoder = this.encoderFor(codec, video);
+    const packet = settings ? (settings.smallVideoPackets ? SMALL_VIDEO_PACKET_SIZE : Infinity) : this.maxVideoPacketSize;
+    const video = { ...selection, mtu: Math.min(selection.mtu, packet) };
+    const encoder = this.encoderFor(codec, video, settings);
     return { encoder: encoder === 'copy' ? encoder : encoder.name, args: videoArguments(codec, video, encoder, output) };
   }
 

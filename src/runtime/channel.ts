@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { posix } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
+import type { LivePreviewAdaptation } from '../configuration.js';
 import type { ActiveCondition, RuntimeState } from '../diagnostics.js';
 import { isSupportCaseId, knownCondition } from '../diagnostics.js';
 import { isBatteryLevel } from '../device/member-trust.js';
@@ -74,10 +75,14 @@ export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write
 
 /**
  * The path one camera's live preview streams on: a base64 JPEG frame per picture under the request's id, beside
- * the side it shows, the HomeKit side's encoder and that encoder's rate, then a refusal once it ends, carrying `unplayable`
- * where the coded video yielded no picture. Closing the connection stops it.
+ * the side it shows, the HomeKit side's encoder and that encoder's rate, then a refusal once it ends, carrying
+ * `unplayable` where the last HomeKit run yielded no picture. An empty `homekit` picture is a HomeKit run that
+ * ended without one while the camera side goes on. Closing the connection stops it.
  */
 export const RUNTIME_DEVICE_LIVE_PATH = '/runtime/device-live';
+
+/** The path that restarts the HomeKit side of a camera's running live preview with other settings. */
+export const RUNTIME_DEVICE_LIVE_ADAPT_PATH = '/runtime/device-live/adapt';
 
 /**
  * The eufy settings this channel reads and writes, and nothing else.
@@ -124,6 +129,17 @@ export interface RuntimeChannelDeviceSetting {
 /** Which device a settings read names. */
 export interface RuntimeChannelDeviceSettingsQuery {
   serial: string;
+}
+
+/** One camera's live preview, and the settings its HomeKit side is coded with. */
+export interface RuntimeChannelLivePreviewQuery extends RuntimeChannelDeviceSettingsQuery {
+  adaptation: LivePreviewAdaptation;
+}
+
+/** A running live preview: `stop` ends it, `adapt` restarts its HomeKit side alone with other settings. */
+export interface RuntimeChannelLivePreview {
+  stop(): void;
+  adapt(next: LivePreviewAdaptation): void;
 }
 
 /** One requested write: a device, one of {@link DEVICE_SETTINGS}, and the value it is set to. */
@@ -406,6 +422,22 @@ export function noticedDeviceSettingsQuery(value: unknown): RuntimeChannelDevice
 }
 
 /**
+ * Projects an inbound body onto a live preview query, or nothing: a bounded serial, an ask of the closed set, and
+ * each live video setting a boolean.
+ */
+export function noticedLivePreviewQuery(value: unknown): RuntimeChannelLivePreviewQuery | undefined {
+  const query = noticedDeviceSettingsQuery(value);
+  const candidate = (value as { adaptation?: unknown } | undefined)?.adaptation as Record<string, unknown> | undefined;
+  if (!query || typeof candidate !== 'object' || candidate === null) return undefined;
+  const { ask, smallVideoPackets, liveVideoPassthrough, hardwareVideoEncoder, ignoreHomeBitRate } = candidate;
+  const settings = { smallVideoPackets, liveVideoPassthrough, hardwareVideoEncoder, ignoreHomeBitRate };
+  if ((ask !== 'wifi' && ask !== 'cellular') || Object.values(settings).some((on) => typeof on !== 'boolean')) {
+    return undefined;
+  }
+  return { serial: query.serial, adaptation: { ask, ...(settings as Omit<LivePreviewAdaptation, 'ask'>) } };
+}
+
+/**
  * Projects an inbound body onto one settings write, or nothing.
  *
  * Narrowed to a bounded serial, a setting of {@link DEVICE_SETTINGS}, and a value of the type that setting takes.
@@ -512,10 +544,10 @@ interface RuntimeChannelServerOptions {
   deviceSettings?: (query: RuntimeChannelDeviceSettingsQuery) => RuntimeChannelDeviceSetting[] | undefined;
   writeDeviceSetting?: (write: RuntimeChannelDeviceSettingWrite) => Promise<boolean>;
   deviceLive?: (
-    query: RuntimeChannelDeviceSettingsQuery,
+    query: RuntimeChannelLivePreviewQuery,
     onPicture: (jpeg: Buffer, coding: RuntimeChannelLiveCoding) => void,
     onEnd: (unplayable: boolean) => void,
-  ) => (() => void) | undefined;
+  ) => RuntimeChannelLivePreview | undefined;
 }
 
 /**
@@ -544,6 +576,8 @@ export class RuntimeChannelServer {
   private readonly deviceSettings?: RuntimeChannelServerOptions['deviceSettings'];
   private readonly writeDeviceSetting?: RuntimeChannelServerOptions['writeDeviceSetting'];
   private readonly deviceLive?: RuntimeChannelServerOptions['deviceLive'];
+  /** The running live previews by camera serial, which an adapt request reaches. */
+  private readonly previews = new Map<string, RuntimeChannelLivePreview>();
 
   constructor(
     private readonly endpoint: RuntimeChannelEndpoint,
@@ -636,6 +670,12 @@ export class RuntimeChannelServer {
           () => ({ id: request.id, ok: false }),
         );
       }
+      if (request.path === RUNTIME_DEVICE_LIVE_ADAPT_PATH) {
+        const query = noticedLivePreviewQuery(request.body);
+        const preview = query && this.previews.get(query.serial);
+        preview?.adapt(query!.adaptation);
+        return { id: request.id, ok: preview !== undefined };
+      }
       if (request.path === RUNTIME_STATUS_PATH) {
         return { id: request.id, ok: true, data: answeredStatus(this.status()) };
       }
@@ -724,8 +764,9 @@ export class RuntimeChannelServer {
    * Streams one camera's live preview on this connection until it ends or the connection closes.
    *
    * A picture is dropped while the reader has not taken the previous ones, and one too large for a frame is
-   * dropped too: these are pictures for a person to look at, so the next one replaces a missed one. A provider
-   * that faults or has no preview to give is refused, like any other request.
+   * dropped too: these are pictures for a person to look at, so the next one replaces a missed one. An empty
+   * picture is never dropped for a slow reader, because no next one replaces it. A provider that faults or has no
+   * preview to give is refused, like any other request.
    */
   private streamLive(
     connection: Socket,
@@ -736,15 +777,15 @@ export class RuntimeChannelServer {
       const response = { id: request.id, ok: false, ...(unplayable ? { data: LIVE_UNPLAYABLE } : {}) };
       if (!connection.destroyed) connection.write(`${JSON.stringify(response)}\n`);
     };
-    const query = noticedDeviceSettingsQuery(request.body);
-    let stop: (() => void) | undefined;
+    const query = noticedLivePreviewQuery(request.body);
+    let preview: RuntimeChannelLivePreview | undefined;
     try {
-      stop = query
+      preview = query
         ? deviceLive(
             query,
             (jpeg, coding) => {
               const data = jpeg.toString('base64');
-              if (connection.destroyed || connection.writableNeedDrain) return;
+              if (connection.destroyed || (connection.writableNeedDrain && jpeg.length > 0)) return;
               if (data.length > this.frameBytes - LIVE_FRAME_MARGIN) return;
               const { side, encoder, kbps } = coding;
               const response = { id: request.id, ok: true, data, coding: { side, encoder, kbps } };
@@ -754,12 +795,17 @@ export class RuntimeChannelServer {
           )
         : undefined;
     } catch {
-      stop = undefined;
+      preview = undefined;
     }
-    if (!stop) {
+    if (!query || !preview) {
       ended();
       return;
     }
-    connection.once('close', stop);
+    const running = preview;
+    this.previews.set(query.serial, running);
+    connection.once('close', () => {
+      if (this.previews.get(query.serial) === running) this.previews.delete(query.serial);
+      running.stop();
+    });
   }
 }

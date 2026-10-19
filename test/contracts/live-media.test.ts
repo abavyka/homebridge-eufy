@@ -2503,7 +2503,7 @@ function qualificationRun(
 }
 
 /** One `FfmpegLiveMedia` whose qualification and sessions are both observable, opened one session at a time. */
-function hardwareMedia({ copy = false, constantQuality = false } = {}) {
+function hardwareMedia({ copy = false, constantQuality = false, small = false } = {}) {
   const spawned: string[][] = [];
   const children: SyntheticProcess[] = [];
   const notices: AdaptationNotice[] = [];
@@ -2518,7 +2518,7 @@ function hardwareMedia({ copy = false, constantQuality = false } = {}) {
     },
     async () => ({ port: 41000, onMessage: vi.fn(), close: vi.fn() }),
     undefined,
-    undefined,
+    small ? SMALL_VIDEO_PACKET_SIZE : undefined,
     copy,
     constantQuality,
   );
@@ -2840,17 +2840,20 @@ describe('a live session on a qualified encoder', () => {
     await chmod(ffmpeg, 0o755);
     const stream = new SyntheticLiveStream();
     const encoders: string[] = [];
-    const stop = startLivePreview(
+    const settings = { smallVideoPackets: false, liveVideoPassthrough: false, ignoreHomeBitRate: false };
+    const preview = startLivePreview(
       ffmpeg,
       media,
       { live: async () => stream },
+      { ask: 'wifi', ...settings, hardwareVideoEncoder: true },
       (_jpeg, coding) => coding.side === 'homekit' && encoders.push(coding.encoder),
+      () => undefined,
       () => undefined,
     );
     await settle();
     stream.video({ ...KEYFRAME, data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) });
     await vi.waitFor(() => expect(encoders).toEqual(['h264_videotoolbox']));
-    stop();
+    preview.stop();
     const runs = await Promise.all(
       (await readdir(directory))
         .filter((name) => name !== 'ffmpeg')
@@ -2867,6 +2870,37 @@ describe('a live session on a qualified encoder', () => {
       runs.find((args) => args.includes('mjpeg')),
       'the coded stream is decoded into pictures',
     ).toEqual(expect.arrayContaining(['-f', 'h264', '-i', 'pipe:0', '-c:v', 'mjpeg']));
+  });
+
+  /**
+   * Settings a preview tries code its HomeKit side as a session of an adapter configured with them would, whatever
+   * the preview's own adapter has: every argument before the output is that session's, on the cellular ask too.
+   */
+  it('codes a preview with the settings it tries as a session configured with them', async () => {
+    const preview = hardwareMedia();
+    await preview.media.qualify(DARWIN, qualificationRun().run);
+    const ask: NegotiatedLiveVideo = { ...QUALIFIED_MAIN, profile: 'high', level: '4.0', width: 640, height: 360 };
+    const off = {
+      smallVideoPackets: false,
+      liveVideoPassthrough: false,
+      hardwareVideoEncoder: true,
+      ignoreHomeBitRate: false,
+    };
+    const cases = [
+      [{ ...off, smallVideoPackets: true, ignoreHomeBitRate: true }, { small: true, constantQuality: true }, true],
+      [{ ...off, liveVideoPassthrough: true }, { copy: true }, true],
+      [{ ...off, hardwareVideoEncoder: false }, {}, false],
+      [{ ...off, smallVideoPackets: true }, { small: true }, true],
+    ] as const;
+    for (const [settings, configured, qualified] of cases) {
+      const live = hardwareMedia(configured);
+      if (qualified) await live.media.qualify(DARWIN, qualificationRun().run);
+      const session = await live.open(ask);
+      session.prepared.stop();
+      expect(preview.media.videoAdaptation('h264', ask, [], settings).args).toEqual(
+        session.args.slice(0, session.args.indexOf('-payload_type')),
+      );
+    }
   });
 });
 

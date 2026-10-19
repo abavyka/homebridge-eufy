@@ -86,6 +86,17 @@ export interface EufyConfig {
   discardedV4Acknowledged: boolean;
 }
 
+/** The settings that decide how a live session codes its video. */
+export type LiveVideoSettings = Pick<
+  EufyConfig,
+  'smallVideoPackets' | 'liveVideoPassthrough' | 'hardwareVideoEncoder' | 'ignoreHomeBitRate'
+>;
+
+/** The live video settings and the iPhone ask a Setup Assistant preview codes with, tried without being saved. */
+export interface LivePreviewAdaptation extends LiveVideoSettings {
+  ask: 'wifi' | 'cellular';
+}
+
 const ENTITY_PREFERENCE_KEYS = new Set<keyof EntityPreference>([
   'represented',
   'audio',

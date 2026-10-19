@@ -2353,6 +2353,14 @@ const ADAPTATION_EVENTS = new Set([
 ]);
 /** How a settings-page live preview ended. */
 const PREVIEW_OUTCOMES = ['picture', 'unplayable', 'no-video', 'stopped'] as const;
+/** The iPhone asks a live preview codes for, and the live video settings it may try. */
+const PREVIEW_ASKS = ['wifi', 'cellular'] as const;
+const PREVIEW_SETTINGS = [
+  'smallVideoPackets',
+  'liveVideoPassthrough',
+  'hardwareVideoEncoder',
+  'ignoreHomeBitRate',
+] as const;
 /**
  * Why a process was started, on the record that reports it starting.
  *
@@ -3213,6 +3221,12 @@ export interface LivePreviewTrace {
   source?: string;
   kbps?: number;
   outcome: string;
+  /** The iPhone ask and the live video settings the run was coded with, tried without being saved. */
+  ask: string;
+  smallVideoPackets: boolean;
+  liveVideoPassthrough: boolean;
+  hardwareVideoEncoder: boolean;
+  ignoreHomeBitRate: boolean;
   /** The support-case alias of the camera, which the conditions about that accessory already carry. */
   accessory?: string;
 }
@@ -3242,11 +3256,15 @@ function sanitizeLivePreview(value: Record<string, unknown>): Record<string, unk
   const source = allowlistedLabel(value.source, LIVE_VIDEO_SOURCES);
   const kbps = boundedInteger(value.kbps, MAX_LIVE_VIDEO_BIT_RATE);
   const accessory = opaqueAccessoryAlias(value.accessory);
+  const ask = allowlistedLabel(value.ask, PREVIEW_ASKS);
+  const settings = PREVIEW_SETTINGS.filter((setting) => typeof value[setting] === 'boolean');
   return {
     ...selection,
     ...(encoder === undefined ? {} : { encoder }),
     ...(source === undefined ? {} : { source }),
     ...(kbps === undefined ? {} : { kbps }),
+    ...(ask === undefined ? {} : { ask }),
+    ...Object.fromEntries(settings.map((setting) => [setting, value[setting]])),
     outcome,
     ...(accessory === undefined ? {} : { accessory }),
   };

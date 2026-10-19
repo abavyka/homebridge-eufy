@@ -116,7 +116,7 @@ export function createEufyPlatform(
         storageRoot,
         shutdownTimeoutMs,
         conditions: () => diagnostics.current(),
-        livePreview: (device, onPicture, onEnd) => {
+        livePreview: (device, adaptation, onPicture, onEnd) => {
           const camera = device.camera?.();
           const ffmpegPath = configuredConfig.ffmpegPath;
           if (!ffmpegPath || !liveMedia || typeof camera?.live !== 'function') return undefined;
@@ -128,12 +128,13 @@ export function createEufyPlatform(
             ffmpegPath,
             liveMedia,
             { live },
+            adaptation,
             onPicture,
-            (result) => {
+            (result) => reportLivePreview(diagnosticLog, { ...result, accessory: diagnostics.aliasFor(device.sn) }),
+            (unplayable) => {
               claim.release();
               releaseStation();
-              reportLivePreview(diagnosticLog, { ...result, accessory: diagnostics.aliasFor(device.sn) });
-              onEnd(result.outcome === 'unplayable');
+              onEnd(unplayable);
             },
             adaptationDiagnostics,
           );

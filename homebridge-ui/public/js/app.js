@@ -102,6 +102,8 @@ const wizardLiveStatus = document.querySelector('[data-wizard-live-status]');
 const wizardLivePlay = document.querySelector('[data-wizard-live-play]');
 const wizardLiveStop = document.querySelector('[data-wizard-live-stop]');
 const wizardLiveSpinner = document.querySelector('[data-wizard-live-spinner]');
+const wizardLiveHomeKitSpinner = document.querySelector('[data-wizard-live-homekit-spinner]');
+const wizardLiveControls = document.querySelector('[data-wizard-live-controls]');
 const wizardLiveEncoder = document.querySelector('[data-wizard-live-encoder]');
 const wizardLiveDiagnose = document.querySelector('[data-wizard-live-diagnose]');
 const wizardLiveDiagnoseStart = document.querySelector('[data-wizard-live-diagnose-start]');
@@ -889,7 +891,23 @@ async function openSetupWizard(trigger) {
   await renderWizardStep();
 }
 
+/** The advanced form's live video settings by name, which a preview starts from, saved or not. */
+const wizardLiveSettings = {
+  liveVideoPassthrough: advancedLiveVideoPassthrough,
+  ignoreHomeBitRate: advancedIgnoreHomeBitRate,
+  hardwareVideoEncoder: advancedHardwareVideoEncoder,
+  smallVideoPackets: advancedSmallVideoPackets,
+};
+
+/** The ask and settings the preview's HomeKit side is coded with, as its controls stand. Never saved. */
+function wizardLiveAdaptation() {
+  const fields = wizardLiveControls.elements;
+  const settings = Object.keys(wizardLiveSettings).map((name) => [name, fields[name].checked]);
+  return { ask: fields.ask.value, ...Object.fromEntries(settings) };
+}
+
 function stopWizardLive() {
+  wizardLiveHomeKitSpinner.hidden = true;
   wizardLiveEncoder.textContent = messages.wizardLiveHomeKit ?? '';
   wizardLiveDiagnose.hidden = true;
   if (!wizardLiveSerial) return;
@@ -909,6 +927,7 @@ function stopWizardLive() {
 async function showWizardCamera(serial, enabled) {
   wizardLive.hidden = false;
   wizardLiveImage.hidden = true;
+  for (const [name, input] of Object.entries(wizardLiveSettings)) wizardLiveControls.elements[name].checked = input.checked;
   // A camera switched off in the eufy app has nothing to stream, so it offers no play, only the reason.
   wizardLivePlay.hidden = enabled === false;
   wizardLiveStatus.textContent = enabled === false ? (messages.deviceStatusSwitchedOff ?? '') : '';
@@ -929,7 +948,8 @@ function startWizardLive(serial) {
   wizardLivePlay.hidden = true;
   wizardLiveSpinner.hidden = false;
   wizardLiveStatus.textContent = messages.wizardLiveStarting ?? '';
-  void requestWithinDeadline('/device/live/start', { serial }, 12000).catch(() => endWizardLive(serial));
+  const body = { serial, adaptation: wizardLiveAdaptation() };
+  void requestWithinDeadline('/device/live/start', body, 12000).catch(() => endWizardLive(serial));
 }
 
 /** Ends the stream on screen, saying why HomeKit got no picture: coded video that decoded to nothing, or no video. */
@@ -943,6 +963,7 @@ function endWizardLive(serial, unplayable) {
   wizardLivePlay.hidden = false;
   wizardLiveStop.hidden = true;
   wizardLiveSpinner.hidden = true;
+  wizardLiveHomeKitSpinner.hidden = true;
 }
 
 homebridge.addEventListener('device-live', (event) => {
@@ -952,16 +973,35 @@ homebridge.addEventListener('device-live', (event) => {
   wizardLiveSpinner.hidden = true;
   wizardLiveStop.hidden = false;
   const homekit = event.data.side === 'homekit';
+  // The first picture clears the connecting text; after that only the HomeKit side changes what the status says.
+  if (homekit || wizardLivePictures === 1) wizardLiveStatus.textContent = '';
+  if (homekit) wizardLiveHomeKitSpinner.hidden = true;
+  // An empty HomeKit picture is a run that coded nothing watchable while the camera plays on.
+  if (homekit && !event.data.image) {
+    wizardLiveHomeKit.hidden = true;
+    wizardLiveStatus.textContent = messages.wizardLiveUnplayable ?? '';
+    wizardLiveDiagnose.hidden = false;
+    return;
+  }
   const image = homekit ? wizardLiveHomeKit : wizardLiveImage;
   image.src = `data:image/jpeg;base64,${event.data.image}`;
   image.hidden = false;
-  wizardLiveStatus.textContent = '';
   if (!homekit || typeof event.data.kbps !== 'number') return;
   // The rate is the encoder's own output, the video HomeKit would be sent, not these pictures.
   const encoder = event.data.encoder === 'copy' ? messages.wizardLiveCamera : event.data.encoder;
   wizardLiveEncoder.textContent = (messages.wizardLiveEncoder ?? '')
     .replace('{encoder}', encoder ?? '')
     .replace('{kbps}', String(event.data.kbps));
+});
+// Only the HomeKit side restarts: its half waits under a spinner while the camera plays on.
+wizardLiveControls.addEventListener('change', () => {
+  if (!wizardLiveSerial) return;
+  wizardLiveHomeKit.hidden = false;
+  wizardLiveHomeKitSpinner.hidden = false;
+  wizardLiveStatus.textContent = '';
+  wizardLiveDiagnose.hidden = true;
+  const body = { serial: wizardLiveSerial, adaptation: wizardLiveAdaptation() };
+  void requestWithinDeadline('/device/live/adapt', body, 12000).catch(() => undefined);
 });
 wizardLiveDiagnoseStart.addEventListener('click', () => openDiagnostics({ profile: 'live-media' }));
 homebridge.addEventListener('device-live-end', (event) => endWizardLive(event.data?.serial, event.data?.unplayable));
@@ -1095,6 +1135,7 @@ async function renderWizardStep() {
   wizardProgress.textContent = setupWizard.progress(messages.wizardProgress, wizardIndex, wizardSteps.length);
   // Only a camera has a picture to show; any other device's step is its settings alone.
   wizardLive.hidden = device.deviceClass !== 'camera';
+  wizardLiveControls.hidden = wizardLive.hidden;
   if (!wizardLive.hidden) void showWizardCamera(device.serial, device.enabled);
   await renderWizardSettings(device.serial);
 }

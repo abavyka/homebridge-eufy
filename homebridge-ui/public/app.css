@@ -2369,6 +2369,23 @@ input:focus-visible {
   font-weight: 600;
 }
 
+/* Under the frame, outside its play and stop cover; always there for a camera, so nothing moves when it plays. */
+.wizard-live-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.wizard-live-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wizard-live figure + figure .wizard-live-spinner {
+  left: 75%;
+}
+
 .wizard-card {
   padding: 12px 16px;
   border: 1px solid var(--line);

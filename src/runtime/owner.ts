@@ -11,7 +11,7 @@ import type {
 
 import { AccountOwnership, type AccountOwnerEvidence, type AccountReleaseResult } from '../account/ownership.js';
 import { AccountSessionPersistence } from '../account/persistence.js';
-import type { EufyConfig } from '../configuration.js';
+import type { EufyConfig, LivePreviewAdaptation } from '../configuration.js';
 import {
   armDiagnosticsAuthorization,
   type ActiveCondition,
@@ -30,6 +30,7 @@ import {
   runtimeChannelEndpointForHost,
   type RuntimeChannelDevice,
   type RuntimeChannelLiveCoding,
+  type RuntimeChannelLivePreview,
   type RuntimeChannelStatus,
 } from './channel.js';
 import { readDeviceSettings, writeDeviceSetting } from './device-settings.js';
@@ -101,14 +102,15 @@ export interface RuntimeChannelHost {
 
 /**
  * One camera's live preview as JPEG pictures of the camera and of the live encoder's output decoded again, each
- * with its side, that encoder and the rate it coded at, started by the composition root that owns media. `onEnd` says whether the coded video
- * yielded no picture.
+ * with its side, that encoder and the rate it coded at, started by the composition root that owns media with
+ * `adaptation`. `onEnd` says whether the last HomeKit run yielded no picture.
  */
 export type RuntimeLivePreview = (
   device: Device,
+  adaptation: LivePreviewAdaptation,
   onPicture: (jpeg: Buffer, coding: RuntimeChannelLiveCoding) => void,
   onEnd: (unplayable: boolean) => void,
-) => (() => void) | undefined;
+) => RuntimeChannelLivePreview | undefined;
 
 export interface RuntimeOwnerOptions {
   storageRoot?: string;
@@ -660,9 +662,9 @@ export class RuntimeOwner {
             const device = this.registryView?.registry.get(write.serial);
             return device ? writeDeviceSetting(device, write) : false;
           },
-          deviceLive: ({ serial }, onPicture, onEnd) => {
+          deviceLive: ({ serial, adaptation }, onPicture, onEnd) => {
             const device = this.registryView?.registry.get(serial);
-            return device && this.livePreview ? this.livePreview(device, onPicture, onEnd) : undefined;
+            return device && this.livePreview ? this.livePreview(device, adaptation, onPicture, onEnd) : undefined;
           },
         },
       );

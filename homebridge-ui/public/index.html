@@ -221,6 +221,7 @@
           </figure>
           <figure>
             <img data-wizard-live-homekit alt="" draggable="false" hidden />
+            <span class="wizard-live-spinner" data-wizard-live-homekit-spinner hidden aria-hidden="true"></span>
             <figcaption class="wizard-live-label" data-wizard-live-encoder></figcaption>
           </figure>
           <button type="button" class="wizard-live-play" data-wizard-live-play data-i18n-aria-label="wizardLivePlay">
@@ -239,6 +240,19 @@
           <p class="wizard-live-status" role="status" aria-live="polite" data-wizard-live-status></p>
         </div>
       </div>
+      <form class="wizard-card wizard-live-controls" data-wizard-live-controls hidden>
+        <label>
+          <span data-i18n="wizardLiveAsk"></span>
+          <select name="ask">
+            <option value="wifi" data-i18n="wizardLiveAskWifi"></option>
+            <option value="cellular" data-i18n="wizardLiveAskCellular"></option>
+          </select>
+        </label>
+        <label><input type="checkbox" name="liveVideoPassthrough" /><span data-i18n="advancedLiveVideoPassthroughLabel"></span></label>
+        <label><input type="checkbox" name="ignoreHomeBitRate" /><span data-i18n="advancedIgnoreHomeBitRateLabel"></span></label>
+        <label><input type="checkbox" name="hardwareVideoEncoder" /><span data-i18n="advancedHardwareVideoEncoderLabel"></span></label>
+        <label><input type="checkbox" name="smallVideoPackets" /><span data-i18n="advancedSmallVideoPacketsLabel"></span></label>
+      </form>
       <p class="summary" data-wizard-live-diagnose hidden>
         <span data-i18n="wizardLiveDiagnoseHelp"></span>
         <button type="button" data-wizard-live-diagnose-start data-i18n="wizardLiveDiagnose"></button>
