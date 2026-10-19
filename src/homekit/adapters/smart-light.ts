@@ -1,13 +1,14 @@
 import { type AnyDeviceEvent, type RgbColor, type SmartLightActions } from '@mega-yfue/eufy-sdk';
 
-import type {
-  AdapterAttachmentContext,
-  AdapterDiagnostic,
-  AdapterEventTrace,
-  AttachedAdapter,
-  HomeKitAdapter,
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterDiagnostic,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
 } from '../adapter.js';
-import { OPERATION_DEADLINE_MS, PersistentMemberWrites } from '../device-control.js';
+import { OPERATION_DEADLINE_MS, observationReader, PersistentMemberWrites } from '../device-control.js';
 
 export const SMART_LIGHT_ADAPTER_KEY = 'smart-light.lightbulb';
 
@@ -320,9 +321,7 @@ function attachSmartLight(context: AdapterAttachmentContext): AttachedAdapter | 
     });
     return undefined;
   }
-  const service =
-    accessory.getServiceById(hap.Service.Lightbulb, SMART_LIGHT_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.Lightbulb, accessory.displayName, SMART_LIGHT_ADAPTER_KEY);
+  const service = ownService(accessory, hap.Service.Lightbulb, accessory.displayName, SMART_LIGHT_ADAPTER_KEY);
   const previousState = SMART_LIGHT_STATES.get(service);
   for (const member of ['power', 'brightness'] as const) {
     context.diagnose({
@@ -401,24 +400,25 @@ function attachSmartLight(context: AdapterAttachmentContext): AttachedAdapter | 
     }
   };
 
+  const readPower = observationReader(context, 'boolean', 'invalid-smart-light-observation');
+  const readBrightness = observationReader(context, 'number', 'invalid-smart-light-observation');
   const read = (member: 'power' | 'brightness'): boolean | number => {
-    let value: unknown;
-    try {
-      value = state[member] ?? light[member];
-    } catch {
-      diagnoseObservation(member, true, 'sdk-fault');
-      throw new hap.HapStatusError(hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
-    }
-    const valid =
+    const value =
       member === 'power'
-        ? typeof value === 'boolean'
-        : typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100;
-    if (state[member === 'power' ? 'invalidPower' : 'invalidBrightness'] || !valid) {
-      diagnoseObservation(member, true, value === undefined ? 'missing' : 'malformed');
-      throw new hap.HapStatusError(hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
-    }
-    diagnoseObservation(member, false, 'recovered');
-    return value as boolean | number;
+        ? readPower(
+            'smart_light',
+            'power',
+            () => state.power ?? light.power,
+            () => !state.invalidPower,
+          )
+        : readBrightness(
+            'smart_light',
+            'brightness',
+            () => state.brightness ?? light.brightness,
+            (level) => !state.invalidBrightness && Number.isInteger(level) && level >= 0 && level <= 100,
+          );
+    context.observed('invalid-smart-light-observation');
+    return value;
   };
 
   power.onGet(() => read('power'));

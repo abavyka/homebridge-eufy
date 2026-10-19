@@ -1,11 +1,12 @@
 import { LockPushEvent, type AnyDeviceEvent, type LockActions } from '@mega-yfue/eufy-sdk';
 
-import type {
-  AdapterAttachmentContext,
-  AdapterDiagnostic,
-  AdapterEventTrace,
-  AttachedAdapter,
-  HomeKitAdapter,
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterDiagnostic,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
 } from '../adapter.js';
 import { PersistentMemberWrites } from '../device-control.js';
 
@@ -210,9 +211,7 @@ function attachLock(context: AdapterAttachmentContext): AttachedAdapter | undefi
   });
   context.observed('lock-capability-unavailable');
 
-  const service =
-    accessory.getServiceById(hap.Service.LockMechanism, LOCK_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.LockMechanism, accessory.displayName, LOCK_ADAPTER_KEY);
+  const service = ownService(accessory, hap.Service.LockMechanism, accessory.displayName, LOCK_ADAPTER_KEY);
   const previousState = LOCK_STATES.get(service);
   const owner = Symbol('lock-owner');
   const state: LockState = previousState ?? {

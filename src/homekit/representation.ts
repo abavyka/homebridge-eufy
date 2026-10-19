@@ -9,7 +9,7 @@ import {
 import type { HomeKitAdapter } from './adapter.js';
 import { ADAPTER_REGISTRY } from './adapters/registry.js';
 
-export type AdmittedHomeKitAdapter = readonly [key: string, adapter: HomeKitAdapter];
+type AdmittedHomeKitAdapter = readonly [key: string, adapter: HomeKitAdapter];
 
 /** Applies the closed adapter registry to one complete SDK manifest. */
 export function admittedHomeKitAdapters(

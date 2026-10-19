@@ -1,11 +1,12 @@
 import type { AnyDeviceEvent, ContactActions } from '@mega-yfue/eufy-sdk';
 
-import type {
-  AdapterAttachmentContext,
-  AdapterDiagnostic,
-  AdapterEventTrace,
-  AttachedAdapter,
-  HomeKitAdapter,
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterDiagnostic,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
 } from '../adapter.js';
 
 export const CONTACT_ADAPTER_KEY = 'contact.sensor';
@@ -23,7 +24,7 @@ export interface ContactSdkDevice {
   contact?: () => ContactActions | undefined;
 }
 
-export type ContactDiagnosticReason = 'missing' | 'malformed' | 'sdk-fault' | 'recovered';
+type ContactDiagnosticReason = 'missing' | 'malformed' | 'sdk-fault' | 'recovered';
 
 /** Structured conditions emitted by the contact adapter. */
 export interface ContactDiagnostic extends AdapterDiagnostic {
@@ -66,9 +67,7 @@ function attachContact(context: AdapterAttachmentContext): AttachedAdapter | und
     reason: 'recovered',
   });
 
-  const service =
-    accessory.getServiceById(hap.Service.ContactSensor, CONTACT_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.ContactSensor, accessory.displayName, CONTACT_ADAPTER_KEY);
+  const service = ownService(accessory, hap.Service.ContactSensor, accessory.displayName, CONTACT_ADAPTER_KEY);
   const owner = Symbol('contact-owner');
   CONTACT_OWNERS.set(service, owner);
   let observedOpen: boolean | undefined;

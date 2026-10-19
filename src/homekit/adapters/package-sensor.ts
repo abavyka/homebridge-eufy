@@ -1,6 +1,12 @@
 import type { AnyDeviceEvent } from '@mega-yfue/eufy-sdk';
 
-import type { AdapterAttachmentContext, AdapterEventTrace, AttachedAdapter, HomeKitAdapter } from '../adapter.js';
+import {
+  ownService,
+  type AdapterAttachmentContext,
+  type AdapterEventTrace,
+  type AttachedAdapter,
+  type HomeKitAdapter,
+} from '../adapter.js';
 
 export const PACKAGE_SENSOR_ADAPTER_KEY = 'doorbell.package';
 
@@ -43,9 +49,7 @@ export const PACKAGE_SENSOR_ADAPTER = {
  */
 function attachPackageSensor(context: AdapterAttachmentContext): AttachedAdapter {
   const { accessory, hap } = context;
-  const service =
-    accessory.getServiceById(hap.Service.OccupancySensor, PACKAGE_SENSOR_ADAPTER_KEY) ??
-    accessory.addService(hap.Service.OccupancySensor, 'Package', PACKAGE_SENSOR_ADAPTER_KEY);
+  const service = ownService(accessory, hap.Service.OccupancySensor, 'Package', PACKAGE_SENSOR_ADAPTER_KEY);
   const presence = PACKAGE_PRESENCE.get(service) ?? { detected: false };
   PACKAGE_PRESENCE.set(service, presence);
   const owner = Symbol('package-sensor-owner');

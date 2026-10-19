@@ -21,10 +21,20 @@ export const INVALID_OBSERVATION_CONDITION = 'invalid-camera-control-observation
 const OPERATION_TIMEOUT = Symbol('camera-control-operation-timeout');
 
 /** The identity-free trace one observed enablement change records, whichever bundle records it. */
-export const ENABLEMENT_EVENT_TRACE = 'camera-enabled-changed';
+const ENABLEMENT_EVENT_TRACE = 'camera-enabled-changed';
 
 /** The row whose flat property name the generic enablement announcement is matched against. */
 const CAMERA_ENABLED_READ_ROW = 'camera.enabled.read';
+
+/**
+ * The operation that turns a camera off and on again. The streaming bundle carries HomeKit's own camera-active
+ * state to it and declares its coverage row; the controls bundle gates its switch on it without a second row,
+ * which would claim one operation twice.
+ */
+export const CAMERA_ENABLED_WRITE = {
+  id: 'camera.enabled.persistent-operation',
+  kind: 'persistent-operation',
+} as const;
 
 /**
  * The trace one enablement announcement records, or nothing for an event that is not one.
@@ -178,6 +188,8 @@ export function deviceOperationIssuer({
   };
 }
 
+type Observation<T extends 'boolean' | 'number'> = T extends 'boolean' ? boolean : number;
+
 /**
  * Reads one authoritative SDK observation for a HomeKit characteristic, failing closed.
  *
@@ -188,20 +200,26 @@ export function deviceOperationIssuer({
  *
  * The expected shape is stated by the caller rather than inferred, because the SDK stores an enum member as
  * a number and a caller that accepted whatever arrived would present one member's value under another
- * member's meaning.
+ * member's meaning. A `valid` predicate narrows it further, to the range or set HomeKit can present.
  */
 export function observationReader<T extends 'boolean' | 'number'>(
   context: Pick<AdapterAttachmentContext, 'diagnose' | 'hap'>,
   expected: T,
-): (capability: string, member: string, read: () => unknown) => T extends 'boolean' ? boolean : number {
+  code: string = INVALID_OBSERVATION_CONDITION,
+): (
+  capability: string,
+  member: string,
+  read: () => unknown,
+  valid?: (value: Observation<T>) => boolean,
+) => Observation<T> {
   const { hap } = context;
-  return (capability, member, read) => {
+  return (capability, member, read, valid) => {
     let value: unknown;
     try {
       value = read();
     } catch {
       context.diagnose({
-        code: INVALID_OBSERVATION_CONDITION,
+        code,
         capability,
         member,
         active: true,
@@ -209,9 +227,13 @@ export function observationReader<T extends 'boolean' | 'number'>(
       });
       throw new hap.HapStatusError(hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
     }
-    if (typeof value !== expected || (expected === 'number' && !Number.isFinite(value))) {
+    if (
+      typeof value !== expected ||
+      (expected === 'number' && !Number.isFinite(value)) ||
+      (valid && !valid(value as Observation<T>))
+    ) {
       context.diagnose({
-        code: INVALID_OBSERVATION_CONDITION,
+        code,
         capability,
         member,
         active: true,
@@ -220,13 +242,13 @@ export function observationReader<T extends 'boolean' | 'number'>(
       throw new hap.HapStatusError(hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
     }
     context.diagnose({
-      code: INVALID_OBSERVATION_CONDITION,
+      code,
       capability,
       member,
       active: false,
       reason: 'recovered',
     });
-    return value as T extends 'boolean' ? boolean : number;
+    return value as Observation<T>;
   };
 }
 
