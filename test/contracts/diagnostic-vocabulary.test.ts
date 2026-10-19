@@ -192,6 +192,7 @@ describe('diagnostic vocabulary', () => {
       'diagnostic-condition',
       'ffmpeg',
       'homekit',
+      'live-preview',
       'media-notice',
       'runtime',
       'runtime-notice',

@@ -1,12 +1,13 @@
 import type { API, DynamicPlatformPlugin, HAP, PlatformAccessory, PlatformConfig } from 'homebridge';
 
-import { ffmpegPathSource, parseConfig } from './configuration.js';
+import { ffmpegPathSource, parseConfig, resolveLiveVideoSettings } from './configuration.js';
 import {
   createDiagnosticLogger,
   DiagnosticConditions,
   recordFleet,
   recordHostEnvironment,
   reportAdaptationNotice,
+  reportLivePreview,
   reportLiveVideoEncoders,
   reportDiscardedV4Settings,
   reportHomeKitEvent,
@@ -115,19 +116,28 @@ export function createEufyPlatform(
         storageRoot,
         shutdownTimeoutMs,
         conditions: () => diagnostics.current(),
-        livePreview: (device, onPicture, onEnd) => {
+        livePreview: (device, adaptation, onPicture, onEnd) => {
           const camera = device.camera?.();
           const ffmpegPath = configuredConfig.ffmpegPath;
-          if (!ffmpegPath || typeof camera?.live !== 'function') return undefined;
+          if (!ffmpegPath || !liveMedia || typeof camera?.live !== 'function') return undefined;
           const live = camera.live.bind(camera);
           const claim = mediaBudget.claim();
           if (!claim) return undefined;
           const releaseStation = stationLiveSessions.hold(device.stationSn, device.sn, 'live');
-          return startLivePreview(ffmpegPath, { live }, onPicture, () => {
-            claim.release();
-            releaseStation();
-            onEnd();
-          });
+          return startLivePreview(
+            ffmpegPath,
+            liveMedia,
+            { live },
+            adaptation,
+            onPicture,
+            (result) => reportLivePreview(diagnosticLog, { ...result, accessory: diagnostics.aliasFor(device.sn) }),
+            (unplayable) => {
+              claim.release();
+              releaseStation();
+              onEnd(unplayable);
+            },
+            adaptationDiagnostics,
+          );
         },
       });
       this.runtime.subscribeState((state) => diagnostics.reportRuntimeState(state));
@@ -209,6 +219,7 @@ export function createEufyPlatform(
             mediaBudget,
             stationLiveSessions,
             configuredConfig.hdLiveVideo,
+            (serial) => resolveLiveVideoSettings(configuredConfig, serial),
           );
           this.reconciler.start();
         }

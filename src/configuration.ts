@@ -34,7 +34,11 @@ export type ArmingModeMap = Readonly<Partial<Record<ArmingSlot, ArmingMode>>>;
 /** What each HomeKit state means where the user assigned nothing. */
 export const DEFAULT_ARMING_MODES: ArmingModeMap = { home: 'home', away: 'away', off: 'disarmed' };
 
-export interface EntityPreference {
+/**
+ * One device's preferences; a camera live video setting it carries overrides the general one for that camera
+ * alone. Hardware encoding and packet size are host and network settings, so no camera carries its own.
+ */
+export interface EntityPreference extends Partial<Pick<LiveVideoSettings, CameraLiveVideoSetting>> {
   represented?: boolean;
   audio?: boolean;
   securitySystem?: boolean;
@@ -86,13 +90,21 @@ export interface EufyConfig {
   discardedV4Acknowledged: boolean;
 }
 
-const ENTITY_PREFERENCE_KEYS = new Set<keyof EntityPreference>([
-  'represented',
-  'audio',
-  'securitySystem',
-  'snapshotMode',
-  'armingModes',
-]);
+/** The settings that decide how a live session codes its video. */
+export type LiveVideoSettings = Pick<
+  EufyConfig,
+  'smallVideoPackets' | 'liveVideoPassthrough' | 'hardwareVideoEncoder' | 'ignoreHomeBitRate'
+>;
+
+/** The live video settings and the iPhone ask a Setup Assistant preview codes with, tried without being saved. */
+export interface LivePreviewAdaptation extends LiveVideoSettings {
+  ask: 'wifi' | 'cellular';
+}
+
+const CAMERA_LIVE_VIDEO_SETTINGS = ['liveVideoPassthrough', 'ignoreHomeBitRate'] as const;
+type CameraLiveVideoSetting = (typeof CAMERA_LIVE_VIDEO_SETTINGS)[number];
+const BOOLEAN_PREFERENCES = ['represented', 'audio', 'securitySystem', ...CAMERA_LIVE_VIDEO_SETTINGS] as const;
+const ENTITY_PREFERENCE_KEYS = new Set<keyof EntityPreference>([...BOOLEAN_PREFERENCES, 'snapshotMode', 'armingModes']);
 const SNAPSHOT_MODES = new Set<SnapshotMode>(['Cloud', 'Live', 'Refresh']);
 const ARMING_SLOTS = new Set<ArmingSlot>(['home', 'away', 'night', 'off']);
 
@@ -129,14 +141,10 @@ function parseEntityPreferences(value: unknown): Record<string, EntityPreference
           throw new TypeError(`entityPreferences.${serial}.${key} is not a V5 entity preference`);
         }
       }
-      if (candidate.represented !== undefined && typeof candidate.represented !== 'boolean') {
-        throw new TypeError(`entityPreferences.${serial}.represented must be a boolean`);
-      }
-      if (candidate.audio !== undefined && typeof candidate.audio !== 'boolean') {
-        throw new TypeError(`entityPreferences.${serial}.audio must be a boolean`);
-      }
-      if (candidate.securitySystem !== undefined && typeof candidate.securitySystem !== 'boolean') {
-        throw new TypeError(`entityPreferences.${serial}.securitySystem must be a boolean`);
+      for (const key of BOOLEAN_PREFERENCES) {
+        if (candidate[key] !== undefined && typeof candidate[key] !== 'boolean') {
+          throw new TypeError(`entityPreferences.${serial}.${key} must be a boolean`);
+        }
       }
       if (candidate.snapshotMode !== undefined && !SNAPSHOT_MODES.has(candidate.snapshotMode as SnapshotMode)) {
         throw new TypeError(`entityPreferences.${serial}.snapshotMode must be Cloud, Live, or Refresh`);
@@ -292,6 +300,20 @@ export function serializeConfig(config: EufyConfig): Record<string, unknown> {
     ),
     ...(config.discardedV4Settings.length > 0 ? { discardedV4Settings: [...config.discardedV4Settings] } : {}),
     ...(config.discardedV4Acknowledged ? { discardedV4Acknowledged: true } : {}),
+  };
+}
+
+/**
+ * The live video settings one camera is coded with: its own value of each camera setting, else the general one,
+ * and the general host and network settings.
+ */
+export function resolveLiveVideoSettings(config: EufyConfig, serial: string): LiveVideoSettings {
+  const preference = config.entityPreferences[serial];
+  return {
+    smallVideoPackets: config.smallVideoPackets,
+    hardwareVideoEncoder: config.hardwareVideoEncoder,
+    liveVideoPassthrough: preference?.liveVideoPassthrough ?? config.liveVideoPassthrough,
+    ignoreHomeBitRate: preference?.ignoreHomeBitRate ?? config.ignoreHomeBitRate,
   };
 }
 

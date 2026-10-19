@@ -8,6 +8,7 @@ import {
   ffmpegPathSource,
   parseConfig,
   resolveEntityPreference,
+  resolveLiveVideoSettings,
   serializeConfig,
   type EufyConfig,
 } from '../../src/configuration.js';
@@ -61,6 +62,8 @@ describe('V5 configuration', () => {
           represented: { default: true, type: 'boolean' },
           audio: { default: true, type: 'boolean' },
           securitySystem: { default: true, type: 'boolean' },
+          liveVideoPassthrough: { type: 'boolean' },
+          ignoreHomeBitRate: { type: 'boolean' },
           snapshotMode: { default: 'Refresh', enum: ['Cloud', 'Live', 'Refresh'], type: 'string' },
           armingModes: {
             additionalProperties: false,
@@ -98,6 +101,34 @@ describe('V5 configuration', () => {
       snapshotMode: 'Refresh',
       armingModes: { home: 'home', away: 'away', off: 'disarmed' },
     });
+  });
+
+  /**
+   * A camera's own passthrough or bit rate setting beats the general one, a setting it does not carry follows the
+   * general one, and another camera keeps the general ones. Hardware encoding and packet size are general only, so a
+   * camera carrying either is refused, as is a camera setting that is not a boolean.
+   */
+  it('resolves the camera live video settings from the camera, else the general one', () => {
+    const config = parseConfig({
+      platform: 'HomebridgeEufy',
+      smallVideoPackets: true,
+      entityPreferences: { T8000P0000000001: { ignoreHomeBitRate: true, liveVideoPassthrough: false } },
+    });
+    const general = {
+      smallVideoPackets: true,
+      liveVideoPassthrough: false,
+      hardwareVideoEncoder: true,
+      ignoreHomeBitRate: false,
+    };
+
+    expect(resolveLiveVideoSettings(config, 'T8000P0000000001')).toEqual({ ...general, ignoreHomeBitRate: true });
+    expect(resolveLiveVideoSettings(config, 'T8000P0000000002')).toEqual(general);
+    expect(serializeConfig(config).entityPreferences).toEqual(config.entityPreferences);
+    const camera = (preference: Record<string, unknown>) =>
+      parseConfig({ platform: 'HomebridgeEufy', entityPreferences: { T8000P0000000001: preference } });
+    expect(() => camera({ smallVideoPackets: false })).toThrow('smallVideoPackets is not a V5 entity preference');
+    expect(() => camera({ hardwareVideoEncoder: false })).toThrow('hardwareVideoEncoder is not a V5 entity preference');
+    expect(() => camera({ ignoreHomeBitRate: 'no' })).toThrow('ignoreHomeBitRate must be a boolean');
   });
 
   /**

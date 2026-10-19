@@ -7,9 +7,9 @@ import type {
   VideoCodec,
 } from '@mega-yfue/eufy-sdk';
 
-import type { SnapshotMode } from '../configuration.js';
+import type { LiveVideoSettings, SnapshotMode } from '../configuration.js';
 
-export type { SnapshotMode } from '../configuration.js';
+export type { LiveVideoSettings, SnapshotMode } from '../configuration.js';
 
 export interface LiveMediaSource {
   live(options?: { signal?: AbortSignal }): Promise<LiveStreamConsumer>;
@@ -143,7 +143,14 @@ export type TalkbackOutcome =
  * These are the processes this domain owns. Whoever records a notice may recognise more — the SDK runs FFmpeg
  * of its own — so its allowlist is a superset of this one, and nothing here may claim a role it does not own.
  */
-export type AdaptationRole = 'live-video' | 'live-audio' | 'return-audio' | 'recording';
+export type AdaptationRole =
+  | 'live-video'
+  | 'live-audio'
+  | 'return-audio'
+  | 'recording'
+  | 'preview-encode'
+  | 'preview-decode'
+  | 'preview-raw';
 
 /**
  * What one adaptation process did, at the granularity that decides where to look next.
@@ -322,6 +329,8 @@ export interface LiveMediaTransport {
   readonly targetAddress: string;
   readonly video: LiveMediaTarget;
   readonly audio?: LiveMediaTarget;
+  /** The live video settings this camera is coded with, where they are not the adapter's own. */
+  readonly liveVideoSettings?: LiveVideoSettings;
   readonly onVideoFailure?: () => void;
   readonly onSessionOutcome?: (outcome: LiveSessionOutcome) => void;
   readonly onSessionReleased?: (

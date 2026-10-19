@@ -27,8 +27,10 @@ import { PersistedLastSuccessfulImages } from '../media/last-successful-image.js
 import { readDeviceImage } from './device-image.js';
 import {
   noticedDeviceSettingWrite,
+  noticedLivePreviewQuery,
   runtimeChannelEndpointForHost,
   type RuntimeChannelDeviceSettingWrite,
+  type RuntimeChannelLivePreviewQuery,
 } from '../runtime/channel.js';
 import { RuntimeTracker } from '../runtime/tracker.js';
 import { resolveStorageRoot } from '../storage.js';
@@ -234,6 +236,15 @@ export function parseDeviceSettingsRequest(value: unknown): string {
  * A write reaches a real device, so the request names exactly a serial, one setting of the channel's closed set,
  * and a value of the type that setting takes, and nothing beside them.
  */
+/** A live preview request: one device serial and the settings its HomeKit side is coded with. */
+function parseLivePreviewRequest(value: unknown): RuntimeChannelLivePreviewQuery {
+  const query = noticedLivePreviewQuery(value);
+  if (!query?.serial.match(/^[A-Za-z0-9]{1,64}$/)) {
+    throw new RequestError('Invalid live preview request', { status: 400 });
+  }
+  return query;
+}
+
 export function parseDeviceSettingWriteRequest(value: unknown): RuntimeChannelDeviceSettingWrite {
   const write = noticedDeviceSettingWrite(value);
   if (
@@ -345,17 +356,21 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
       ok: await this.runtimeChannel.writeDeviceSetting(parseDeviceSettingWriteRequest(payload)),
     }));
     this.onRequest('/device/live/start', (payload) => {
-      const serial = parseDeviceSettingsRequest(payload);
+      const query = parseLivePreviewRequest(payload);
+      const { serial } = query;
       this.live?.abort();
       const live = new AbortController();
       this.live = live;
       void this.runtimeChannel
-        .liveDevice(serial, (image) => this.pushEvent('device-live', { serial, image }), live.signal)
-        .finally(() => {
-          if (!live.signal.aborted) this.pushEvent('device-live-end', { serial });
+        .liveDevice(query, (image, coding) => this.pushEvent('device-live', { serial, image, ...coding }), live.signal)
+        .then((unplayable) => {
+          if (!live.signal.aborted) this.pushEvent('device-live-end', { serial, unplayable });
         });
       return { started: true };
     });
+    this.onRequest('/device/live/adapt', async (payload) => ({
+      ok: await this.runtimeChannel.adaptLive(parseLivePreviewRequest(payload)),
+    }));
     this.onRequest('/device/live/stop', () => {
       this.live?.abort();
       this.live = undefined;

@@ -110,6 +110,12 @@
                 "default": true,
                 "type": "boolean"
               },
+              "liveVideoPassthrough": {
+                "type": "boolean"
+              },
+              "ignoreHomeBitRate": {
+                "type": "boolean"
+              },
               "snapshotMode": {
                 "default": "Refresh",
                 "enum": [

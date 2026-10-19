@@ -26,6 +26,7 @@ import {
 import type {
   AdaptedRecording,
   LiveMediaAdapter,
+  LiveVideoSettings,
   LiveMediaSource,
   LiveSessionOutcome,
   ControllerLiveness,
@@ -390,6 +391,7 @@ function attachCameraStreaming(context: AdapterAttachmentContext): AttachedAdapt
     source,
     media: context.liveMedia,
     ...(context.snapshotMedia ? { snapshotMedia: context.snapshotMedia } : {}),
+    ...(context.liveVideoSettings ? { liveVideoSettings: context.liveVideoSettings } : {}),
     audioEnabled: context.audioEnabled !== false,
     snapshotMode,
     enablement,
@@ -1150,6 +1152,7 @@ interface LiveCameraBinding {
   readonly source: CameraMediaSource;
   readonly media: LiveMediaAdapter;
   readonly snapshotMedia?: SnapshotMediaAdapter;
+  readonly liveVideoSettings?: LiveVideoSettings;
   readonly audioEnabled: boolean;
   readonly snapshotMode: SnapshotMode;
   readonly enablement: () => boolean | undefined;
@@ -1367,6 +1370,7 @@ class LiveCameraDelegate implements CameraStreamingDelegate {
       targetAddress: request.targetAddress,
       video: mediaTarget(request.video),
       ...(this.binding.audioEnabled ? { audio: mediaTarget(request.audio) } : {}),
+      ...(this.binding.liveVideoSettings ? { liveVideoSettings: this.binding.liveVideoSettings } : {}),
       onVideoFailure: () => {
         this.controller?.forceStopStreamingSession(request.sessionID);
         this.release(request.sessionID);

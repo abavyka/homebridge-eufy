@@ -8,6 +8,7 @@ import type {
 } from '../device/member-evidence.js';
 import type {
   LiveMediaAdapter,
+  LiveVideoSettings,
   LiveSessionOutcome,
   LiveSessionRelease,
   MediaSessionBudget,
@@ -136,6 +137,8 @@ export interface AdapterAttachmentContext {
   readonly stationLiveSessions?: StationLiveSessionRegistry;
   /** Whether a camera offers a controller only its HD live resolutions, so no live view is sent below 720p. */
   readonly hdLiveVideo?: boolean;
+  /** The live video settings this camera is coded with, its own override of each else the global one. */
+  readonly liveVideoSettings?: LiveVideoSettings;
   readonly audioEnabled?: boolean;
   readonly securitySystemEnabled?: boolean;
   readonly snapshotMode?: SnapshotMode;

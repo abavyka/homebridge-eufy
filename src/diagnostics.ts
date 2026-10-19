@@ -2331,7 +2331,16 @@ const SDK_LIVE_START_REASONS = ['warm-timeout', 'source-error', 'source-ended'];
  * A superset of what the media domain can report, because the SDK runs FFmpeg of its own for snapshot
  * decoding and WebRTC containers and forwards its output here under the same evidence class.
  */
-const ADAPTATION_ROLES = new Set(['live-video', 'live-audio', 'return-audio', 'recording', 'sdk']);
+const ADAPTATION_ROLES = new Set([
+  'live-video',
+  'live-audio',
+  'return-audio',
+  'recording',
+  'preview-encode',
+  'preview-decode',
+  'preview-raw',
+  'sdk',
+]);
 /** What that process did. `output` is a process reported for what it wrote rather than for how it ended. */
 const ADAPTATION_EVENTS = new Set([
   'started',
@@ -2342,6 +2351,16 @@ const ADAPTATION_EVENTS = new Set([
   'exited-while-streaming',
   'output',
 ]);
+/** How a settings-page live preview ended. */
+const PREVIEW_OUTCOMES = ['picture', 'unplayable', 'no-video', 'stopped'] as const;
+/** The iPhone asks a live preview codes for, and the live video settings it may try. */
+const PREVIEW_ASKS = ['wifi', 'cellular'] as const;
+const PREVIEW_SETTINGS = [
+  'smallVideoPackets',
+  'liveVideoPassthrough',
+  'hardwareVideoEncoder',
+  'ignoreHomeBitRate',
+] as const;
 /**
  * Why a process was started, on the record that reports it starting.
  *
@@ -2775,6 +2794,11 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
     return sanitizeAdaptationNotice(value, level);
   }
 
+  if (value.scope === 'live-preview') {
+    const preview = sanitizeLivePreview(value);
+    return preview ? { scope: 'live-preview', level: 'info', ...preview } : undefined;
+  }
+
   if (value.scope === 'diagnostic-condition') {
     const homeKitDefinition =
       typeof value.code === 'string' && Object.hasOwn(HOMEKIT_CONDITIONS, value.code)
@@ -3185,6 +3209,82 @@ function sanitizeAdaptationNotice(value: Record<string, unknown>, level: string)
     ...(sourceFragments === undefined ? {} : { sourceFragments }),
     ...(stderr.length ? { stderr } : {}),
   };
+}
+
+/**
+ * One settings-page live preview run as it is offered for the record: the selection it was coded at, the encoder
+ * that coded it, the source codec, the kilobits a second the encoder wrote, and how it ended.
+ */
+export interface LivePreviewTrace {
+  selection: { profile: string; level: string; width: number; height: number; fps: number; maxBitRate: number };
+  encoder?: string;
+  source?: string;
+  kbps?: number;
+  outcome: string;
+  /** The iPhone ask and the live video settings the run was coded with, tried without being saved. */
+  ask: string;
+  smallVideoPackets: boolean;
+  liveVideoPassthrough: boolean;
+  hardwareVideoEncoder: boolean;
+  ignoreHomeBitRate: boolean;
+  /** The support-case alias of the camera, which the conditions about that accessory already carry. */
+  accessory?: string;
+}
+
+/**
+ * Records how one settings-page live preview ended, as a `live-preview` record kept whether or not a support
+ * window is open: it is not one of the {@link VERBOSE_SCOPES}, because it holds only allowlisted labels and
+ * bounded numbers, one per run a user started.
+ */
+export function reportLivePreview(target: Pick<PlatformLogger, 'debug'>, trace: LivePreviewTrace): void {
+  const { level, ...selection } = trace.selection;
+  const preview = sanitizeLivePreview({ ...trace, ...selection, levelName: level });
+  if (preview) target.debug?.(JSON.stringify({ scope: 'live-preview', level: 'info', ...preview }));
+}
+
+/**
+ * Narrows one offered live preview run, or nothing where its selection or outcome does not narrow.
+ *
+ * Read by both halves of the path, {@link reportLivePreview} and the file sink, so a record only one of them
+ * recognised could not reach a support archive.
+ */
+function sanitizeLivePreview(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  const selection = sanitizePreviewSelection(value);
+  const outcome = allowlistedLabel(value.outcome, PREVIEW_OUTCOMES);
+  if (!selection || !outcome) return undefined;
+  const encoder = allowlistedLabel(value.encoder, LIVE_VIDEO_ENCODERS);
+  const source = allowlistedLabel(value.source, LIVE_VIDEO_SOURCES);
+  const kbps = boundedInteger(value.kbps, MAX_LIVE_VIDEO_BIT_RATE);
+  const accessory = opaqueAccessoryAlias(value.accessory);
+  const ask = allowlistedLabel(value.ask, PREVIEW_ASKS);
+  const settings = PREVIEW_SETTINGS.filter((setting) => typeof value[setting] === 'boolean');
+  return {
+    ...selection,
+    ...(encoder === undefined ? {} : { encoder }),
+    ...(source === undefined ? {} : { source }),
+    ...(kbps === undefined ? {} : { kbps }),
+    ...(ask === undefined ? {} : { ask }),
+    ...Object.fromEntries(settings.map((setting) => [setting, value[setting]])),
+    outcome,
+    ...(accessory === undefined ? {} : { accessory }),
+  };
+}
+
+/** A live preview's selection as flat bounded fields, or nothing where any of them falls outside its allowlist. */
+function sanitizePreviewSelection(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const candidate = value as Record<string, unknown>;
+  const profile = String(candidate.profile);
+  const levelName = String(candidate.levelName);
+  const fields = {
+    profile: HOMEKIT_LIVE_VIDEO_PROFILES.has(profile) ? profile : undefined,
+    levelName: HOMEKIT_LIVE_VIDEO_LEVELS.has(levelName) ? levelName : undefined,
+    width: boundedInteger(candidate.width, MAX_LIVE_VIDEO_DIMENSION, MIN_LIVE_VIDEO_DIMENSION),
+    height: boundedInteger(candidate.height, MAX_LIVE_VIDEO_DIMENSION, MIN_LIVE_VIDEO_DIMENSION),
+    fps: boundedInteger(candidate.fps, MAX_LIVE_VIDEO_FRAME_RATE, MIN_LIVE_VIDEO_FRAME_RATE),
+    maxBitRate: boundedInteger(candidate.maxBitRate, MAX_LIVE_VIDEO_BIT_RATE),
+  };
+  return Object.values(fields).includes(undefined) ? undefined : fields;
 }
 
 function sanitizeLiveSessionTrace(value: Record<string, unknown>): Record<string, unknown> | undefined {

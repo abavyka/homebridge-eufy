@@ -5,6 +5,7 @@ import { execFile, spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Readable, Writable } from 'node:stream';
 
+import type { LiveVideoSettings } from '../configuration.js';
 import type {
   AdaptationCause,
   AdaptationDiagnostics,
@@ -265,6 +266,36 @@ export interface ReturnAudioProcess extends MediaProcess {
 }
 export type ReturnAudioProcessFactory = (executable: string, args: readonly string[]) => ReturnAudioProcess;
 export type MediaPortFactory = (addressVersion: 'ipv4' | 'ipv6') => Promise<ReservedMediaPort>;
+
+/**
+ * Reports what one adaptation process did to `diagnostics`, whether or not the session it belonged to fails for it.
+ *
+ * An audio adaptation is restarted rather than failed and a return-audio one fails only talkback, so without a
+ * report of their own those two exit with no account anywhere of why they stopped. An `output` report carries
+ * nothing but the tail, so it is made only when the process actually wrote something: a silent process that
+ * ended as intended has nothing to attribute.
+ */
+export function adaptationReporter(diagnostics: AdaptationDiagnostics | undefined) {
+  return (
+    role: AdaptationRole,
+    event: AdaptationEvent,
+    stderr: AdaptationStderr,
+    code?: number | null,
+    signal?: NodeJS.Signals | null,
+  ): void => {
+    const tail = stderr.tail();
+    if (event === 'output' && tail.length === 0) {
+      return;
+    }
+    diagnostics?.report({
+      role,
+      event,
+      ...(typeof code === 'number' ? { code } : {}),
+      ...(typeof signal === 'string' ? { signal } : {}),
+      ...(tail.length ? { stderr: tail } : {}),
+    });
+  };
+}
 
 /** The `libx264` constant rate factor a live adaptation codes at when the negotiated bit rate is ignored. */
 const CONSTANT_QUALITY_CRF = 23;
@@ -647,10 +678,44 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     return outcomes;
   }
 
-  /** The first hardware encoder qualified for `selection`, or `libx264` where none is. */
-  private encoderFor(selection: NegotiatedLiveVideo): LiveVideoEncoder {
+  /**
+   * What a session codes `selection` from a `codec` source with: `copy` for a passed-through H.264 source,
+   * {@link CONSTANT_QUALITY} where the negotiated bit rate is ignored, else the first hardware encoder qualified
+   * for `selection`, or `libx264` where none is or `settings` turn hardware off. Without `settings`, this
+   * adapter's own.
+   */
+  private encoderFor(
+    codec: LiveVideoConfig['codec'],
+    selection: NegotiatedLiveVideo,
+    settings?: LiveVideoSettings,
+  ): LiveVideoEncoder | 'copy' {
+    if ((settings?.liveVideoPassthrough ?? this.copyVideo) && codec === 'h264') return 'copy';
+    if (settings?.ignoreHomeBitRate ?? this.constantQuality) return CONSTANT_QUALITY;
+    if (settings?.hardwareVideoEncoder === false) return LIBX264;
     const key = `${selection.profile}@${selection.level}`;
     return HARDWARE_ENCODERS.find((encoder) => this.qualified.get(encoder.name)?.has(key)) ?? LIBX264;
+  }
+
+  /** The largest video packet a session sends under `settings`, or under this adapter's own without them. */
+  private packetSize(settings?: LiveVideoSettings): number {
+    if (!settings) return this.maxVideoPacketSize;
+    return settings.smallVideoPackets ? SMALL_VIDEO_PACKET_SIZE : Number.POSITIVE_INFINITY;
+  }
+
+  /**
+   * The encoder and the argument list a session would code `selection` from a `codec` source with, its video
+   * written to `output` instead of RTP: every argument before `output` is the session's own, or that of a session
+   * of an adapter configured with `settings`.
+   */
+  videoAdaptation(
+    codec: LiveVideoConfig['codec'],
+    selection: NegotiatedLiveVideo,
+    output: readonly string[],
+    settings?: LiveVideoSettings,
+  ): { encoder: string; args: string[] } {
+    const video = { ...selection, mtu: Math.min(selection.mtu, this.packetSize(settings)) };
+    const encoder = this.encoderFor(codec, video, settings);
+    return { encoder: encoder === 'copy' ? encoder : encoder.name, args: videoArguments(codec, video, encoder, output) };
   }
 
   /**
@@ -662,9 +727,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
   async prepare(transport: LiveMediaTransport): Promise<PreparedLiveMedia> {
     const videoPort = await this.reservePort(transport.addressVersion);
     const targetAddress = transport.addressVersion === 'ipv6' ? `[${transport.targetAddress}]` : transport.targetAddress;
-    const maxVideoPacketSize = this.maxVideoPacketSize;
-    const copyVideo = this.copyVideo;
-    const constantQuality = this.constantQuality;
+    const maxVideoPacketSize = this.packetSize(transport.liveVideoSettings);
     let audioPort: ReservedMediaPort | undefined;
     try {
       audioPort = transport.audio ? await this.reservePort(transport.addressVersion) : undefined;
@@ -759,33 +822,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
       sink.once('drain', () => releaseAdaptation(sink));
     };
 
-    /**
-     * Reports what one adaptation process did, whether or not the session it belonged to fails for it.
-     *
-     * An audio adaptation is restarted rather than failed and a return-audio one fails only talkback, so
-     * without a report of their own those two exit with no account anywhere of why they stopped. An `output`
-     * report carries nothing but the tail, so it is made only when the process actually wrote something:
-     * a silent process that ended as intended has nothing to attribute.
-     */
-    const reportAdaptation = (
-      role: AdaptationRole,
-      event: AdaptationEvent,
-      stderr: AdaptationStderr,
-      code?: number | null,
-      signal?: NodeJS.Signals | null,
-    ): void => {
-      const tail = stderr.tail();
-      if (event === 'output' && tail.length === 0) {
-        return;
-      }
-      adaptationDiagnostics?.report({
-        role,
-        event,
-        ...(typeof code === 'number' ? { code } : {}),
-        ...(typeof signal === 'string' ? { signal } : {}),
-        ...(tail.length ? { stderr: tail } : {}),
-      });
-    };
+    const reportAdaptation = adaptationReporter(adaptationDiagnostics);
 
     const stopProcess = (process: MediaProcess | undefined): void => {
       if (!process) {
@@ -968,15 +1005,16 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
       if (!videoProcess) {
         adaptationConfig = videoConfig;
         videoSequence = (videoSequence + OUTPUT_SEQUENCE_STEP) & 0xffff;
-        const encoder =
-          copyVideo && videoConfig.codec === 'h264'
-            ? 'copy'
-            : constantQuality
-              ? CONSTANT_QUALITY
-              : this.encoderFor(negotiated.video);
+        const { video } = negotiated;
+        const encoder = this.encoderFor(videoConfig.codec, video, transport.liveVideoSettings);
         const child = this.createProcess(
           this.executable,
-          videoArguments(videoConfig, negotiated.video, targetAddress, transport.video, videoSequence, encoder),
+          videoArguments(
+            videoConfig.codec,
+            video,
+            encoder,
+            outputArguments(targetAddress, transport.video, video.payloadType, video.ssrc, video.mtu, videoSequence),
+          ),
         );
         videoProcess = child;
         const encoderName = encoder === 'copy' ? encoder : encoder.name;
@@ -1466,18 +1504,15 @@ function outputArguments(
  * during a session, which the ceiling above codes as a blurred, then blocky, picture.
  */
 function videoArguments(
-  input: LiveVideoConfig,
+  codec: LiveVideoConfig['codec'],
   selection: NegotiatedLiveVideo,
-  targetAddress: string,
-  target: LiveMediaTarget,
-  sequence: number,
   encoder: LiveVideoEncoder | 'copy',
+  output: readonly string[],
 ): string[] {
-  const output = outputArguments(targetAddress, target, selection.payloadType, selection.ssrc, selection.mtu, sequence);
   if (encoder === 'copy') {
     return [...commonArguments('h264'), '-an', '-c:v', 'copy', ...output];
   }
-  return [...commonArguments(input.codec === 'h265' ? 'hevc' : input.codec), ...encodeArguments(encoder, selection), ...output];
+  return [...commonArguments(codec === 'h265' ? 'hevc' : codec), ...encodeArguments(encoder, selection), ...output];
 }
 
 /** What one encoder is given to code `selection`, between its input and its output, in a session and in qualification alike. */

@@ -214,11 +214,16 @@
       <p class="summary" data-wizard-restart hidden data-i18n="wizardRestartSummary"></p>
       <nav class="wizard-map" data-wizard-map data-i18n-aria-label="wizardMapLabel"></nav>
       <div class="wizard-stage" data-wizard-stage>
-        <button type="button" class="wizard-arrow" data-wizard-back data-i18n-aria-label="wizardBack">
-          <img src="assets/icons/keyboard_arrow_left.svg" alt="" />
-        </button>
         <div class="wizard-live" data-wizard-live>
-          <img data-wizard-live-image alt="" hidden />
+          <figure>
+            <img data-wizard-live-image alt="" draggable="false" hidden />
+            <figcaption class="wizard-live-label" data-wizard-live-camera data-i18n="wizardLiveCamera"></figcaption>
+          </figure>
+          <figure>
+            <img data-wizard-live-homekit alt="" draggable="false" hidden />
+            <span class="wizard-live-spinner" data-wizard-live-homekit-spinner hidden aria-hidden="true"></span>
+            <figcaption class="wizard-live-label" data-wizard-live-encoder></figcaption>
+          </figure>
           <button type="button" class="wizard-live-play" data-wizard-live-play data-i18n-aria-label="wizardLivePlay">
             <img src="assets/icons/play_arrow.svg" alt="" />
           </button>
@@ -234,10 +239,57 @@
           <span class="wizard-live-spinner" data-wizard-live-spinner hidden aria-hidden="true"></span>
           <p class="wizard-live-status" role="status" aria-live="polite" data-wizard-live-status></p>
         </div>
-        <button type="button" class="wizard-arrow" data-wizard-next data-i18n-aria-label="wizardNext">
-          <img src="assets/icons/keyboard_arrow_right.svg" alt="" />
-        </button>
       </div>
+      <form class="wizard-card" data-wizard-live-controls hidden aria-labelledby="wizard-live-title">
+        <h3 id="wizard-live-title" data-i18n="wizardLiveTitle"></h3>
+        <p class="preference-note" data-i18n="wizardLiveHelp"></p>
+        <div class="preference-grid">
+          <label class="wizard-setting" data-setting>
+            <span class="setting-label" data-i18n="wizardLiveAsk"></span>
+            <select name="ask">
+              <option value="wifi" data-i18n="wizardLiveAskWifi"></option>
+              <option value="cellular" data-i18n="wizardLiveAskCellular"></option>
+            </select>
+          </label>
+          <p class="preference-representation" data-i18n="wizardLiveThisCamera"></p>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="liveVideoPassthrough" />
+              <span class="setting-label" data-i18n="advancedLiveVideoPassthroughLabel"></span>
+            </label>
+            <p data-i18n="advancedLiveVideoPassthroughHelp"></p>
+          </div>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="ignoreHomeBitRate" />
+              <span class="setting-label" data-i18n="advancedIgnoreHomeBitRateLabel"></span>
+            </label>
+            <p data-i18n="advancedIgnoreHomeBitRateHelp"></p>
+          </div>
+          <div class="wizard-nav">
+            <button type="button" data-wizard-live-save data-i18n="wizardLiveSave"></button>
+          </div>
+          <p class="preference-representation" data-i18n="wizardLiveAllCameras"></p>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="hardwareVideoEncoder" />
+              <span class="setting-label" data-i18n="advancedHardwareVideoEncoderLabel"></span>
+            </label>
+            <p data-i18n="advancedHardwareVideoEncoderHelp"></p>
+          </div>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="smallVideoPackets" />
+              <span class="setting-label" data-i18n="advancedSmallVideoPacketsLabel"></span>
+            </label>
+            <p data-i18n="advancedSmallVideoPacketsHelp"></p>
+          </div>
+        </div>
+      </form>
+      <p class="summary" data-wizard-live-diagnose hidden>
+        <span data-i18n="wizardLiveDiagnoseHelp"></span>
+        <button type="button" data-wizard-live-diagnose-start data-i18n="wizardLiveDiagnose"></button>
+      </p>
       <section class="wizard-card" data-wizard-homekit aria-labelledby="wizard-homekit-title">
         <h3 id="wizard-homekit-title" data-i18n="wizardHomeKitTitle"></h3>
         <p class="preference-note" data-i18n="wizardHomeKitHelp"></p>
