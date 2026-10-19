@@ -20,30 +20,23 @@ Node 24.5.0 or newer is required. `npm run verify` runs the same local quality g
 pull request: formatting, the guard against restoring `eufy-security-client`, the build, and the
 hermetic Vitest contracts.
 
-## Architecture
-
-The SDK owns verified Eufy device truth and transport behavior. This plugin owns Homebridge lifecycle
-and HomeKit representation. Use explicit capability and bundle adapters; do not infer services from
-primitive SDK shapes and do not bypass evidence-gated SDK operations.
-
-The current vocabulary is in [CONTEXT.md](./CONTEXT.md).
-
 ## Development workflow
 
 - Start from the active `beta-X.Y.Z` branch and open the pull request against that branch unless a
   maintainer says otherwise.
-- Use Conventional Commits.
+- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`).
 - Keep each change focused and run `npm run verify` before requesting review.
-- Do not add `Co-authored-by` trailers automatically.
-- Explain new runtime dependencies, including why existing dependencies or `node:*` APIs are
-  insufficient and what transitive/audit cost is introduced.
-- Treat real-device access as read-only unless the owner explicitly approves a write operation.
+- Run one test suite at a time on a development host. Every Vitest worker is a full Node process, so two
+  concurrent suites can exhaust the memory of a host that also runs Homebridge; it swaps instead of
+  failing, and the cost appears as an unexplained stall in unrelated software rather than as a test
+  error. Comparing two revisions is done sequentially for the same reason: concurrent runs contend for
+  the same cores, so their timings measure the contention and not the change.
 
 ### Live qualification
 
 `npm run verify` stays hermetic, so anything needing a real account, camera, or transport is
 qualified by a script in [scripts/](./scripts/). Its index,
-[scripts/README.md](./scripts/README.md), describes every procedure and says which scripts write.
+[scripts/README.md](./scripts/README.md), says which scripts write; each script's header is its procedure.
 
 ## Pull requests
 
@@ -55,9 +48,8 @@ Keep the body concise and developer-focused:
 - anything unverified, intentionally omitted, or deferred;
 - migration or release impact.
 
-Never include real serials, P2P identifiers, account or user IDs, device names, addresses,
-credentials, tokens, keys, logs, or captures. Use synthetic placeholders and review the diff before
-submission.
+Never include real device or account data (see the hard rules in [AGENTS.md](./AGENTS.md)); review the
+diff before submission.
 
 ## Release notes
 

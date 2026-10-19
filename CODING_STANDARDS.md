@@ -193,21 +193,6 @@ The canonical vocabulary is defined in [CONTEXT.md](./CONTEXT.md).
   atomically and must not move a directory held by a live SDK owner.
 - No `Co-authored-by` trailers are added automatically. Credit authorship accurately.
 
-## Development workflow
-
-- Work from the active `beta-X.Y.Z` branch and target pull requests back to that beta branch unless a
-  maintainer specifies otherwise.
-- Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`).
-- Run `npm run verify` before opening a pull request.
-- Run one test suite at a time on a development host. Every Vitest worker is a full Node process, so two
-  concurrent suites can exhaust the memory of a host that also runs Homebridge; it swaps instead of
-  failing, and the cost appears as an unexplained stall in unrelated software rather than as a test
-  error. Comparing two revisions is done sequentially for the same reason: concurrent runs contend for
-  the same cores, so their timings measure the contention and not the change.
-- Keep contract specifications under `test/contracts/`; do not colocate them under `src/`.
-- Pull requests are concise and state what changed, why, what was verified, and what remains deferred.
-- Release notes are written for users and put required actions before internal detail.
-
 ## Verifying on a real host
 
 A claim about behaviour on a device is worth nothing if the device is not running the code that makes it.
