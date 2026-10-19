@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import type { PersistedPush, PersistedSession } from '@mega-yfue/eufy-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AccountSessionPersistence, reapAbandonedTemporaryFiles } from '../../src/account/persistence.js';
+import { reapAbandonedTemporaryFiles } from '../../src/account/ownership.js';
+import { AccountSessionPersistence } from '../../src/account/persistence.js';
 
 const roots: string[] = [];
 
@@ -90,7 +91,7 @@ describe('account session persistence', () => {
 
   it('announces an account replacement only after the new active generation is published', async () => {
     const replaced = vi.fn();
-    const persistence = new AccountSessionPersistence(await temporaryRoot(), undefined, undefined, replaced);
+    const persistence = new AccountSessionPersistence(await temporaryRoot(), undefined, replaced);
     const first = await persistence.stage('first@example.invalid');
     await first.commit();
     expect(replaced).not.toHaveBeenCalled();
@@ -123,14 +124,16 @@ describe('account session persistence', () => {
   });
 
   it('bounds records and atomically preserves the previous record after a failed save', async () => {
-    const persistence = new AccountSessionPersistence(await temporaryRoot(), 512);
+    const persistence = new AccountSessionPersistence(await temporaryRoot());
     const staging = await persistence.stage('first@example.invalid');
     staging.session.save(session('first'));
 
-    expect(() => staging.session.save(session('x'.repeat(1_000)))).toThrowError('session record exceeds 512 bytes');
+    expect(() => staging.session.save(session('x'.repeat(1024 * 1024)))).toThrowError(
+      'session record exceeds 1048576 bytes',
+    );
     expect(staging.session.load()).toEqual(session('first'));
 
-    await writeFile(join(staging.directory, 'session.json'), 'x'.repeat(513), { mode: 0o600 });
+    await writeFile(join(staging.directory, 'session.json'), 'x'.repeat(1024 * 1024 + 1), { mode: 0o600 });
     expect(staging.session.load()).toBeNull();
     await staging.discard();
   });

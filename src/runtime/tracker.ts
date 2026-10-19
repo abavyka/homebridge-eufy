@@ -1,12 +1,13 @@
-import { chmodSync, closeSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 
-import { reapAbandonedTemporaryFiles } from '../account/persistence.js';
+import { reapAbandonedTemporaryFiles } from '../account/ownership.js';
+import { readJsonBounded, writeJsonAtomically } from '../account/persistence.js';
 import { parseCompleteDeviceSnapshot, type CompleteDeviceSnapshot } from '../device/snapshot.js';
 import type { RuntimeState } from '../diagnostics.js';
 
 const MAX_TRACKER_BYTES = 1024 * 1024;
+/** How long a published active record stands as evidence of a live runtime. */
+const FRESH_RUNTIME_MS = 90_000;
 const ACTIVE_RUNTIME_STATES = new Set<RuntimeState>([
   'acquiring-ownership',
   'starting',
@@ -92,7 +93,6 @@ export class RuntimeTracker {
 
   constructor(
     private readonly path: string,
-    private readonly freshThresholdMs = 90_000,
     private readonly now: () => number = Date.now,
     private readonly onError: (error: unknown) => void = () => undefined,
   ) {}
@@ -114,7 +114,7 @@ export class RuntimeTracker {
       }
       const updatedAt = Date.parse(value.updatedAt);
       const age = this.now() - updatedAt;
-      if (!Number.isFinite(updatedAt) || age < -5_000 || age > this.freshThresholdMs) {
+      if (!Number.isFinite(updatedAt) || age < -5_000 || age > FRESH_RUNTIME_MS) {
         return null;
       }
       return { state: value.state as RuntimeState, updatedAt: value.updatedAt };
@@ -207,20 +207,7 @@ export class RuntimeTracker {
   }
 
   private readValue(): Record<string, unknown> | null {
-    let descriptor: number | undefined;
-    try {
-      descriptor = openSync(this.path, 'r');
-      const buffer = Buffer.allocUnsafe(MAX_TRACKER_BYTES + 1);
-      const bytesRead = readSync(descriptor, buffer, 0, buffer.length, 0);
-      if (bytesRead > MAX_TRACKER_BYTES) {
-        return null;
-      }
-      return JSON.parse(buffer.toString('utf8', 0, bytesRead)) as Record<string, unknown>;
-    } finally {
-      if (descriptor !== undefined) {
-        closeSync(descriptor);
-      }
-    }
+    return readJsonBounded(this.path, MAX_TRACKER_BYTES) as Record<string, unknown> | null;
   }
 
   private publishSafely(record: RuntimeTrackerRecord): boolean {
@@ -234,20 +221,11 @@ export class RuntimeTracker {
   }
 
   private publish(record: RuntimeTrackerRecord): void {
-    const directory = dirname(this.path);
-    mkdirSync(directory, { mode: 0o700, recursive: true });
-    chmodSync(directory, 0o700);
-    const temporaryPath = `${this.path}.${process.pid}.${randomUUID()}.tmp`;
-    try {
-      const serialized = JSON.stringify({ ...record, updatedAt: new Date(this.now()).toISOString() });
-      if (Buffer.byteLength(serialized) > MAX_TRACKER_BYTES) {
-        throw new Error(`runtime tracker exceeds ${MAX_TRACKER_BYTES} bytes`);
-      }
-      writeFileSync(temporaryPath, serialized, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-      renameSync(temporaryPath, this.path);
-    } catch (error) {
-      rmSync(temporaryPath, { force: true });
-      throw error;
-    }
+    writeJsonAtomically(
+      this.path,
+      { ...record, updatedAt: new Date(this.now()).toISOString() },
+      'runtime tracker',
+      MAX_TRACKER_BYTES,
+    );
   }
 }

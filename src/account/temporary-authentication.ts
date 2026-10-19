@@ -23,13 +23,10 @@ export interface TemporaryAuthenticationInput {
   configuration: EufyConfig;
 }
 
-export interface TemporaryAuthenticationClient {
-  login(): Promise<LoginResult>;
-  solveCaptcha(answer: string): Promise<LoginResult>;
-  submitVerifyCode(code: string): Promise<LoginResult>;
+/** The authenticating surface with discovery narrowed to one complete snapshot. */
+export type TemporaryAuthenticationClient = Omit<AuthenticatingSdkClient, keyof DiscoveryClient> & {
   discover(): Promise<CompleteDeviceSnapshot>;
-  disconnect(): Promise<void>;
-}
+};
 
 export type TemporaryAuthenticationClientFactory = (
   options: TemporaryAuthenticationClientOptions,

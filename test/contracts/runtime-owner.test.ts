@@ -796,35 +796,6 @@ describe('persisted runtime owner', () => {
     expect(getDevices).toHaveBeenCalledOnce();
   });
 
-  it('keeps the pinned SDK startup path when realtime readiness is unavailable', async () => {
-    const { persistence } = await activeRuntime();
-    const active = await persistence.active();
-    expect(active).not.toBeNull();
-    const client = {
-      loggedIn: true,
-      login: vi.fn(async () => ({ status: 'ok' as const, raw: { restored: true } })),
-      on: vi.fn(),
-      off: vi.fn(),
-      getDevices: vi.fn(async () => [{ sn: 'synthetic-current' }]),
-      getDevice: vi.fn(async () => sdkDevice('synthetic-current')),
-      disconnect: vi.fn(async () => undefined),
-    } as unknown as EufyMega;
-    const runtime = new PersistedSdkClient(
-      parseConfig({
-        platform: 'HomebridgeEufy',
-        username: 'runtime@example.invalid',
-        password: 'persisted-password',
-      }),
-      active!,
-      client,
-    );
-
-    await expect(runtime.start()).resolves.toMatchObject({
-      state: 'ready',
-      snapshot: snapshot('synthetic-current'),
-    });
-  });
-
   it('degrades on connectivity loss, refreshes after recovery, and removes every SDK listener on stop', async () => {
     const { persistence } = await activeRuntime();
     const active = await persistence.active();

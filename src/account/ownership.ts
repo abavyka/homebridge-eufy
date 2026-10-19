@@ -37,47 +37,47 @@ const GUARD_RETRY_MS = 10;
 const GUARD_TIMEOUT_MS = 5_000;
 
 /**
- * How long one of this module's temporary files may exist before it is certainly abandoned.
+ * How long a temporary file may exist before it is certainly abandoned.
  *
- * A lease or guard write creates its temporary file and renames it within the same turn, so a surviving
- * temporary file is orders of magnitude older than any write in progress.
+ * One atomic write creates its temporary file and renames it within the same turn, so a surviving temporary file
+ * is orders of magnitude older than any write in progress.
  */
 const ABANDONED_TEMPORARY_FILE_MS = 60_000;
 
 /**
- * Removes the temporary files interrupted lease and guard writes left behind.
+ * Removes the temporary files interrupted atomic writes left behind, returning how many were removed.
  *
- * `writeAtomically` deletes its own temporary file when a write fails, but a process killed between
- * creating and renaming it never runs that cleanup, so the file would otherwise remain forever and
- * every later guard scan would pay for it. Age alone decides: a temporary file belonging to a live write
- * is milliseconds old, so anything past the staleness window belongs to a process that is gone. Deciding
- * by the process id embedded in the name would have to trust that name and survive process-id reuse.
- *
- * This duplicates `reapAbandonedTemporaryFiles` in `persistence.ts` deliberately. This module has no
- * internal imports so that a bare `node` child process can load it from source, which is how the
- * cross-process ownership contracts prove that a live lease cannot be stolen.
+ * An atomic write deletes its own temporary file when the write fails, but a process killed between creating and
+ * renaming it never runs that cleanup, so the file would otherwise remain forever and every later directory scan
+ * would pay for it. Age alone decides: a temporary file belonging to a live write is milliseconds old, so anything
+ * past the staleness window belongs to a process that is gone. This module has no internal imports so that a bare
+ * `node` child process can load it from source, which is how the cross-process ownership contracts prove that a
+ * live lease cannot be stolen.
  */
-function reapAbandonedTemporaryFiles(directory: string): void {
+export function reapAbandonedTemporaryFiles(directory: string, now: () => number = Date.now): number {
   let entries: string[];
   try {
     entries = readdirSync(directory);
   } catch {
-    return;
+    return 0;
   }
 
+  let removed = 0;
   for (const entry of entries) {
     if (!entry.endsWith('.tmp')) {
       continue;
     }
     const path = join(directory, entry);
     try {
-      if (Date.now() - statSync(path).mtimeMs > ABANDONED_TEMPORARY_FILE_MS) {
+      if (now() - statSync(path).mtimeMs > ABANDONED_TEMPORARY_FILE_MS) {
         rmSync(path, { force: true });
+        removed += 1;
       }
     } catch {
       continue;
     }
   }
+  return removed;
 }
 
 function hasCode(error: unknown, code: string): boolean {

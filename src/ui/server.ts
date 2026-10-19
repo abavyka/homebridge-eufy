@@ -12,7 +12,7 @@ import {
   type TemporaryAuthenticationResult,
   type TemporaryAuthenticationInput,
 } from '../account/temporary-authentication.js';
-import { parseConfig } from '../configuration.js';
+import { isRecord, parseConfig } from '../configuration.js';
 import {
   GuidedDiagnostics,
   isDiagnosticsProfile,
@@ -35,14 +35,7 @@ import {
 import { RuntimeTracker } from '../runtime/tracker.js';
 import { resolveStorageRoot } from '../storage.js';
 import { readDashboard } from './dashboard.js';
-import {
-  RuntimeChannelClient,
-  type RuntimeDiagnosticsChannel,
-  type RuntimeDeviceSettingsChannel,
-  type RuntimeRestartChannel,
-  type RuntimeStandDownChannel,
-  type RuntimeStatusChannel,
-} from './runtime-channel-client.js';
+import { RuntimeChannelClient } from './runtime-channel-client.js';
 
 const AUTHENTICATION_FLOW_TIMEOUT_MS = 5 * 60_000;
 const AUTHENTICATION_CLEANUP_TIMEOUT_MS = 10_000;
@@ -78,15 +71,11 @@ function requiredString(value: unknown, maximumLength: number): string | undefin
  * browser or into an error path that a diagnostic could record.
  */
 export function parseAuthenticationStart(value: unknown): TemporaryAuthenticationInput {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new RequestError('Invalid authentication request', { status: 400 });
   }
   const payload = value as Record<string, unknown>;
-  if (
-    typeof payload.configuration !== 'object' ||
-    payload.configuration === null ||
-    Array.isArray(payload.configuration)
-  ) {
+  if (!isRecord(payload.configuration)) {
     throw new RequestError('Invalid authentication request', { status: 400 });
   }
   const candidate = payload.configuration as Record<string, unknown>;
@@ -118,7 +107,7 @@ export function parseAuthenticationStart(value: unknown): TemporaryAuthenticatio
  * Every rejection raises the same generic message so no submitted challenge answer is echoed back.
  */
 export function parseAuthenticationAnswer(value: unknown, key: 'answer' | 'code'): string {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new RequestError('Invalid authentication continuation', { status: 400 });
   }
   const answer = requiredString((value as Record<string, unknown>)[key], 128)?.trim();
@@ -132,7 +121,7 @@ function parseRepresentationPreferences(value: unknown): Record<string, boolean>
   if (value === undefined) {
     return {};
   }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new RequestError('Invalid dashboard request', { status: 400 });
   }
   const preferences = (value as Record<string, unknown>).representationPreferences;
@@ -140,9 +129,7 @@ function parseRepresentationPreferences(value: unknown): Record<string, boolean>
     return {};
   }
   if (
-    typeof preferences !== 'object' ||
-    preferences === null ||
-    Array.isArray(preferences) ||
+    !isRecord(preferences) ||
     Object.entries(preferences).some(
       ([serial, represented]) => serial.length === 0 || serial.length > 128 || typeof represented !== 'boolean',
     )
@@ -176,7 +163,7 @@ export function parseDiagnosticsAuthorization(value: unknown): {
   reproductionMode: DiagnosticsReproductionMode;
   affectedDevices?: AffectedDevices;
 } {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new RequestError('Invalid diagnostics request', { status: 400 });
   }
   const payload = value as Record<string, unknown>;
@@ -199,43 +186,19 @@ export function parseDiagnosticsAuthorization(value: unknown): {
 }
 
 /**
- * Validates a browser-submitted request for one device's retained image.
+ * Validates a browser-submitted request that names one device serial and nothing else.
  *
- * The serial names which image is asked for and arrives from the browser, so it is bounded and constrained to
- * the shape a serial has before it reaches storage. Rejection carries one generic message that never repeats
- * what was submitted.
+ * The serial arrives from the browser, so it is bounded and constrained to the shape a serial has before it reaches
+ * storage or the runtime. Rejection carries one generic `message` that never repeats what was submitted.
  */
-export function parseDeviceImageRequest(value: unknown): string {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new RequestError('Invalid device image request', { status: 400 });
-  }
-  const payload = value as Record<string, unknown>;
-  const serial = requiredString(payload.serial, 128);
-  if (Object.keys(payload).join(',') !== 'serial' || !serial?.match(/^[A-Za-z0-9]{1,128}$/)) {
-    throw new RequestError('Invalid device image request', { status: 400 });
+export function parseSerialRequest(value: unknown, message: string, bound: number): string {
+  const serial = isRecord(value) ? requiredString(value.serial, bound) : undefined;
+  if (!serial?.match(/^[A-Za-z0-9]+$/) || Object.keys(value as object).join(',') !== 'serial') {
+    throw new RequestError(message, { status: 400 });
   }
   return serial;
 }
 
-/** Validates a browser-submitted request for one device's eufy settings, which names a serial and nothing else. */
-export function parseDeviceSettingsRequest(value: unknown): string {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new RequestError('Invalid device settings request', { status: 400 });
-  }
-  const payload = value as Record<string, unknown>;
-  const serial = requiredString(payload.serial, 64);
-  if (Object.keys(payload).join(',') !== 'serial' || !serial?.match(/^[A-Za-z0-9]{1,64}$/)) {
-    throw new RequestError('Invalid device settings request', { status: 400 });
-  }
-  return serial;
-}
-
-/**
- * Validates a browser-submitted write of one eufy setting.
- *
- * A write reaches a real device, so the request names exactly a serial, one setting of the channel's closed set,
- * and a value of the type that setting takes, and nothing beside them.
- */
 /** A live preview request: one device serial and the settings its HomeKit side is coded with. */
 function parseLivePreviewRequest(value: unknown): RuntimeChannelLivePreviewQuery {
   const query = noticedLivePreviewQuery(value);
@@ -245,6 +208,12 @@ function parseLivePreviewRequest(value: unknown): RuntimeChannelLivePreviewQuery
   return query;
 }
 
+/**
+ * Validates a browser-submitted write of one eufy setting.
+ *
+ * A write reaches a real device, so the request names exactly a serial, one setting of the channel's closed set,
+ * and a value of the type that setting takes, and nothing beside them.
+ */
 export function parseDeviceSettingWriteRequest(value: unknown): RuntimeChannelDeviceSettingWrite {
   const write = noticedDeviceSettingWrite(value);
   if (
@@ -260,7 +229,7 @@ export function parseDeviceSettingWriteRequest(value: unknown): RuntimeChannelDe
 }
 
 function parseArchiveReview(value: unknown): string {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new RequestError('Invalid support archive request', { status: 400 });
   }
   const reviewId = requiredString((value as Record<string, unknown>).reviewId, 36);
@@ -271,7 +240,7 @@ function parseArchiveReview(value: unknown): string {
 }
 
 export function parseDiagnosticsUiEvent(value: unknown): DiagnosticsUiEvent {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     throw new RequestError('Invalid diagnostics UI event', { status: 400 });
   }
   const payload = value as Record<string, unknown>;
@@ -282,7 +251,7 @@ export function parseDiagnosticsUiEvent(value: unknown): DiagnosticsUiEvent {
 }
 
 /** Creates the production SDK client without enabling realtime ownership. */
-export const createTemporaryAuthenticationClient: TemporaryAuthenticationClientFactory = (options) =>
+const createTemporaryAuthenticationClient: TemporaryAuthenticationClientFactory = (options) =>
   observationOnlyAuthenticationClient(
     new EufyMega({
       email: options.account,
@@ -302,11 +271,7 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
   private readonly ownership: AccountOwnership;
   private readonly persistence: AccountSessionPersistence;
   private readonly runtimeTracker: RuntimeTracker;
-  private readonly runtimeChannel: RuntimeStatusChannel &
-    RuntimeDiagnosticsChannel &
-    RuntimeStandDownChannel &
-    RuntimeRestartChannel &
-    RuntimeDeviceSettingsChannel;
+  private readonly runtimeChannel: RuntimeChannelClient;
   private readonly images: PersistedLastSuccessfulImages;
   /** The one live preview this page is watching, so starting another or leaving the step stops it. */
   private live?: AbortController;
@@ -314,9 +279,7 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
   private startPending = false;
   private flowGeneration = 0;
 
-  constructor(
-    private readonly clientFactory: TemporaryAuthenticationClientFactory = createTemporaryAuthenticationClient,
-  ) {
+  constructor() {
     super();
     if (!this.homebridgeStoragePath) {
       throw new Error('Homebridge storage path is unavailable');
@@ -324,9 +287,7 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     const root = resolveStorageRoot(this.homebridgeStoragePath);
     this.ownership = new AccountOwnership(join(root, 'ownership'));
     this.images = new PersistedLastSuccessfulImages(root);
-    this.persistence = new AccountSessionPersistence(join(root, 'accounts'), undefined, undefined, () =>
-      this.images.discardAll(),
-    );
+    this.persistence = new AccountSessionPersistence(join(root, 'accounts'), undefined, () => this.images.discardAll());
     this.runtimeTracker = new RuntimeTracker(join(root, 'tracker.json'));
     this.runtimeChannel = new RuntimeChannelClient(runtimeChannelEndpointForHost(root));
     this.diagnostics = new GuidedDiagnostics(root);
@@ -346,10 +307,16 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     );
     this.onRequest('/update/restart', () => this.runtimeChannel.requestRestart());
     this.onRequest('/device/image', (payload) =>
-      readDeviceImage(this.images, this.runtimeChannel, parseDeviceImageRequest(payload)),
+      readDeviceImage(
+        this.images,
+        this.runtimeChannel,
+        parseSerialRequest(payload, 'Invalid device image request', 128),
+      ),
     );
     this.onRequest('/device/settings', async (payload) => {
-      const settings = await this.runtimeChannel.readDeviceSettings(parseDeviceSettingsRequest(payload));
+      const settings = await this.runtimeChannel.readDeviceSettings(
+        parseSerialRequest(payload, 'Invalid device settings request', 64),
+      );
       return settings ? { available: true, settings } : { available: false };
     });
     this.onRequest('/device/settings/write', async (payload) => ({
@@ -400,7 +367,7 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
       const exported = await this.diagnostics.exportSupportArchive(parseArchiveReview(payload));
       return { ...exported, archive: exported.archive.toString('base64') };
     });
-    this.installCleanupHandlers();
+    bindTemporaryAuthenticationProcessCleanup(process, () => this.closeAuthentication());
     this.ready();
   }
 
@@ -418,7 +385,7 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
       this.authentication = new TemporaryAuthentication(
         this.ownership,
         this.persistence,
-        this.clientFactory,
+        createTemporaryAuthenticationClient,
         {
           flowTimeoutMs: AUTHENTICATION_FLOW_TIMEOUT_MS,
           cleanupTimeoutMs: AUTHENTICATION_CLEANUP_TIMEOUT_MS,
@@ -451,9 +418,5 @@ export class EufyAuthenticationUiServer extends HomebridgePluginUiServer {
     const authentication = this.authentication;
     this.authentication = undefined;
     return authentication?.close() ?? { status: 'closed' };
-  }
-
-  private installCleanupHandlers(): void {
-    bindTemporaryAuthenticationProcessCleanup(process, () => this.closeAuthentication());
   }
 }

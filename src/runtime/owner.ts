@@ -139,7 +139,6 @@ export type RuntimeEventListener = (event: AnyDeviceEvent) => void;
 export type RuntimeUnconfirmedWriteListener = (write: UnconfirmedWrite) => void;
 export type RuntimeStateListener = (state: RuntimeState) => void;
 
-/** Owns the long-lived SDK session, canonical registry, and runtime state transitions. */
 /**
  * Whether a process with this title is a Homebridge child bridge, and so may end itself to be replaced.
  *
@@ -151,6 +150,7 @@ export function isChildBridgeTitle(title: string): boolean {
   return title.startsWith('homebridge: ');
 }
 
+/** Owns the long-lived SDK session, canonical registry, and runtime state transitions. */
 export class RuntimeOwner {
   private client?: SdkClient;
   private startPromise?: Promise<void>;
@@ -484,7 +484,7 @@ export class RuntimeOwner {
   }
 
   private createStatusPublisher(): RuntimeStatusPublisher {
-    return new RuntimeTracker(join(this.storageRoot!, 'tracker.json'), 90_000, Date.now, () => {
+    return new RuntimeTracker(join(this.storageRoot!, 'tracker.json'), Date.now, () => {
       reportRuntimeNotice(this.log, 'status-publication-failed');
     });
   }

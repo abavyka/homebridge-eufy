@@ -54,7 +54,7 @@ describe('runtime tracker publication', () => {
   });
 
   it('publishes exactly the closed record fields and drops caller-supplied extras', async () => {
-    const tracker = new RuntimeTracker(path, 90_000, () => Date.parse('2026-08-25T12:00:00.000Z'));
+    const tracker = new RuntimeTracker(path, () => Date.parse('2026-08-25T12:00:00.000Z'));
 
     expect(
       tracker.update('ready', {
@@ -76,7 +76,7 @@ describe('runtime tracker publication', () => {
   });
 
   it('never writes a credential or challenge answer into advisory runtime evidence', async () => {
-    const tracker = new RuntimeTracker(path, 90_000, () => Date.parse('2026-08-25T12:00:00.000Z'));
+    const tracker = new RuntimeTracker(path, () => Date.parse('2026-08-25T12:00:00.000Z'));
 
     tracker.update('ready', {
       generation: 'synthetic-generation',
@@ -97,7 +97,7 @@ describe('runtime tracker publication', () => {
   });
 
   it('keeps advisory runtime evidence owner-only', async () => {
-    const tracker = new RuntimeTracker(join(root, 'nested', 'tracker.json'), 90_000, () =>
+    const tracker = new RuntimeTracker(join(root, 'nested', 'tracker.json'), () =>
       Date.parse('2026-08-25T12:00:00.000Z'),
     );
 
@@ -108,7 +108,7 @@ describe('runtime tracker publication', () => {
   });
 
   it('retains the latest complete snapshot across a state change without republishing it as fresh', async () => {
-    const tracker = new RuntimeTracker(path, 90_000, () => Date.parse('2026-08-25T12:00:00.000Z'));
+    const tracker = new RuntimeTracker(path, () => Date.parse('2026-08-25T12:00:00.000Z'));
 
     tracker.update('ready', { generation: 'synthetic-generation', complete: true, snapshot: snapshot() });
     tracker.update('stopping');

@@ -26,7 +26,6 @@ import {
   RUNTIME_STATUS_PATH,
   type RuntimeChannelDevice,
   type RuntimeChannelDeviceSetting,
-  type RuntimeChannelDeviceSettingsQuery,
   type RuntimeChannelDeviceSettingWrite,
   type RuntimeChannelEndpoint,
   type RuntimeChannelGreeting,
@@ -76,61 +75,6 @@ export interface RuntimeStatusChannel {
   read(): Promise<RuntimeChannelReading | undefined>;
 }
 
-/**
- * The runtime's immediate pickup of a diagnostics authorization, when a runtime is there to perform it.
- *
- * Declared beside its consumer. The persisted session file is the authority and remains the only thing that
- * survives a restart, so this reports nothing: a runtime that is absent, older, or unconvinced by the file all
- * leave the authorization exactly as the file states it.
- */
-export interface RuntimeDiagnosticsChannel {
-  notifyAuthorization(supportCaseId: string): Promise<void>;
-}
-
-/**
- * The runtime's willingness to release the account session, when a runtime is there to release it.
- *
- * Declared beside its consumer. The answer is the runtime's claim about itself and never proof that the session
- * is free; only the ownership lease is that.
- */
-export interface RuntimeStandDownChannel {
-  requestStandDown(): Promise<boolean>;
-}
-
-/**
- * The runtime's willingness to end itself so the installed build replaces it, when a runtime is there to end.
- *
- * Declared beside its consumer. The answer reports only that the runtime accepted and began ending; whether the
- * replacement came up is not knowable from the process asking, and is read from the next greeting instead.
- */
-export interface RuntimeRestartChannel {
-  requestRestart(): Promise<boolean>;
-}
-
-/**
- * A device's eufy settings, read and written through the runtime that holds its session, when a runtime is there.
- *
- * Declared beside its consumer. An absent runtime reads as no settings and refuses every write. A write that is
- * accepted reports that the runtime delivered it, not that the device changed: the next read is what states that.
- */
-export interface RuntimeDeviceSettingsChannel {
-  readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined>;
-  writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean>;
-  /**
-   * Streams one camera's live preview as base64 JPEG pictures, each with its side and the live encoder and rate
-   * of the HomeKit side, until it ends, the runtime is gone, or `signal` aborts. Settles once it has stopped, true
-   * where the last HomeKit run yielded no picture; a runtime without the path, or with no preview to give, settles
-   * at once.
-   */
-  liveDevice(
-    query: RuntimeChannelLivePreviewQuery,
-    onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
-    signal: AbortSignal,
-  ): Promise<boolean>;
-  /** Restarts the HomeKit side of the camera's running preview with other settings; false where none runs. */
-  adaptLive(query: RuntimeChannelLivePreviewQuery): Promise<boolean>;
-}
-
 interface RuntimeChannelClientOptions {
   connectTimeoutMs?: number;
   responseTimeoutMs?: number;
@@ -150,14 +94,7 @@ interface RuntimeChannelClientOptions {
  *
  * One connection per operation, its requests correlated by identity, closed once the operation settles.
  */
-export class RuntimeChannelClient
-  implements
-    RuntimeStatusChannel,
-    RuntimeDiagnosticsChannel,
-    RuntimeStandDownChannel,
-    RuntimeRestartChannel,
-    RuntimeDeviceSettingsChannel
-{
+export class RuntimeChannelClient implements RuntimeStatusChannel {
   private readonly connectTimeoutMs: number;
   private readonly responseTimeoutMs: number;
   private readonly standDownTimeoutMs: number;
@@ -173,44 +110,131 @@ export class RuntimeChannelClient
     this.writeTimeoutMs = options.writeTimeoutMs ?? RUNTIME_CHANNEL_WRITE_TIMEOUT_MS;
   }
 
+  /** A device's eufy settings, or undefined where no runtime answers them. */
   async readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined> {
     return this.over(undefined, (connection) =>
-      this.requested(connection, RUNTIME_DEVICE_SETTINGS_PATH, { serial }, this.responseTimeoutMs, (response) =>
-        response.ok && areRuntimeChannelDeviceSettings(response.data)
-          ? response.data.map(answeredDeviceSetting)
-          : undefined,
+      this.converse<RuntimeChannelDeviceSetting[] | undefined>(
+        connection,
+        () => frame(SETTINGS_REQUEST, RUNTIME_DEVICE_SETTINGS_PATH, { serial }),
+        (response, conclude) => {
+          if (response?.id !== SETTINGS_REQUEST) return;
+          conclude(
+            response.ok && areRuntimeChannelDeviceSettings(response.data)
+              ? response.data.map(answeredDeviceSetting)
+              : undefined,
+          );
+        },
+        () => undefined,
+        this.responseTimeoutMs,
       ),
     );
   }
 
+  /**
+   * Writes one device setting, true where the runtime delivered it. Delivery is not the device changing: the next
+   * read is what states that. An absent runtime refuses every write.
+   */
   async writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean> {
-    const accepted = await this.over(undefined, (connection) =>
-      this.requested(connection, RUNTIME_DEVICE_SETTING_WRITE_PATH, write, this.writeTimeoutMs, (response) =>
-        response.ok ? true : undefined,
+    return this.over(false, (connection) =>
+      this.converse(
+        connection,
+        () => frame(SETTINGS_REQUEST, RUNTIME_DEVICE_SETTING_WRITE_PATH, write),
+        answered,
+        () => false,
+        this.writeTimeoutMs,
       ),
     );
-    return accepted === true;
   }
 
+  /**
+   * Streams one camera's live preview as base64 JPEG pictures, each with its side and the live encoder and rate
+   * of the HomeKit side, until it ends, the runtime is gone, or `signal` aborts. Settles once it has stopped, true
+   * where the last HomeKit run yielded no picture; a runtime without the path, or with no preview to give, settles
+   * at once.
+   */
   async liveDevice(
     query: RuntimeChannelLivePreviewQuery,
     onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
     signal: AbortSignal,
   ): Promise<boolean> {
-    return this.over(false, (connection) => this.streamed(connection, query, onPicture, signal));
+    return this.over(false, (connection) => {
+      if (signal.aborted) connection.destroy();
+      else signal.addEventListener('abort', () => connection.destroy(), { once: true });
+      return this.converse(
+        connection,
+        () => frame(SETTINGS_REQUEST, RUNTIME_DEVICE_LIVE_PATH, query),
+        (response, conclude) => {
+          if (response?.id !== SETTINGS_REQUEST) return;
+          if (!response.ok) return conclude(response.data === LIVE_UNPLAYABLE);
+          const { side, encoder, kbps } = response.coding ?? {};
+          if (typeof response.data !== 'string' || typeof encoder !== 'string') return conclude(false);
+          if (side !== 'raw' && side !== 'homekit') return conclude(false);
+          onPicture(response.data, typeof kbps === 'number' ? { side, encoder, kbps } : { side, encoder });
+        },
+        () => false,
+      );
+    });
   }
 
+  /** Restarts the HomeKit side of the camera's running preview with other settings; false where none runs. */
   async adaptLive(query: RuntimeChannelLivePreviewQuery): Promise<boolean> {
-    const accepted = await this.over(undefined, (connection) =>
-      this.requested(connection, RUNTIME_DEVICE_LIVE_ADAPT_PATH, query, this.responseTimeoutMs, (response) =>
-        response.ok ? true : undefined,
+    return this.over(false, (connection) =>
+      this.converse(
+        connection,
+        () => frame(SETTINGS_REQUEST, RUNTIME_DEVICE_LIVE_ADAPT_PATH, query),
+        answered,
+        () => false,
+        this.responseTimeoutMs,
       ),
     );
-    return accepted === true;
   }
 
+  /**
+   * Reads the greeting, the status, and the observations.
+   *
+   * The status is one answer and the observations are another, so a runtime that answers the first and then says
+   * nothing, closes, or overruns the frame bound concludes with the status alone. Only a read with no status at
+   * all, an unreadable frame, or an answer this client cannot use is absence.
+   */
   async read(): Promise<RuntimeChannelReading | undefined> {
-    return this.over(undefined, (connection) => this.exchange(connection));
+    let greeting: RuntimeChannelGreeting;
+    let status: RuntimeChannelStatus | undefined;
+    let devices: RuntimeChannelDevice[] | undefined;
+    let devicesSettled = false;
+    const reading = (): RuntimeChannelReading | undefined =>
+      status && {
+        ready: greeting.ready,
+        status,
+        ...(devices === undefined ? {} : { devices }),
+        ...(greeting.version === undefined ? {} : { version: greeting.version }),
+        ...(greeting.build === undefined ? {} : { build: greeting.build }),
+        ...(greeting.restartable === undefined ? {} : { restartable: greeting.restartable }),
+      };
+    return this.over(undefined, (connection) =>
+      this.converse<RuntimeChannelReading | undefined>(
+        connection,
+        (opened) => {
+          if (typeof opened.ready !== 'boolean') return undefined;
+          greeting = opened;
+          return frame(STATUS_REQUEST, RUNTIME_STATUS_PATH) + frame(DEVICES_REQUEST, RUNTIME_DEVICES_PATH);
+        },
+        (response, conclude) => {
+          if (response?.id === STATUS_REQUEST) {
+            if (!response.ok || !isRuntimeChannelStatus(response.data)) return conclude(undefined);
+            status = answeredStatus(response.data);
+          } else if (response?.id === DEVICES_REQUEST) {
+            devicesSettled = true;
+            if (response.ok) {
+              if (!areRuntimeChannelDevices(response.data)) return conclude(undefined);
+              devices = response.data.map(answeredDevice);
+            }
+          }
+          if (status && devicesSettled) conclude(reading());
+        },
+        (ending) => (ending === 'fault' ? undefined : reading()),
+        this.responseTimeoutMs,
+      ),
+    );
   }
 
   /**
@@ -220,7 +244,17 @@ export class RuntimeChannelClient
    * way: the file the runtime reads is the authority, and it decided before this was sent.
    */
   async notifyAuthorization(supportCaseId: string): Promise<void> {
-    return this.over(undefined, (connection) => this.notified(connection, supportCaseId));
+    return this.over(undefined, (connection) =>
+      this.converse<void>(
+        connection,
+        () => frame(DIAGNOSTICS_REQUEST, RUNTIME_DIAGNOSTICS_PATH, { supportCaseId }),
+        (response, conclude) => {
+          if (response?.id === DIAGNOSTICS_REQUEST) conclude();
+        },
+        () => undefined,
+        this.responseTimeoutMs,
+      ),
+    );
   }
 
   /**
@@ -233,17 +267,37 @@ export class RuntimeChannelClient
    * answer, which is that the session was not freed.
    */
   async requestStandDown(): Promise<boolean> {
-    return this.over(false, (connection) => this.accepted(connection, RUNTIME_STAND_DOWN_PATH));
+    return this.over(false, (connection) => this.departed(connection, RUNTIME_STAND_DOWN_PATH));
   }
 
   /**
    * Asks the runtime to end itself so Homebridge brings up the installed build, reporting whether it accepted.
    *
    * A runtime that does not serve the path, or refuses because ending it would not replace it, is a false rather
-   * than a failure, so a caller never has to tell an old runtime apart from an unwilling one.
+   * than a failure, so a caller never has to tell an old runtime apart from an unwilling one. Whether the
+   * replacement came up is read from the next greeting.
    */
   async requestRestart(): Promise<boolean> {
-    return this.over(false, (connection) => this.accepted(connection, RUNTIME_RESTART_PATH));
+    return this.over(false, (connection) => this.departed(connection, RUNTIME_RESTART_PATH));
+  }
+
+  /**
+   * Sends one departure request and reports whether the endpoint then closed without refusing it.
+   *
+   * A runtime that releases its session or ends for replacement closes its endpoint at the end of its own bounded
+   * shutdown, so the closing is the completion this waits for and an explicit refusal is the one answer that ends
+   * it early. Acceptance is not waited for, because a runtime that closes the connection may not have flushed it.
+   */
+  private departed(connection: Socket, path: string): Promise<boolean> {
+    return this.converse(
+      connection,
+      () => frame(DEPARTURE_REQUEST, path),
+      (response, conclude) => {
+        if (response?.id === DEPARTURE_REQUEST && !response.ok) conclude(false);
+      },
+      (ending) => ending === 'closed',
+      this.standDownTimeoutMs,
+    );
   }
 
   /**
@@ -288,307 +342,69 @@ export class RuntimeChannelClient
   }
 
   /**
-   * Sends one notification after the greeting and concludes when it is answered.
+   * Holds one conversation: writes what `request` makes of the greeting, then hands each response to `onResponse`
+   * until it concludes, and answers every other ending with `unanswered`.
    *
-   * Concludes rather than fails on every other outcome. A protocol this client does not speak concludes without
-   * sending, so a runtime running older code is never handed a frame it would read as something else.
+   * Everything before the request is written is a `fault`: a greeting naming another protocol or one `request`
+   * refuses is never sent the request, so a runtime running older code is never handed a frame it would read as
+   * something else. An unreadable frame is a `fault` too. After the request, the endpoint closing is `closed`, and
+   * `timeoutMs` passing or a frame beyond the frame bound is `lapsed`.
    */
-  private notified(connection: Socket, supportCaseId: string): Promise<void> {
-    return new Promise<void>((resolve) => {
-      const settle = setTimeout(resolve, this.responseTimeoutMs);
-      settle.unref();
-      const conclude = (): void => {
-        clearTimeout(settle);
-        resolve();
-      };
-      const reader = new FrameReader();
-      let greeted = false;
-      connection.once('error', () => conclude());
-      connection.once('close', () => conclude());
-      connection.on('data', (chunk) => {
-        const frames = reader.accept(chunk);
-        if (!frames) {
-          conclude();
-          return;
-        }
-        for (const frame of frames) {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(frame);
-          } catch {
-            conclude();
-            return;
-          }
-          if (greeted) {
-            if ((parsed as RuntimeChannelResponse)?.id === DIAGNOSTICS_REQUEST) {
-              conclude();
-              return;
-            }
-            continue;
-          }
-          if ((parsed as RuntimeChannelGreeting)?.protocol !== RUNTIME_CHANNEL_PROTOCOL) {
-            conclude();
-            return;
-          }
-          greeted = true;
-          connection.write(
-            `${JSON.stringify({
-              v: RUNTIME_CHANNEL_PROTOCOL,
-              id: DIAGNOSTICS_REQUEST,
-              path: RUNTIME_DIAGNOSTICS_PATH,
-              body: { supportCaseId },
-            })}\n`,
-          );
-        }
-      });
-    });
-  }
-
-  /**
-   * Sends one departure request after the greeting and reports what became of it.
-   *
-   * A runtime that releases its session or ends for replacement closes its endpoint at the end of its own bounded
-   * shutdown, so the closing is the completion this waits for and an explicit refusal is the one answer that ends
-   * it early. Acceptance is not waited for, because a runtime that closes the connection may not have flushed it.
-   * A protocol this client does not speak is never sent the request, so a frame an older runtime reads as
-   * something else cannot take a session down that nothing asked for.
-   */
-  private accepted(connection: Socket, path: string): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      const settle = setTimeout(() => resolve(false), this.standDownTimeoutMs);
-      settle.unref();
-      const conclude = (accepted: boolean): void => {
-        clearTimeout(settle);
-        resolve(accepted);
-      };
-      const reader = new FrameReader();
-      let requested = false;
-      connection.once('error', () => conclude(requested));
-      connection.once('close', () => conclude(requested));
-      connection.on('data', (chunk) => {
-        const frames = reader.accept(chunk);
-        if (!frames) {
-          conclude(false);
-          return;
-        }
-        for (const frame of frames) {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(frame);
-          } catch {
-            conclude(false);
-            return;
-          }
-          if (!requested) {
-            if ((parsed as RuntimeChannelGreeting)?.protocol !== RUNTIME_CHANNEL_PROTOCOL) {
-              conclude(false);
-              return;
-            }
-            requested = true;
-            connection.write(`${JSON.stringify({ v: RUNTIME_CHANNEL_PROTOCOL, id: DEPARTURE_REQUEST, path })}\n`);
-            continue;
-          }
-          const response = parsed as RuntimeChannelResponse;
-          if (response?.id === DEPARTURE_REQUEST && !response.ok) {
-            conclude(false);
-            return;
-          }
-        }
-      });
-    });
-  }
-
-  /**
-   * Sends one request after the greeting and answers what `accept` makes of its response.
-   *
-   * Undefined is every other outcome: a protocol this client does not speak, which is never sent the request, a
-   * refusal, an answer `accept` does not take, and no answer within `timeoutMs`.
-   */
-  private requested<T>(
+  private converse<T>(
     connection: Socket,
-    path: string,
-    body: RuntimeChannelDeviceSettingsQuery | RuntimeChannelDeviceSettingWrite,
-    timeoutMs: number,
-    accept: (response: RuntimeChannelResponse) => T | undefined,
-  ): Promise<T | undefined> {
-    return new Promise<T | undefined>((resolve) => {
-      const settle = setTimeout(() => resolve(undefined), timeoutMs);
-      settle.unref();
-      const conclude = (value: T | undefined): void => {
+    request: (greeting: RuntimeChannelGreeting) => string | undefined,
+    onResponse: (response: RuntimeChannelResponse, conclude: (value: T) => void) => void,
+    unanswered: (ending: 'fault' | 'closed' | 'lapsed') => T,
+    timeoutMs?: number,
+  ): Promise<T> {
+    return new Promise<T>((resolve) => {
+      let requested = false;
+      let done = false;
+      const conclude = (value: T): void => {
+        done = true;
         clearTimeout(settle);
         resolve(value);
       };
+      const end = (ending: 'fault' | 'closed' | 'lapsed'): void => {
+        if (!done) conclude(unanswered(requested ? ending : 'fault'));
+      };
+      const settle = timeoutMs === undefined ? undefined : setTimeout(() => end('lapsed'), timeoutMs);
+      settle?.unref();
       const reader = new FrameReader();
-      let requested = false;
-      connection.once('error', () => conclude(undefined));
-      connection.once('close', () => conclude(undefined));
+      connection.once('error', () => end('closed'));
+      connection.once('close', () => end('closed'));
       connection.on('data', (chunk) => {
         const frames = reader.accept(chunk);
-        if (!frames) {
-          conclude(undefined);
-          return;
-        }
-        for (const frame of frames) {
+        if (!frames) return end('lapsed');
+        for (const text of frames) {
+          if (done) return;
           let parsed: unknown;
           try {
-            parsed = JSON.parse(frame);
+            parsed = JSON.parse(text);
           } catch {
-            conclude(undefined);
-            return;
+            return end('fault');
           }
-          if (!requested) {
-            if ((parsed as RuntimeChannelGreeting)?.protocol !== RUNTIME_CHANNEL_PROTOCOL) {
-              conclude(undefined);
-              return;
-            }
-            requested = true;
-            connection.write(`${JSON.stringify({ v: RUNTIME_CHANNEL_PROTOCOL, id: SETTINGS_REQUEST, path, body })}\n`);
+          if (requested) {
+            onResponse(parsed as RuntimeChannelResponse, conclude);
             continue;
           }
-          const response = parsed as RuntimeChannelResponse;
-          if (response?.id === SETTINGS_REQUEST) {
-            conclude(accept(response));
-            return;
-          }
+          const greeting = parsed as RuntimeChannelGreeting;
+          const written = greeting?.protocol === RUNTIME_CHANNEL_PROTOCOL ? request(greeting) : undefined;
+          if (written === undefined) return end('fault');
+          requested = true;
+          connection.write(written);
         }
       });
     });
   }
+}
 
-  /** Sends one live request after the greeting and hands on each picture, settling once the stream ends. */
-  private streamed(
-    connection: Socket,
-    query: RuntimeChannelLivePreviewQuery,
-    onPicture: (jpeg: string, coding: RuntimeChannelLiveCoding) => void,
-    signal: AbortSignal,
-  ): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      const conclude = (unplayable = false): void => resolve(unplayable);
-      if (signal.aborted) return conclude();
-      signal.addEventListener('abort', () => conclude(), { once: true });
-      const reader = new FrameReader();
-      let requested = false;
-      connection.once('error', conclude);
-      connection.once('close', conclude);
-      connection.on('data', (chunk) => {
-        const frames = reader.accept(chunk);
-        if (!frames) return conclude();
-        for (const frame of frames) {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(frame);
-          } catch {
-            return conclude();
-          }
-          if (!requested) {
-            if ((parsed as RuntimeChannelGreeting)?.protocol !== RUNTIME_CHANNEL_PROTOCOL) return conclude();
-            requested = true;
-            const request = { v: RUNTIME_CHANNEL_PROTOCOL, id: SETTINGS_REQUEST, path: RUNTIME_DEVICE_LIVE_PATH };
-            connection.write(`${JSON.stringify({ ...request, body: query })}\n`);
-            continue;
-          }
-          const response = parsed as RuntimeChannelResponse;
-          if (response?.id !== SETTINGS_REQUEST) continue;
-          if (!response.ok) return conclude(response.data === LIVE_UNPLAYABLE);
-          const { side, encoder, kbps } = response.coding ?? {};
-          if (typeof response.data !== 'string' || typeof encoder !== 'string') return conclude();
-          if (side !== 'raw' && side !== 'homekit') return conclude();
-          onPicture(response.data, typeof kbps === 'number' ? { side, encoder, kbps } : { side, encoder });
-        }
-      });
-    });
-  }
+/** One request frame of this protocol. */
+function frame(id: number, path: string, body?: unknown): string {
+  return `${JSON.stringify({ v: RUNTIME_CHANNEL_PROTOCOL, id, path, ...(body === undefined ? {} : { body }) })}\n`;
+}
 
-  private exchange(connection: Socket): Promise<RuntimeChannelReading> {
-    return new Promise<RuntimeChannelReading>((resolve, reject) => {
-      const settle = setTimeout(() => concludeOrFail('runtime channel response timed out'), this.responseTimeoutMs);
-      settle.unref();
-      const reader = new FrameReader();
-      let greeting: RuntimeChannelGreeting | undefined;
-      const fail = (message: string): void => {
-        clearTimeout(settle);
-        reject(new Error(message));
-      };
-      /**
-       * Concludes with the status alone where the observations never settled.
-       *
-       * The status is one answer and the observations are another, so a runtime that answers the first and
-       * then says nothing must not cost both. Only a read with no status at all is a failure.
-       */
-      const concludeOrFail = (message: string): void => {
-        if (greeting && answeredStatusValue) {
-          devicesSettled = true;
-          settleIfComplete();
-          return;
-        }
-        fail(message);
-      };
-      connection.once('error', () => concludeOrFail('runtime channel faulted'));
-      connection.once('close', () => concludeOrFail('runtime channel closed before answering'));
-      let answeredStatusValue: RuntimeChannelStatus | undefined;
-      let answeredDevices: RuntimeChannelDevice[] | undefined;
-      let devicesSettled = false;
-      const settleIfComplete = (): void => {
-        if (!greeting || !answeredStatusValue || !devicesSettled) {
-          return;
-        }
-        clearTimeout(settle);
-        resolve({
-          ready: greeting.ready,
-          status: answeredStatusValue,
-          ...(answeredDevices === undefined ? {} : { devices: answeredDevices }),
-          ...(greeting.version === undefined ? {} : { version: greeting.version }),
-          ...(greeting.build === undefined ? {} : { build: greeting.build }),
-          ...(greeting.restartable === undefined ? {} : { restartable: greeting.restartable }),
-        });
-      };
-      connection.on('data', (chunk) => {
-        const frames = reader.accept(chunk);
-        if (!frames) {
-          connection.destroy();
-          return;
-        }
-        for (const frame of frames) {
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(frame);
-          } catch {
-            fail('runtime channel sent an unreadable frame');
-            return;
-          }
-          if (!greeting) {
-            const opened = parsed as RuntimeChannelGreeting;
-            if (opened?.protocol !== RUNTIME_CHANNEL_PROTOCOL || typeof opened.ready !== 'boolean') {
-              fail('runtime channel speaks another protocol');
-              return;
-            }
-            greeting = opened;
-            connection.write(
-              `${JSON.stringify({ v: RUNTIME_CHANNEL_PROTOCOL, id: STATUS_REQUEST, path: RUNTIME_STATUS_PATH })}\n` +
-                `${JSON.stringify({ v: RUNTIME_CHANNEL_PROTOCOL, id: DEVICES_REQUEST, path: RUNTIME_DEVICES_PATH })}\n`,
-            );
-            continue;
-          }
-          const response = parsed as RuntimeChannelResponse;
-          if (response?.id === STATUS_REQUEST) {
-            if (!response.ok || !isRuntimeChannelStatus(response.data)) {
-              fail('runtime channel answered no status this client can use');
-              return;
-            }
-            answeredStatusValue = answeredStatus(response.data);
-          } else if (response?.id === DEVICES_REQUEST) {
-            devicesSettled = true;
-            if (response.ok) {
-              if (!areRuntimeChannelDevices(response.data)) {
-                fail('runtime channel answered no observations this client can use');
-                return;
-              }
-              answeredDevices = response.data.map(answeredDevice);
-            }
-          }
-          settleIfComplete();
-        }
-      });
-    });
-  }
+/** Concludes on the settings request's answer: true where accepted, false where refused. */
+function answered(response: RuntimeChannelResponse, conclude: (value: boolean) => void): void {
+  if (response?.id === SETTINGS_REQUEST) conclude(!!response.ok);
 }
