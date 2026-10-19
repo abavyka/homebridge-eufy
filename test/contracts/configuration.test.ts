@@ -5,9 +5,13 @@ import ffmpegPath from 'ffmpeg-for-homebridge';
 import { describe, expect, it } from 'vitest';
 
 import {
+  DEFAULT_COUNTRY,
+  DEFAULT_MAX_CONCURRENT_MEDIA_SESSIONS,
+  DEFAULT_POLLING_INTERVAL_MINUTES,
+  DEFAULT_TRUSTED_DEVICE_NAME,
+  DEFAULT_WARM_UP_EVENTS,
   ffmpegPathSource,
   parseConfig,
-  resolveEntityPreference,
   resolveLiveVideoSettings,
   serializeConfig,
   type EufyConfig,
@@ -37,15 +41,15 @@ describe('V5 configuration', () => {
 
     expect(schema.pluginAlias).toBe('HomebridgeEufy');
     expect(schema.schema.properties.password.format).toBe('password');
-    expect(schema.schema.properties.country.default).toBe('US');
-    expect(schema.schema.properties.trustedDeviceName.default).toBe('Homebridge Eufy');
-    expect(schema.schema.properties.pollingIntervalMinutes.default).toBe(10);
-    expect(schema.schema.properties.maxConcurrentMediaSessions.default).toBe(0);
+    expect(schema.schema.properties.country.default).toBe(DEFAULT_COUNTRY);
+    expect(schema.schema.properties.trustedDeviceName.default).toBe(DEFAULT_TRUSTED_DEVICE_NAME);
+    expect(schema.schema.properties.pollingIntervalMinutes.default).toBe(DEFAULT_POLLING_INTERVAL_MINUTES);
+    expect(schema.schema.properties.maxConcurrentMediaSessions.default).toBe(DEFAULT_MAX_CONCURRENT_MEDIA_SESSIONS);
     expect(
       schema.schema.properties.maxConcurrentMediaSessions.description,
       'zero is not an obvious way to spell unlimited, so the schema has to say so',
     ).toMatch(/unlimited/i);
-    expect(schema.schema.properties.warmUpEvents.default).toEqual(['doorbellPress']);
+    expect(schema.schema.properties.warmUpEvents.default).toEqual(DEFAULT_WARM_UP_EVENTS);
     expect(
       schema.schema.properties.warmUpEvents.items,
       'the valid set is whatever the devices report, so pinning an enum here would go stale',
@@ -93,13 +97,6 @@ describe('V5 configuration', () => {
       warmUpEvents: ['doorbellPress'],
       ffmpegPath,
       entityPreferences: {},
-    });
-    expect(resolveEntityPreference(config, 'synthetic-serial')).toEqual({
-      represented: true,
-      audio: true,
-      securitySystem: true,
-      snapshotMode: 'Refresh',
-      armingModes: { home: 'home', away: 'away', off: 'disarmed' },
     });
   });
 
@@ -239,17 +236,6 @@ describe('V5 configuration', () => {
       },
       discardedV4Settings: [],
       discardedV4Acknowledged: false,
-    });
-    expect(
-      resolveEntityPreference(roundTrip, 'synthetic-arming-entity').armingModes,
-      'an assigned state overrides the default and an unassigned one keeps it',
-    ).toEqual({ home: 'home', away: 'away', night: 'schedule', off: 'off' });
-    expect(resolveEntityPreference(roundTrip, 'synthetic-sparse-entity')).toEqual({
-      represented: true,
-      audio: false,
-      securitySystem: true,
-      snapshotMode: 'Refresh',
-      armingModes: { home: 'home', away: 'away', off: 'disarmed' },
     });
   });
 

@@ -26,7 +26,6 @@ import {
   recordHostEnvironment,
   reportAdaptationNotice,
   reportHomeKitEvent,
-  reportInvalidSnapshotCache,
   reportLivePreview,
   reportRuntimeNotice,
 } from '../../src/diagnostics.js';
@@ -318,12 +317,7 @@ describe('guided diagnostics session', () => {
 
     try {
       const authorized = await diagnostics.authorize('startup-authentication', 'intermittent');
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
       logger.debug?.(JSON.stringify({ scope: 'sdk', level: 'debug', subsystem: 'mqtt', event: 'connection-opened' }));
       await logger.flush?.();
 
@@ -711,12 +705,7 @@ describe('guided diagnostics session', () => {
       await diagnostics.authorize('control-state', 'now');
       expect(() => statSync(join(root, 'diagnostics', 'evidence'))).toThrow();
       await diagnostics.startReproduction();
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
       logger.debug?.(JSON.stringify({ scope: 'sdk', level: 'warn', subsystem: 'p2p', event: 'media-error' }));
       await logger.flush?.();
       now += 5_000;
@@ -779,12 +768,7 @@ describe('guided diagnostics session', () => {
       await diagnostics.startReproduction();
       rmSync(join(root, 'diagnostics', 'reproduction-markers.jsonl'));
       await diagnostics.startReproduction();
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
       logger.debug?.(
         JSON.stringify({
           scope: 'homekit',
@@ -936,12 +920,7 @@ describe('guided diagnostics session', () => {
     try {
       await diagnostics.authorize('control-state', 'intermittent');
       await diagnostics.startReproduction();
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
       reportRuntimeNotice(logger, 'status-publication-failed');
       logger.debug?.(
         JSON.stringify({
@@ -1297,12 +1276,7 @@ describe('guided diagnostics session', () => {
     try {
       await diagnostics.authorize('startup-authentication', 'now');
       await diagnostics.startReproduction();
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
       now += 60_000;
       reportRuntimeNotice(logger, 'status-publication-failed');
       await logger.flush?.();
@@ -1347,12 +1321,7 @@ describe('guided diagnostics session', () => {
     try {
       await diagnostics.authorize('live-media', 'now');
       await diagnostics.startReproduction();
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
 
       reportHomeKitEvent(logger, {
         adapter: 'camera.streaming',
@@ -1372,7 +1341,7 @@ describe('guided diagnostics session', () => {
         event: 'live-request-unaccounted',
         afterMs: 30_000,
       });
-      reportInvalidSnapshotCache(logger);
+      reportRuntimeNotice(logger, 'camera-snapshot-cache-invalid');
       await logger.flush?.();
       now += 5_000;
       await diagnostics.endReproduction();
@@ -1466,12 +1435,7 @@ describe('guided diagnostics session', () => {
     try {
       await diagnostics.authorize('live-media', 'now');
       await diagnostics.startReproduction();
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
       reportRuntimeNotice(logger, 'status-publication-failed');
       logger.debug?.(JSON.stringify({ scope: 'sdk', level: 'warn', subsystem: 'p2p', event: 'media-error' }));
       logger.debug?.(
@@ -1524,12 +1488,7 @@ describe('guided diagnostics session', () => {
     try {
       await diagnostics.authorize('live-media', 'now');
       await diagnostics.startReproduction();
-      const logger = createDiagnosticLogger(
-        { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-        root,
-        undefined,
-        () => now,
-      );
+      const logger = createDiagnosticLogger({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }, root, () => now);
       reportAdaptationNotice(logger, {
         role: 'live-video',
         event: 'output',
@@ -1745,12 +1704,7 @@ describe('a diagnostics authorization the runtime is notified of', () => {
     const root = mkdtempSync(join(tmpdir(), 'homebridge-eufy-unconfirmed-'));
     let now = Date.parse('2026-08-16T08:00:00.000Z');
     const info = vi.fn();
-    const logger = createDiagnosticLogger(
-      { debug: vi.fn(), error: vi.fn(), info, warn: vi.fn() },
-      root,
-      undefined,
-      () => now,
-    );
+    const logger = createDiagnosticLogger({ debug: vi.fn(), error: vi.fn(), info, warn: vi.fn() }, root, () => now);
 
     try {
       expect(armDiagnosticsAuthorization(logger, root, 'support-00000000-0000-4000-8000-000000000000')).toBe(false);

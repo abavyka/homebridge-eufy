@@ -9,10 +9,9 @@ import {
   reportAdaptationNotice,
   reportLivePreview,
   reportLiveVideoEncoders,
-  reportDiscardedV4Settings,
   reportHomeKitEvent,
   unconfirmedWriteCondition,
-  reportInvalidSnapshotCache,
+  reportRuntimeNotice,
   reportStationClaim,
   type PlatformLogger,
 } from './diagnostics.js';
@@ -33,14 +32,14 @@ import { PLATFORM_NAME, PLUGIN_NAME } from './settings.js';
 import { resolveStorageRoot } from './storage.js';
 
 export type PlatformLifecycleEvent = 'didFinishLaunching' | 'shutdown';
-export type PlatformSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM';
+type PlatformSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM';
 
-export interface PlatformSignalTarget {
+interface PlatformSignalTarget {
   on(event: PlatformSignal, listener: () => void): unknown;
   off(event: PlatformSignal, listener: () => void): unknown;
 }
 
-export interface PlatformApi {
+interface PlatformApi {
   on(event: PlatformLifecycleEvent, listener: () => void): void;
   /** The host's own semver version, which decides whether this plugin can run on it at all. */
   serverVersion?: string;
@@ -52,7 +51,7 @@ export interface PlatformApi {
   unregisterPlatformAccessories?: API['unregisterPlatformAccessories'];
 }
 
-export interface EufyPlatformConstructor {
+interface EufyPlatformConstructor {
   new (log: PlatformLogger, config: PlatformConfig, api: PlatformApi): DynamicPlatformPlugin;
 }
 
@@ -102,7 +101,9 @@ export function createEufyPlatform(
       const stationLiveSessions = new StationLiveSessions((decision) => reportStationClaim(diagnosticLog, decision));
       const snapshotMedia = new SnapshotAcquisition(
         storageRoot
-          ? new PersistedLastSuccessfulImages(storageRoot, () => reportInvalidSnapshotCache(diagnosticLog))
+          ? new PersistedLastSuccessfulImages(storageRoot, () =>
+              reportRuntimeNotice(diagnosticLog, 'camera-snapshot-cache-invalid'),
+            )
           : undefined,
         mediaBudget,
         undefined,
@@ -110,7 +111,7 @@ export function createEufyPlatform(
         stationLiveSessions,
       );
       if (configuredConfig.discardedV4Settings.length > 0 && !configuredConfig.discardedV4Acknowledged) {
-        reportDiscardedV4Settings(diagnosticLog);
+        reportRuntimeNotice(diagnosticLog, 'discarded-v4-settings-unacknowledged');
       }
       this.runtime = new RuntimeOwner(diagnosticLog, configuredConfig, clientFactory, {
         storageRoot,

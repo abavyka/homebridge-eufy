@@ -18,7 +18,7 @@ export interface PlatformLogger {
   warn(message: string): void;
 }
 
-export interface HomeKitCondition {
+interface HomeKitCondition {
   code: string;
   capability?: string;
   member?: string;
@@ -67,25 +67,25 @@ export function unconfirmedWriteCondition(property: string): HomeKitCondition | 
  * `serial` is an identity and is never retained. {@link reportHomeKitEvent} resolves it to a support-case alias,
  * which is what names one camera of a household in a record that names no device.
  */
-export type HomeKitEventTrace = { adapter: string; serial?: string } & (
+type HomeKitEventTrace = { adapter: string; serial?: string } & (
   | { event: string; observation: string; announcedBy?: string }
   | {
       event: 'live-video-selected';
-      operation: 'start' | 'reconfigure';
-      profile: 'baseline' | 'main' | 'high';
-      level: '3.1' | '3.2' | '4.0';
+      operation: (typeof HOMEKIT_LIVE_VIDEO_OPERATIONS)[number];
+      profile: (typeof HOMEKIT_LIVE_VIDEO_PROFILES)[number];
+      level: (typeof HOMEKIT_LIVE_VIDEO_LEVELS)[number];
       width: number;
       height: number;
       fps: number;
       mtu: number;
       maxBitRate: number;
-      addressVersion: 'ipv4' | 'ipv6';
+      addressVersion: (typeof HOMEKIT_LIVE_ADDRESS_VERSIONS)[number];
     }
   | {
       event: 'live-session-failed';
       outcome: 'failed';
       reason: string;
-      stage: 'sdk-source-acquisition' | 'first-source-keyframe' | 'first-adapted-output' | 'controller-rtcp';
+      stage: (typeof HOMEKIT_LIVE_SESSION_STAGES)[number];
       sourceStage?: string;
       sourceReason?: string;
     }
@@ -388,12 +388,12 @@ const DIAGNOSTICS_UI_EVENTS = [
 
 export type DiagnosticsUiEvent = (typeof DIAGNOSTICS_UI_EVENTS)[number];
 
-export type DiagnosticEvidence = 'plugin-log' | 'sdk-log' | 'homekit-log' | 'ffmpeg-log' | 'ui-log';
+type DiagnosticEvidence = 'plugin-log' | 'sdk-log' | 'homekit-log' | 'ffmpeg-log' | 'ui-log';
 
 /** The evidence classes assembled from the rotating JSONL log, each budgeted on its own. */
 type LogEvidence = Extract<DiagnosticEvidence, 'plugin-log' | 'sdk-log' | 'homekit-log' | 'ffmpeg-log'>;
 
-export interface SupportArchiveManifest {
+interface SupportArchiveManifest {
   version: 2;
   archiveFormat: 'homebridge-eufy-support-archive';
   keyId: string;
@@ -404,28 +404,21 @@ export interface SupportArchiveManifest {
   archiveExpiresAt: string;
   reproductionStartedAt: string;
   reproductionEndedAt: string;
-  evidence: readonly {
-    evidence: DiagnosticEvidence | 'environment' | 'fleet' | 'reporter-statement' | 'reproduction-markers';
-    privacyClass: 'diagnostic' | 'operational';
-    status: 'included' | 'missing';
-    contentType?: 'application/json' | 'application/x-ndjson';
-    bytes?: number;
-    truncated?: true;
-    missingReason?: 'no-allowlisted-record-observed';
-    fields?: readonly {
-      field: string;
-      privacyClass: 'diagnostic' | 'operational' | 'pseudonymous';
-    }[];
-  }[];
+  evidence: readonly (Pick<SupportArchiveEvidence, 'evidence' | 'privacyClass' | 'truncated'> &
+    Partial<Pick<SupportArchiveEvidence, 'contentType' | 'fields'>> & {
+      status: 'included' | 'missing';
+      bytes?: number;
+      missingReason?: 'no-allowlisted-record-observed';
+    })[];
   excludedClasses: readonly string[];
 }
 
-export interface SupportArchiveReview {
+interface SupportArchiveReview {
   reviewId: string;
   manifest: SupportArchiveManifest;
 }
 
-export interface EncryptedSupportArchive {
+interface EncryptedSupportArchive {
   filename: string;
   mediaType: 'application/gzip';
   archive: Buffer;
@@ -580,7 +573,7 @@ interface PersistedDiagnosticsSession {
   affectedDevices?: AffectedDevices;
 }
 
-export interface GuidedDiagnosticsStatus {
+interface GuidedDiagnosticsStatus {
   status: 'inactive' | 'authorized' | 'reproducing' | 'complete' | 'expired';
   supportCaseId?: string;
   profile?: DiagnosticsProfile;
@@ -677,6 +670,11 @@ function boundedText(value: string, maximumLength: number): string | undefined {
   return printable === '' ? undefined : printable;
 }
 
+/** Whether a value is a plain JSON object, which is the only shape a record crossing a process boundary has. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** One resolved adaptation binary, as this module keeps and republishes it. */
 interface PersistedFfmpegEnvironment {
   path: string;
@@ -734,9 +732,8 @@ function readFleet(storageRoot: string): PersistedFleetEntry[] | undefined {
     if (candidate.version !== 1 || !Array.isArray(candidate.devices)) {
       return undefined;
     }
-    const devices = candidate.devices.flatMap((entry: unknown) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
-      const row = entry as Record<string, unknown>;
+    const devices = candidate.devices.flatMap((row: unknown) => {
+      if (!isRecord(row)) return [];
       const accessory = opaqueAccessoryAlias(row.accessory);
       if (accessory === undefined || typeof row.represented !== 'boolean' || typeof row.attached !== 'boolean') {
         return [];
@@ -837,21 +834,17 @@ function readHostEnvironment(storageRoot: string): PersistedHostEnvironment | un
  * entire purpose of the record and a redacted one answers nothing. Neither is device or account material: the
  * path is this plugin's own setting or the binary it ships, and the banner is that build's public identity.
  */
-function readFfmpegIdentity(value: unknown): PersistedFfmpegEnvironment | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function readFfmpegIdentity(recorded: unknown): PersistedFfmpegEnvironment | undefined {
+  if (!isRecord(recorded)) {
     return undefined;
   }
-  const recorded = value as Record<string, unknown>;
   if (recorded.source !== 'bundled' && recorded.source !== 'configured') {
     return undefined;
   }
   const path = typeof recorded.path === 'string' ? boundedText(recorded.path, MAX_FFMPEG_IDENTITY_LENGTH) : undefined;
   const version =
     typeof recorded.version === 'string' ? boundedText(recorded.version, MAX_FFMPEG_IDENTITY_LENGTH) : undefined;
-  const encoders =
-    recorded.encoders && typeof recorded.encoders === 'object' && !Array.isArray(recorded.encoders)
-      ? readEncoderQualification(recorded.encoders as Record<string, unknown>)
-      : undefined;
+  const encoders = isRecord(recorded.encoders) ? readEncoderQualification(recorded.encoders) : undefined;
   return path === undefined
     ? undefined
     : {
@@ -871,7 +864,7 @@ function readEncoderQualification(
 ): NonNullable<PersistedFfmpegEnvironment['encoders']> {
   return Object.fromEntries(
     LIVE_VIDEO_ENCODERS.filter((name) => Object.hasOwn(recorded, name)).map((name) => {
-      const outcomes = recorded[name] && typeof recorded[name] === 'object' ? Object.entries(recorded[name]) : [];
+      const outcomes = isRecord(recorded[name]) ? Object.entries(recorded[name]) : [];
       return [
         name,
         Object.fromEntries(
@@ -884,8 +877,8 @@ function readEncoderQualification(
               value.slice(1).every(Number.isSafeInteger)
                 ? (value as ['bytes', number, number])
                 : allowlistedLabel(value, QUALIFICATION_OUTCOMES);
-            return HOMEKIT_LIVE_VIDEO_PROFILES.has(profile!) &&
-              HOMEKIT_LIVE_VIDEO_LEVELS.has(level!) &&
+            return allowlistedLabel(profile, HOMEKIT_LIVE_VIDEO_PROFILES) &&
+              allowlistedLabel(level, HOMEKIT_LIVE_VIDEO_LEVELS) &&
               selection === `${profile}@${level}` &&
               outcome
               ? [[selection, outcome]]
@@ -1575,12 +1568,8 @@ export class GuidedDiagnostics {
   }
 }
 
-function formatMessage(
-  catalog: Readonly<Record<string, string>>,
-  key: string,
-  parameters: Readonly<Record<string, string | number>> = {},
-): string {
-  const template = catalog[key] ?? EN_MESSAGES[key] ?? key;
+function formatMessage(key: string, parameters: Readonly<Record<string, string | number>> = {}): string {
+  const template = EN_MESSAGES[key] ?? key;
   return template
     .replace(/\{([a-zA-Z0-9]+)\}/g, (placeholder, name: string) =>
       parameters[name] === undefined ? placeholder : String(parameters[name]),
@@ -1591,7 +1580,7 @@ function formatMessage(
 
 function localize(target: unknown, key: string, parameters: Readonly<Record<string, string | number>> = {}): string {
   const translator = (target as Partial<Pick<PlatformLogger, 'localize'>>).localize;
-  return translator?.(key, parameters) ?? formatMessage(EN_MESSAGES, key, parameters);
+  return translator?.(key, parameters) ?? formatMessage(key, parameters);
 }
 
 class JsonLineLog {
@@ -1611,11 +1600,8 @@ class JsonLineLog {
     this.path = join(this.directory, LOG_FILE);
   }
 
-  write(message: string): void {
-    const payload = sanitizeStructuredEvent(message);
-    if (!payload) {
-      return;
-    }
+  /** Queues one record the sanitizer already rebuilt. */
+  write(payload: Readonly<Record<string, unknown>>): void {
     const record = this.serialize(payload);
     const bytes = Buffer.byteLength(record);
     if (bytes > MAX_LOG_RECORD_BYTES || this.queuedBytes + bytes > MAX_QUEUED_LOG_BYTES) {
@@ -1623,26 +1609,11 @@ class JsonLineLog {
       this.droppedRecords += 1;
       return;
     }
-    const droppedRecords = this.droppedRecords;
-    const droppedAt = this.droppedAt;
-    this.droppedRecords = 0;
-    this.droppedAt = undefined;
+    const dropped = this.drainDropped();
     this.queuedBytes += bytes;
     this.pending = this.pending
       .then(async () => {
-        if (droppedRecords > 0) {
-          await this.append(
-            this.serialize(
-              {
-                scope: 'diagnostics',
-                level: 'warn',
-                event: 'records-dropped',
-                droppedRecords,
-              },
-              droppedAt,
-            ),
-          );
-        }
+        if (dropped) await this.append(dropped);
         await this.append(record);
       })
       .catch(() => this.onError())
@@ -1652,28 +1623,21 @@ class JsonLineLog {
   }
 
   flush(): Promise<void> {
-    const droppedRecords = this.droppedRecords;
-    const droppedAt = this.droppedAt;
-    this.droppedRecords = 0;
-    this.droppedAt = undefined;
-    if (droppedRecords > 0) {
-      this.pending = this.pending
-        .then(() =>
-          this.append(
-            this.serialize(
-              {
-                scope: 'diagnostics',
-                level: 'warn',
-                event: 'records-dropped',
-                droppedRecords,
-              },
-              droppedAt,
-            ),
-          ),
-        )
-        .catch(() => this.onError());
+    const dropped = this.drainDropped();
+    if (dropped) {
+      this.pending = this.pending.then(() => this.append(dropped)).catch(() => this.onError());
     }
     return this.pending;
+  }
+
+  /** The `records-dropped` record for what was refused since the last one, resetting the tally, or nothing. */
+  private drainDropped(): string | undefined {
+    const { droppedRecords, droppedAt } = this;
+    this.droppedRecords = 0;
+    this.droppedAt = undefined;
+    return droppedRecords === 0
+      ? undefined
+      : this.serialize({ scope: 'diagnostics', level: 'warn', event: 'records-dropped', droppedRecords }, droppedAt);
   }
 
   private serialize(
@@ -1741,14 +1705,13 @@ class JsonLineLog {
 export function createDiagnosticLogger(
   target: PlatformLogger,
   storageRoot?: string,
-  catalog: Readonly<Record<string, string>> = EN_MESSAGES,
   now: () => number = Date.now,
 ): PlatformLogger {
   let fileFailureReported = false;
   const reportFileFailure = (): void => {
     if (!fileFailureReported) {
       fileFailureReported = true;
-      target.warn(`[diagnostic-log-write-failed] ${formatMessage(catalog, 'log.diagnosticFileFailed')}`);
+      target.warn(`[diagnostic-log-write-failed] ${formatMessage('log.diagnosticFileFailed')}`);
     }
   };
   const file = storageRoot ? new JsonLineLog(storageRoot, reportFileFailure, now) : undefined;
@@ -1761,7 +1724,7 @@ export function createDiagnosticLogger(
         if (verbose && (!session || !DIAGNOSTICS_PROFILES[session.profile].includes(evidenceClassOf(event)))) {
           return;
         }
-        file.write(JSON.stringify(event));
+        file.write(event);
       }
     : undefined;
   return {
@@ -1769,7 +1732,7 @@ export function createDiagnosticLogger(
     error: (message) => target.error(message),
     flush: () => file?.flush() ?? Promise.resolve(),
     info: (message) => target.info(message),
-    localize: (key, parameters) => formatMessage(catalog, key, parameters),
+    localize: (key, parameters) => formatMessage(key, parameters),
     warn: (message) => target.warn(message),
   };
 }
@@ -2016,9 +1979,8 @@ const LIVE_TRACE_PHASES = {
   },
 } satisfies Record<LiveTrace['phase'], (candidate: Record<string, unknown>) => Record<string, unknown> | undefined>;
 
-function sanitizeSdkLiveStartTrace(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const candidate = value as Record<string, unknown>;
+function sanitizeSdkLiveStartTrace(candidate: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(candidate)) return undefined;
   const phase = String(candidate.phase);
   if (!Object.hasOwn(LIVE_TRACE_PHASES, phase)) return undefined;
   const fields = LIVE_TRACE_PHASES[phase as LiveTrace['phase']](candidate);
@@ -2289,9 +2251,9 @@ const HOMEKIT_OBSERVATIONS = new Set(['malformed', 'missing', 'valid']);
  * field is omitted where an adapter states no announcement and refused where it states one absent from here.
  */
 const HOMEKIT_ANNOUNCEMENTS = new Set(['write', 'poll']);
-const HOMEKIT_LIVE_VIDEO_OPERATIONS = new Set(['start', 'reconfigure']);
-const HOMEKIT_LIVE_VIDEO_PROFILES = new Set(['baseline', 'main', 'high']);
-const HOMEKIT_LIVE_VIDEO_LEVELS = new Set(['3.1', '3.2', '4.0']);
+const HOMEKIT_LIVE_VIDEO_OPERATIONS = ['start', 'reconfigure'] as const;
+const HOMEKIT_LIVE_VIDEO_PROFILES = ['baseline', 'main', 'high'] as const;
+const HOMEKIT_LIVE_VIDEO_LEVELS = ['3.1', '3.2', '4.0'] as const;
 /**
  * The inclusive bounds a controller-selected live geometry and frame rate are retained within.
  *
@@ -2315,13 +2277,13 @@ const MAX_LIVE_VIDEO_MTU = 65_535;
 /** The bit rate ceiling a controller negotiated, in kbps, bounded to the unsigned 16-bit field that carries it. */
 const MAX_LIVE_VIDEO_BIT_RATE = 65_535;
 /** The two address families HomeKit negotiates a destination in. */
-const HOMEKIT_LIVE_ADDRESS_VERSIONS = new Set(['ipv4', 'ipv6']);
-const HOMEKIT_LIVE_SESSION_STAGES = new Set([
+const HOMEKIT_LIVE_ADDRESS_VERSIONS = ['ipv4', 'ipv6'] as const;
+const HOMEKIT_LIVE_SESSION_STAGES = [
   'sdk-source-acquisition',
   'first-source-keyframe',
   'first-adapted-output',
   'controller-rtcp',
-]);
+] as const;
 /** The SDK's own stage and reason for a live warm-up that ended without a keyframe. */
 const SDK_LIVE_START_STAGES = ['awaiting-first-frame', 'audio-only', 'awaiting-keyframe'];
 const SDK_LIVE_START_REASONS = ['warm-timeout', 'source-error', 'source-ended'];
@@ -2433,78 +2395,38 @@ const ADAPTATION_SIGNALS = new Set([
 const MAX_ADAPTATION_STDERR_LINES = 8;
 const MAX_ADAPTATION_STDERR_LINE_LENGTH = 200;
 /**
- * The media notices this module retains, read by both halves of the path.
+ * The fixed-shape operational notices, each `[level, messageKey, durationMessageKey?]`.
  *
  * Operational rather than verbose, so each is `plugin-log` evidence that every profile declares.
  */
-const MEDIA_NOTICES = {
-  'camera-snapshot-cache-invalid': {
-    level: 'warn',
-    messageKey: 'log.snapshotCacheInvalid',
-  },
-} as const;
-type MediaNoticeCode = keyof typeof MEDIA_NOTICES;
 const RUNTIME_NOTICES = {
-  'status-publication-failed': {
-    level: 'warn',
-    messageKey: 'log.notice.statusPublicationFailed',
-  },
-  'ownership-release-not-finalized': {
-    level: 'error',
-    messageKey: 'log.notice.ownershipReleaseNotFinalized',
-  },
-  'ownership-release-failed': {
-    level: 'error',
-    messageKey: 'log.notice.ownershipReleaseFailed',
-  },
-  'shutdown-failed': {
-    level: 'error',
-    messageKey: 'log.notice.shutdownFailed',
-  },
-  'shutdown-timeout': {
-    level: 'warn',
-    messageKey: 'log.notice.shutdownTimeout',
-    durationMessageKey: 'log.notice.shutdownTimeoutWithDuration',
-  },
-  'ownership-acquisition-failed': {
-    level: 'error',
-    messageKey: 'log.notice.ownershipAcquisitionFailed',
-  },
-  'ownership-release-incomplete': {
-    level: 'warn',
-    messageKey: 'log.notice.ownershipReleaseIncomplete',
-  },
-  'registry-subscriber-failed': {
-    level: 'warn',
-    messageKey: 'log.notice.registrySubscriberFailed',
-  },
-  'event-subscriber-failed': {
-    level: 'warn',
-    messageKey: 'log.notice.eventSubscriberFailed',
-  },
-  'state-subscriber-failed': {
-    level: 'warn',
-    messageKey: 'log.notice.stateSubscriberFailed',
-  },
-  'channel-serve-failed': {
-    level: 'warn',
-    messageKey: 'log.notice.channelServeFailed',
-  },
-  'diagnostics-authorization-armed': {
-    level: 'info',
-    messageKey: 'log.notice.diagnosticsAuthorizationArmed',
-  },
-  'stand-down-not-rearmed': {
-    level: 'warn',
-    messageKey: 'log.notice.standDownNotRearmed',
-  },
-  'stand-down-account-replaced': {
-    level: 'warn',
-    messageKey: 'log.notice.standDownAccountReplaced',
-  },
-} as const;
+  'status-publication-failed': ['warn', 'log.notice.statusPublicationFailed'],
+  'ownership-release-not-finalized': ['error', 'log.notice.ownershipReleaseNotFinalized'],
+  'ownership-release-failed': ['error', 'log.notice.ownershipReleaseFailed'],
+  'shutdown-failed': ['error', 'log.notice.shutdownFailed'],
+  'shutdown-timeout': ['warn', 'log.notice.shutdownTimeout', 'log.notice.shutdownTimeoutWithDuration'],
+  'ownership-acquisition-failed': ['error', 'log.notice.ownershipAcquisitionFailed'],
+  'ownership-release-incomplete': ['warn', 'log.notice.ownershipReleaseIncomplete'],
+  'registry-subscriber-failed': ['warn', 'log.notice.registrySubscriberFailed'],
+  'event-subscriber-failed': ['warn', 'log.notice.eventSubscriberFailed'],
+  'state-subscriber-failed': ['warn', 'log.notice.stateSubscriberFailed'],
+  'channel-serve-failed': ['warn', 'log.notice.channelServeFailed'],
+  'diagnostics-authorization-armed': ['info', 'log.notice.diagnosticsAuthorizationArmed'],
+  'stand-down-not-rearmed': ['warn', 'log.notice.standDownNotRearmed'],
+  'stand-down-account-replaced': ['warn', 'log.notice.standDownAccountReplaced'],
+  'camera-snapshot-cache-invalid': ['warn', 'log.snapshotCacheInvalid'],
+  'discarded-v4-settings-unacknowledged': ['warn', 'log.discardedSettings'],
+} as const satisfies Record<string, NoticeRow>;
 
-export type RuntimeNoticeCode = keyof typeof RUNTIME_NOTICES;
+type NoticeRow = readonly ['info' | 'warn' | 'error', string, string?];
+
+/** The scope a notice is recorded under where it is not `runtime-notice`. */
+const NOTICE_SCOPES: Readonly<Partial<Record<RuntimeNoticeCode, string>>> = {
+  'camera-snapshot-cache-invalid': 'media-notice',
+  'discarded-v4-settings-unacknowledged': 'configuration-notice',
+};
+
+type RuntimeNoticeCode = keyof typeof RUNTIME_NOTICES;
 const RUNTIME_CONDITIONS = {
   degraded: {
     code: 'runtime-transport-degraded',
@@ -2621,8 +2543,8 @@ export interface ActiveCondition {
 
 /** Projects a value onto an active condition, or nothing where the catalog does not write that code with those keys. */
 export function knownCondition(value: unknown): ActiveCondition | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const { code, summaryKey, actionKey, serials } = value as Record<string, unknown>;
+  if (!isRecord(value)) return undefined;
+  const { code, summaryKey, actionKey, serials } = value;
   if (typeof code !== 'string') return undefined;
   const runtime = Object.values(RUNTIME_CONDITIONS).find((condition) => condition.code === code);
   const homeKit = Object.hasOwn(HOMEKIT_CONDITIONS, code)
@@ -2660,14 +2582,13 @@ function homeKitConditionPresentation(
 }
 
 function sanitizeStructuredEvent(message: string): Record<string, unknown> | undefined {
-  let value: Record<string, unknown>;
+  let value: unknown;
   try {
-    const parsed = JSON.parse(message) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
-    value = parsed as Record<string, unknown>;
+    value = JSON.parse(message);
   } catch {
     return undefined;
   }
+  if (!isRecord(value)) return undefined;
   const level = allowlistedLabel(value.level, ['debug', 'info', 'warn', 'error']);
   if (!level || typeof value.scope !== 'string') return undefined;
 
@@ -2691,16 +2612,15 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
     }
     const details: Array<Record<string, unknown>> = [];
     for (const detail of Array.isArray(value.details) ? value.details.slice(0, MAX_SDK_DETAILS) : []) {
-      if (!detail || typeof detail !== 'object' || Array.isArray(detail)) continue;
-      const candidate = detail as Record<string, unknown>;
-      const errorType = allowlistedLabel(candidate.errorType, SDK_ERROR_TYPES);
+      if (!isRecord(detail)) continue;
+      const errorType = allowlistedLabel(detail.errorType, SDK_ERROR_TYPES);
       if (errorType) {
         details.push({ errorType });
         continue;
       }
-      const type = allowlistedLabel(candidate.type, ['boolean', 'number', 'object', 'string', 'undefined']);
+      const type = allowlistedLabel(detail.type, ['boolean', 'number', 'object', 'string', 'undefined']);
       if (!type) continue;
-      const length = nonNegativeInteger(candidate.length);
+      const length = nonNegativeInteger(detail.length);
       details.push({ type, ...(length === undefined ? {} : { length }) });
     }
     return {
@@ -2713,75 +2633,14 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
     };
   }
 
-  if (value.scope === 'runtime-notice') {
+  if (value.scope === 'runtime-notice' || value.scope === 'media-notice' || value.scope === 'configuration-notice') {
     if (typeof value.code !== 'string' || !Object.hasOwn(RUNTIME_NOTICES, value.code)) return undefined;
-    const notice = RUNTIME_NOTICES[value.code as RuntimeNoticeCode];
-    const durationMs = nonNegativeInteger(value.durationMs);
-    const messageKey =
-      durationMs !== undefined && 'durationMessageKey' in notice ? notice.durationMessageKey : notice.messageKey;
-    return {
-      scope: 'runtime-notice',
-      level: notice.level,
-      code: value.code,
-      messageKey,
-      ...(durationMs === undefined ? {} : { durationMs }),
-    };
-  }
-
-  if (value.scope === 'configuration-notice') {
-    if (value.code !== 'discarded-v4-settings-unacknowledged') return undefined;
-    return {
-      scope: 'configuration-notice',
-      level: 'warn',
-      code: value.code,
-      messageKey: 'log.discardedSettings',
-    };
-  }
-
-  if (value.scope === 'media-notice') {
-    if (typeof value.code !== 'string' || !Object.hasOwn(MEDIA_NOTICES, value.code)) return undefined;
-    const notice = MEDIA_NOTICES[value.code as MediaNoticeCode];
-    return { scope: 'media-notice', level: notice.level, code: value.code, messageKey: notice.messageKey };
+    const notice = runtimeNoticeRecord(value.code as RuntimeNoticeCode, nonNegativeInteger(value.durationMs));
+    return notice.scope === value.scope ? notice : undefined;
   }
 
   if (value.scope === 'homekit') {
-    if (value.event === 'event-unrouted') {
-      const unrouted = sanitizeUnroutedEvent(value);
-      return unrouted ? { scope: 'homekit', level: 'debug', ...unrouted } : undefined;
-    }
-    if (value.event === 'station-claim') {
-      const claim = sanitizeStationClaim(value);
-      return claim ? { scope: 'homekit', level: 'debug', ...claim } : undefined;
-    }
-    if (value.adapter === 'camera.streaming' && value.event === 'live-video-selected') {
-      const selection = sanitizeLiveVideoSelection(value);
-      return selection ? { scope: 'homekit', level: 'debug', ...selection } : undefined;
-    }
-    if (value.adapter === 'camera.streaming' && HOMEKIT_LIVE_REQUEST_EVENTS.has(String(value.event))) {
-      const lifecycle = sanitizeLiveSessionTrace(value);
-      return lifecycle ? { scope: 'homekit', level: 'debug', ...lifecycle } : undefined;
-    }
-    if (
-      typeof value.adapter !== 'string' ||
-      typeof value.event !== 'string' ||
-      !HOMEKIT_EVENT_ROUTES[value.adapter]?.has(value.event) ||
-      typeof value.observation !== 'string' ||
-      !HOMEKIT_OBSERVATIONS.has(value.observation)
-    ) {
-      return undefined;
-    }
-    const alias = opaqueAccessoryAlias(value.accessory);
-    return {
-      scope: 'homekit',
-      level: 'debug',
-      adapter: value.adapter,
-      event: value.event,
-      observation: value.observation,
-      ...(typeof value.announcedBy === 'string' && HOMEKIT_ANNOUNCEMENTS.has(value.announcedBy)
-        ? { announcedBy: value.announcedBy }
-        : {}),
-      ...(alias === undefined ? {} : { accessory: alias }),
-    };
+    return sanitizeHomeKitEvent(value);
   }
 
   if (value.scope === 'runtime') {
@@ -2832,7 +2691,7 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
     const affectedAccessoryCount = nonNegativeInteger(value.affectedAccessoryCount);
     const accessoryAliases = Array.isArray(value.accessoryAliases)
       ? value.accessoryAliases
-          .filter((alias): alias is string => typeof alias === 'string' && /^accessory-[0-9a-f-]{36}$/.test(alias))
+          .filter((alias): alias is string => opaqueAccessoryAlias(alias) !== undefined)
           .slice(0, MAX_ACCESSORY_ALIASES)
       : [];
     const { level: conditionLevel, actionKey } = homeKitConditionPresentation(
@@ -2861,28 +2720,32 @@ function sanitizeStructuredEvent(message: string): Record<string, unknown> | und
   return undefined;
 }
 
-/** Emits one fixed-shape operational notice selected by its allowlisted runtime code. */
+/** The record one notice is written as, read by both halves of the path. */
+function runtimeNoticeRecord(code: RuntimeNoticeCode, durationMs: number | undefined) {
+  const [level, messageKey, durationMessageKey]: NoticeRow = RUNTIME_NOTICES[code];
+  return {
+    scope: NOTICE_SCOPES[code] ?? 'runtime-notice',
+    level,
+    code,
+    messageKey: durationMs !== undefined && durationMessageKey ? durationMessageKey : messageKey,
+    ...(durationMs === undefined ? {} : { durationMs }),
+  };
+}
+
+/** Emits one fixed-shape operational notice selected by its allowlisted code. */
 export function reportRuntimeNotice(
   target: Pick<PlatformLogger, 'error' | 'warn'> & Partial<Pick<PlatformLogger, 'debug' | 'info'>>,
   code: RuntimeNoticeCode,
   fields: { durationMs?: number; finishBy?: string } = {},
 ): void {
-  const notice = RUNTIME_NOTICES[code];
-  const durationMs = fields.durationMs === undefined ? undefined : Math.max(0, Math.trunc(fields.durationMs));
-  const messageKey =
-    durationMs !== undefined && 'durationMessageKey' in notice ? notice.durationMessageKey : notice.messageKey;
-  target[notice.level]?.(
-    `[${code}] ${localize(target, messageKey, { durationMs: durationMs ?? 0, finishBy: fields.finishBy ?? '' })}`,
+  const record = runtimeNoticeRecord(
+    code,
+    fields.durationMs === undefined ? undefined : Math.max(0, Math.trunc(fields.durationMs)),
   );
-  target.debug?.(
-    JSON.stringify({
-      scope: 'runtime-notice',
-      level: notice.level,
-      code,
-      messageKey,
-      ...(durationMs === undefined ? {} : { durationMs }),
-    }),
+  target[record.level]?.(
+    `[${code}] ${localize(target, record.messageKey, { durationMs: record.durationMs ?? 0, finishBy: fields.finishBy ?? '' })}`,
   );
+  target.debug?.(JSON.stringify(record));
 }
 
 /**
@@ -2910,23 +2773,6 @@ export function armDiagnosticsAuthorization(
   return true;
 }
 
-/** Emits the startup notice for discarded settings awaiting acknowledgement. */
-export function reportDiscardedV4Settings(
-  target: Pick<PlatformLogger, 'warn'> & Partial<Pick<PlatformLogger, 'debug'>>,
-): void {
-  const code = 'discarded-v4-settings-unacknowledged';
-  const messageKey = 'log.discardedSettings';
-  target.warn(`[${code}] ${localize(target, messageKey)}`);
-  target.debug?.(
-    JSON.stringify({
-      scope: 'configuration-notice',
-      level: 'warn',
-      code,
-      messageKey,
-    }),
-  );
-}
-
 /** States once which encoders code live video on this host: every qualified hardware encoder, then `libx264`. */
 export function reportLiveVideoEncoders(
   target: Pick<PlatformLogger, 'info'>,
@@ -2941,22 +2787,6 @@ export function reportLiveVideoEncoders(
   target.info(`[live-video-encoders] ${localize(target, 'log.liveVideoEncoders', { encoders: names.join(', ') })}`);
 }
 
-/** Emits one identity-free warning after an invalid retained camera image is discarded. */
-export function reportInvalidSnapshotCache(
-  target: Pick<PlatformLogger, 'warn'> & Partial<Pick<PlatformLogger, 'debug'>>,
-): void {
-  const code = 'camera-snapshot-cache-invalid';
-  const { level, messageKey } = MEDIA_NOTICES[code];
-  target[level](`[${code}] ${localize(target, messageKey)}`);
-  target.debug?.(JSON.stringify({ scope: 'media-notice', level, code, messageKey }));
-}
-
-/**
- * Emits one allowlisted HomeKit event trace only when host debug output is available.
- *
- * `aliasFor` resolves the trace's device identity to the support-case alias the conditions about that accessory
- * already carry. The identity itself never reaches the record: an unresolved one is recorded as no accessory.
- */
 /**
  * Narrows one offered station arbitration decision, or nothing where its own labels do not narrow.
  *
@@ -3003,57 +2833,67 @@ export function reportStationClaim(
   }
 }
 
+/**
+ * Narrows one offered HomeKit adapter fact to its `homekit` record, or nothing where its route does not narrow.
+ *
+ * Read by both halves of the path: {@link reportHomeKitEvent} builds the record and the file sink rebuilds it.
+ */
+function sanitizeHomeKitEvent(value: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (value.event === 'event-unrouted') {
+    const unrouted = sanitizeUnroutedEvent(value);
+    return unrouted ? { scope: 'homekit', level: 'debug', ...unrouted } : undefined;
+  }
+  if (value.event === 'station-claim') {
+    const claim = sanitizeStationClaim(value);
+    return claim ? { scope: 'homekit', level: 'debug', ...claim } : undefined;
+  }
+  if (value.adapter === 'camera.streaming' && value.event === 'live-video-selected') {
+    const selection = sanitizeLiveVideoSelection(value);
+    return selection ? { scope: 'homekit', level: 'debug', ...selection } : undefined;
+  }
+  if (value.adapter === 'camera.streaming' && HOMEKIT_LIVE_REQUEST_EVENTS.has(String(value.event))) {
+    const lifecycle = sanitizeLiveSessionTrace(value);
+    return lifecycle ? { scope: 'homekit', level: 'debug', ...lifecycle } : undefined;
+  }
+  if (
+    typeof value.adapter !== 'string' ||
+    typeof value.event !== 'string' ||
+    !HOMEKIT_EVENT_ROUTES[value.adapter]?.has(value.event) ||
+    typeof value.observation !== 'string' ||
+    !HOMEKIT_OBSERVATIONS.has(value.observation)
+  ) {
+    return undefined;
+  }
+  const alias = opaqueAccessoryAlias(value.accessory);
+  return {
+    scope: 'homekit',
+    level: 'debug',
+    adapter: value.adapter,
+    event: value.event,
+    observation: value.observation,
+    ...(typeof value.announcedBy === 'string' && HOMEKIT_ANNOUNCEMENTS.has(value.announcedBy)
+      ? { announcedBy: value.announcedBy }
+      : {}),
+    ...(alias === undefined ? {} : { accessory: alias }),
+  };
+}
+
+/**
+ * Emits one allowlisted HomeKit event trace only when host debug output is available.
+ *
+ * `aliasFor` resolves the trace's device identity to the support-case alias the conditions about that accessory
+ * already carry. The identity itself never reaches the record: an unresolved one is recorded as no accessory.
+ */
 export function reportHomeKitEvent(
   target: Pick<PlatformLogger, 'debug'>,
   trace: HomeKitEventTrace | UnroutedEventTrace,
   aliasFor?: (serial: string) => string | undefined,
 ): void {
-  if (!('adapter' in trace)) {
-    const unrouted = sanitizeUnroutedEvent(trace);
-    if (target.debug && unrouted) {
-      target.debug(JSON.stringify({ scope: 'homekit', level: 'debug', ...unrouted }));
-    }
-    return;
+  const alias = 'serial' in trace && typeof trace.serial === 'string' ? aliasFor?.(trace.serial) : undefined;
+  const record = sanitizeHomeKitEvent({ ...trace, accessory: alias });
+  if (target.debug && record) {
+    target.debug(JSON.stringify(record));
   }
-  const alias = typeof trace.serial === 'string' ? aliasFor?.(trace.serial) : undefined;
-  const offered = { ...(trace as unknown as Record<string, unknown>), accessory: alias };
-  const accessory = alias === undefined ? {} : { accessory: alias };
-  if (trace.event === 'live-video-selected') {
-    const selection = sanitizeLiveVideoSelection(offered);
-    if (target.debug && selection) {
-      target.debug(JSON.stringify({ scope: 'homekit', level: 'debug', ...selection }));
-    }
-    return;
-  }
-  if (HOMEKIT_LIVE_REQUEST_EVENTS.has(trace.event)) {
-    const lifecycle = sanitizeLiveSessionTrace(offered);
-    if (target.debug && lifecycle) {
-      target.debug(JSON.stringify({ scope: 'homekit', level: 'debug', ...lifecycle }));
-    }
-    return;
-  }
-  if (
-    !target.debug ||
-    !('observation' in trace) ||
-    !HOMEKIT_EVENT_ROUTES[trace.adapter]?.has(trace.event) ||
-    typeof trace.observation !== 'string' ||
-    !HOMEKIT_OBSERVATIONS.has(trace.observation)
-  ) {
-    return;
-  }
-  target.debug(
-    JSON.stringify({
-      scope: 'homekit',
-      level: 'debug',
-      adapter: trace.adapter,
-      event: trace.event,
-      observation: trace.observation,
-      ...(typeof trace.announcedBy === 'string' && HOMEKIT_ANNOUNCEMENTS.has(trace.announcedBy)
-        ? { announcedBy: trace.announcedBy }
-        : {}),
-      ...accessory,
-    }),
-  );
 }
 
 /**
@@ -3063,7 +2903,7 @@ export function reportHomeKitEvent(
  * `stderr` is redacted line by line, because a value that reached a support archive unexamined would be one
  * this module claimed to have gated and did not.
  */
-export interface AdaptationTrace {
+interface AdaptationTrace {
   role: string;
   event: string;
   /** Why this process was started, which separates a mid-session replacement from a session's first output. */
@@ -3101,19 +2941,8 @@ export function reportAdaptationNotice(target: Pick<PlatformLogger, 'debug'>, tr
 }
 
 /**
- * Reduces one FFmpeg stderr line to what a support case may keep, or nothing where nothing is left of it.
- *
- * The line is the only place an encoder-level cause is stated outright, and it is also the only place this
- * plugin's own argument list can be echoed back: the output URL carries base64 SRTP key material, the
- * controller address sits beside it, and an SDK snapshot filename carries a device serial. Each of those is
- * replaced by what it is rather than searched for afterwards, because a redaction that depends on
- * recognising a secret fails on the first message shape nobody predicted.
- *
- * The key material is replaced before the path rules run, and not after. Base64 includes `/`, so a path rule
- * applied first splits a key into sub-runs too short for any length threshold to catch — measured on random
- * 30-byte keys, roughly one line in twenty then kept an eight-character fragment verbatim. The cost of this
- * order is that a long path made only of letters and separators is labelled as redacted rather than as a
- * path, which loses a label and never a secret.
+ * Reduces one FFmpeg stderr line to what a support case may keep, or nothing where nothing is left of it: a
+ * bounded printable line, never a `progress=` one, through {@link redactSensitiveText}.
  */
 function redactAdaptationStderr(line: string): string | undefined {
   const printable = boundedText(line, MAX_ADAPTATION_STDERR_LINE_LENGTH);
@@ -3215,7 +3044,7 @@ function sanitizeAdaptationNotice(value: Record<string, unknown>, level: string)
  * One settings-page live preview run as it is offered for the record: the selection it was coded at, the encoder
  * that coded it, the source codec, the kilobits a second the encoder wrote, and how it ended.
  */
-export interface LivePreviewTrace {
+interface LivePreviewTrace {
   selection: { profile: string; level: string; width: number; height: number; fps: number; maxBitRate: number };
   encoder?: string;
   source?: string;
@@ -3271,14 +3100,10 @@ function sanitizeLivePreview(value: Record<string, unknown>): Record<string, unk
 }
 
 /** A live preview's selection as flat bounded fields, or nothing where any of them falls outside its allowlist. */
-function sanitizePreviewSelection(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value !== 'object' || value === null) return undefined;
-  const candidate = value as Record<string, unknown>;
-  const profile = String(candidate.profile);
-  const levelName = String(candidate.levelName);
+function sanitizePreviewSelection(candidate: Record<string, unknown>): Record<string, unknown> | undefined {
   const fields = {
-    profile: HOMEKIT_LIVE_VIDEO_PROFILES.has(profile) ? profile : undefined,
-    levelName: HOMEKIT_LIVE_VIDEO_LEVELS.has(levelName) ? levelName : undefined,
+    profile: allowlistedLabel(candidate.profile, HOMEKIT_LIVE_VIDEO_PROFILES),
+    levelName: allowlistedLabel(candidate.levelName, HOMEKIT_LIVE_VIDEO_LEVELS),
     width: boundedInteger(candidate.width, MAX_LIVE_VIDEO_DIMENSION, MIN_LIVE_VIDEO_DIMENSION),
     height: boundedInteger(candidate.height, MAX_LIVE_VIDEO_DIMENSION, MIN_LIVE_VIDEO_DIMENSION),
     fps: boundedInteger(candidate.fps, MAX_LIVE_VIDEO_FRAME_RATE, MIN_LIVE_VIDEO_FRAME_RATE),
@@ -3328,8 +3153,7 @@ function sanitizeLiveSessionTrace(value: Record<string, unknown>): Record<string
     value.outcome !== 'failed' ||
     typeof value.reason !== 'string' ||
     !REASONS.has(value.reason) ||
-    typeof value.stage !== 'string' ||
-    !HOMEKIT_LIVE_SESSION_STAGES.has(value.stage)
+    !allowlistedLabel(value.stage, HOMEKIT_LIVE_SESSION_STAGES)
   ) {
     return undefined;
   }
@@ -3348,29 +3172,27 @@ function sanitizeLiveSessionTrace(value: Record<string, unknown>): Record<string
 }
 
 function sanitizeLiveVideoSelection(value: Record<string, unknown>): Record<string, unknown> | undefined {
-  const operation = typeof value.operation === 'string' ? value.operation : undefined;
-  const profile = typeof value.profile === 'string' ? value.profile : undefined;
-  const codecLevel =
-    typeof value.levelName === 'string' ? value.levelName : typeof value.level === 'string' ? value.level : undefined;
+  const operation = allowlistedLabel(value.operation, HOMEKIT_LIVE_VIDEO_OPERATIONS);
+  const profile = allowlistedLabel(value.profile, HOMEKIT_LIVE_VIDEO_PROFILES);
+  const codecLevel = allowlistedLabel(
+    typeof value.levelName === 'string' ? value.levelName : value.level,
+    HOMEKIT_LIVE_VIDEO_LEVELS,
+  );
   const width = boundedInteger(value.width, MAX_LIVE_VIDEO_DIMENSION, MIN_LIVE_VIDEO_DIMENSION);
   const height = boundedInteger(value.height, MAX_LIVE_VIDEO_DIMENSION, MIN_LIVE_VIDEO_DIMENSION);
   const fps = boundedInteger(value.fps, MAX_LIVE_VIDEO_FRAME_RATE, MIN_LIVE_VIDEO_FRAME_RATE);
   const mtu = boundedInteger(value.mtu, MAX_LIVE_VIDEO_MTU, MIN_LIVE_VIDEO_MTU);
   const maxBitRate = boundedInteger(value.maxBitRate, MAX_LIVE_VIDEO_BIT_RATE, 0);
-  const addressVersion = typeof value.addressVersion === 'string' ? value.addressVersion : undefined;
+  const addressVersion = allowlistedLabel(value.addressVersion, HOMEKIT_LIVE_ADDRESS_VERSIONS);
   if (
     !operation ||
-    !HOMEKIT_LIVE_VIDEO_OPERATIONS.has(operation) ||
     !profile ||
-    !HOMEKIT_LIVE_VIDEO_PROFILES.has(profile) ||
     !codecLevel ||
-    !HOMEKIT_LIVE_VIDEO_LEVELS.has(codecLevel) ||
     width === undefined ||
     height === undefined ||
     fps === undefined ||
     mtu === undefined ||
-    !addressVersion ||
-    !HOMEKIT_LIVE_ADDRESS_VERSIONS.has(addressVersion)
+    !addressVersion
   ) {
     return undefined;
   }

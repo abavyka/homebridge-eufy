@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { resolveStorageRoot, STORAGE_DIRECTORY } from '../../src/storage.js';
+import { resolveStorageRoot } from '../../src/storage.js';
 
 const roots: string[] = [];
 
@@ -23,8 +23,7 @@ describe('plugin storage root', () => {
   it('uses the Homebridge Eufy product name for fresh state', async () => {
     const homebridge = await storagePath();
 
-    expect(resolveStorageRoot(homebridge)).toBe(join(homebridge, STORAGE_DIRECTORY));
-    expect(STORAGE_DIRECTORY).toBe('homebridge-eufy');
+    expect(resolveStorageRoot(homebridge)).toBe(join(homebridge, 'homebridge-eufy'));
   });
 
   it('atomically adopts V5 state from its pre-rename directory', async () => {
