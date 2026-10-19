@@ -100,8 +100,8 @@ export interface RuntimeChannelHost {
 }
 
 /**
- * One camera's live preview as JPEG pictures decoded from the live encoder's output, each with that encoder and
- * the rate it coded at, started by the composition root that owns media. `onEnd` says whether the coded video
+ * One camera's live preview as JPEG pictures of the camera and of the live encoder's output decoded again, each
+ * with its side, that encoder and the rate it coded at, started by the composition root that owns media. `onEnd` says whether the coded video
  * yielded no picture.
  */
 export type RuntimeLivePreview = (

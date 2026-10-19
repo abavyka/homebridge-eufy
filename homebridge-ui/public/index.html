@@ -214,11 +214,15 @@
       <p class="summary" data-wizard-restart hidden data-i18n="wizardRestartSummary"></p>
       <nav class="wizard-map" data-wizard-map data-i18n-aria-label="wizardMapLabel"></nav>
       <div class="wizard-stage" data-wizard-stage>
-        <button type="button" class="wizard-arrow" data-wizard-back data-i18n-aria-label="wizardBack">
-          <img src="assets/icons/keyboard_arrow_left.svg" alt="" />
-        </button>
         <div class="wizard-live" data-wizard-live>
-          <img data-wizard-live-image alt="" hidden />
+          <figure>
+            <img data-wizard-live-image alt="" draggable="false" hidden />
+            <figcaption class="wizard-live-label" data-wizard-live-camera data-i18n="wizardLiveCamera"></figcaption>
+          </figure>
+          <figure>
+            <img data-wizard-live-homekit alt="" draggable="false" hidden />
+            <figcaption class="wizard-live-label" data-wizard-live-encoder></figcaption>
+          </figure>
           <button type="button" class="wizard-live-play" data-wizard-live-play data-i18n-aria-label="wizardLivePlay">
             <img src="assets/icons/play_arrow.svg" alt="" />
           </button>
@@ -233,11 +237,7 @@
           </button>
           <span class="wizard-live-spinner" data-wizard-live-spinner hidden aria-hidden="true"></span>
           <p class="wizard-live-status" role="status" aria-live="polite" data-wizard-live-status></p>
-          <p class="wizard-live-encoder" data-wizard-live-encoder hidden></p>
         </div>
-        <button type="button" class="wizard-arrow" data-wizard-next data-i18n-aria-label="wizardNext">
-          <img src="assets/icons/keyboard_arrow_right.svg" alt="" />
-        </button>
       </div>
       <p class="summary" data-wizard-live-diagnose hidden>
         <span data-i18n="wizardLiveDiagnoseHelp"></span>

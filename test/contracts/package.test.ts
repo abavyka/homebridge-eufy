@@ -233,6 +233,8 @@ async function renderUi(
   const wizardRestart = { hidden: true };
   const wizardLive = { hidden: true };
   const wizardLiveImage = { hidden: true, src: '' };
+  const wizardLiveHomeKit = { hidden: true, src: '' };
+  const wizardLiveCamera = { hidden: true };
   const wizardLiveStatus = { textContent: '' };
   const wizardLivePlay = interactiveElement({ hidden: false });
   const wizardLiveStop = interactiveElement({ hidden: true });
@@ -265,8 +267,6 @@ async function renderUi(
       this.innerHTML = '';
     },
   });
-  const wizardBack = interactiveElement({ disabled: false });
-  const wizardNext = interactiveElement({ disabled: false });
   const pushListeners: Record<string, (event: { data: unknown }) => void> = {};
   const storage = new Map<string, string>(wizardPending ? [['homebridge-eufy.setup-wizard-pending', 'pending']] : []);
   const advancedPolling = interactiveElement({
@@ -451,6 +451,8 @@ async function renderUi(
           '[data-wizard-restart]': wizardRestart,
           '[data-wizard-live]': wizardLive,
           '[data-wizard-live-image]': wizardLiveImage,
+          '[data-wizard-live-homekit]': wizardLiveHomeKit,
+          '[data-wizard-live-camera]': wizardLiveCamera,
           '[data-wizard-live-status]': wizardLiveStatus,
           '[data-wizard-live-play]': wizardLivePlay,
           '[data-wizard-live-stop]': wizardLiveStop,
@@ -465,8 +467,6 @@ async function renderUi(
           '[data-wizard-eufy]': wizardEufy,
           '[data-wizard-settings]': wizardSettings,
           '[data-wizard-controls]': wizardControls,
-          '[data-wizard-back]': wizardBack,
-          '[data-wizard-next]': wizardNext,
         }[selector];
       },
       querySelectorAll(selector: string) {
@@ -662,6 +662,8 @@ async function renderUi(
     wizardRestart,
     wizardLive,
     wizardLiveImage,
+    wizardLiveHomeKit,
+    wizardLiveCamera,
     wizardLiveStatus,
     wizardLivePlay,
     wizardLiveStop,
@@ -675,8 +677,6 @@ async function renderUi(
     wizardSettings,
     wizardSettingsStatus,
     wizardControls,
-    wizardBack,
-    wizardNext,
     pushListeners,
     storage,
     firstSetup,
@@ -1146,6 +1146,7 @@ describe('packed plugin', () => {
           'wizardEufySettings',
           'wizardHomeKitHelp',
           'wizardHomeKitTitle',
+          'wizardLiveCamera',
           'wizardLiveDiagnose',
           'wizardLiveDiagnoseHelp',
           'wizardRestartSummary',
@@ -1167,11 +1168,9 @@ describe('packed plugin', () => {
         'menuRelogin',
         'menuWizard',
         'setupSequenceLabel',
-        'wizardBack',
         'wizardLivePlay',
         'wizardLiveStop',
         'wizardMapLabel',
-        'wizardNext',
       ]);
       /**
        * A condition the dashboard names is worded under the log keys it is reported with, and the ones the page
@@ -1218,7 +1217,7 @@ describe('packed plugin', () => {
         'wizardFinish',
         'wizardLiveFailed',
         'wizardLiveEncoder',
-        'wizardLiveCamera',
+        'wizardLiveHomeKit',
         'wizardLiveUnplayable',
         'wizardLiveStarting',
         'wizardMotionDetection',
@@ -2853,11 +2852,12 @@ describe('setup wizard', () => {
       { title: 'Synthetic Base', members: ['Synthetic Camera', 'Synthetic Sensor'] },
       { title: en.wizardMapStandalone, members: ['Synthetic Solo'] },
     ]);
-    expect(ui.wizardBack.disabled).toBe(true);
     expect(ui.wizardTitle.textContent).toBe('Synthetic Base');
-    expect(ui.wizardLivePlay.hidden, 'a HomeBase has nothing to play').toBe(true);
+    expect(ui.wizardLive.hidden, 'a HomeBase has no picture to show').toBe(true);
 
-    await ui.wizardNext.dispatch('click');
+    const visit = (serial: string) =>
+      ui.wizardMap.dispatch('click', { target: { closest: () => ({ dataset: { serial } }) } } as never);
+    await visit(camera.serial);
     await vi.waitFor(() => expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,c3ludGhldGlj'));
     expect(ui.wizardTitle.textContent).toBe('Synthetic Camera');
     expect(ui.wizardLivePlay.hidden).toBe(false);
@@ -2872,18 +2872,20 @@ describe('setup wizard', () => {
     expect(ui.requests).toContainEqual({ path: '/device/live/start', body: { serial: camera.serial } });
     expect(ui.wizardLiveSpinner.hidden, 'a stream on its way spins').toBe(false);
     expect(ui.wizardLiveStop.hidden, 'and has nothing to stop yet').toBe(true);
-    ui.pushListeners['device-live']?.({ data: { serial: camera.serial, image: 'bGl2ZQ==', encoder: 'libx264' } });
+    const still = { serial: camera.serial, encoder: 'libx264' };
+    ui.pushListeners['device-live']?.({ data: { ...still, side: 'raw', image: 'cmF3' } });
     expect(ui.wizardLiveSpinner.hidden).toBe(true);
     expect(ui.wizardLiveStop.hidden, 'video offers its stop').toBe(false);
-    expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,bGl2ZQ==');
-    expect(ui.wizardLiveEncoder.hidden, 'a rate needs a second of coded video').toBe(true);
-    ui.pushListeners['device-live']?.({
-      data: { serial: camera.serial, image: 'bGl2ZQ==', encoder: 'libx264', kbps: 287 },
-    });
-    expect(ui.wizardLiveEncoder.hidden).toBe(false);
+    expect(ui.wizardLiveImage.src, 'the camera side is the picture on the left').toBe('data:image/jpeg;base64,cmF3');
+    expect(ui.wizardLiveHomeKit.hidden, 'and HomeKit has not shown yet').toBe(true);
+    ui.pushListeners['device-live']?.({ data: { ...still, side: 'homekit', image: 'bGl2ZQ==' } });
+    expect(ui.wizardLiveHomeKit.src).toBe('data:image/jpeg;base64,bGl2ZQ==');
+    expect(ui.wizardLiveImage.src).toBe('data:image/jpeg;base64,cmF3');
+    expect(ui.wizardLiveEncoder.textContent, 'a rate needs a second of coded video').toBe(en.wizardLiveHomeKit);
+    ui.pushListeners['device-live']?.({ data: { ...still, side: 'homekit', image: 'bGl2ZQ==', kbps: 287 } });
     expect(ui.wizardLiveEncoder.textContent).toBe('libx264 coded this video at 287 kbps, as HomeKit receives it.');
     await ui.wizardLiveStop.dispatch('click');
-    expect(ui.wizardLiveEncoder.hidden).toBe(true);
+    expect(ui.wizardLiveEncoder.textContent).toBe(en.wizardLiveHomeKit);
     expect(ui.requests.filter(({ path }) => path === '/device/live/stop')).toHaveLength(1);
     expect(ui.wizardLivePlay.hidden).toBe(false);
     expect(ui.wizardLiveStop.hidden).toBe(true);
@@ -2893,8 +2895,9 @@ describe('setup wizard', () => {
     expect(ui.wizardLiveStatus.textContent, 'a stream that sent nothing says so').toBe(en.wizardLiveFailed);
     expect(ui.wizardLivePlay.hidden, 'and can be played again').toBe(false);
     await ui.wizardLivePlay.dispatch('click');
+    ui.pushListeners['device-live']?.({ data: { ...still, side: 'raw', image: 'cmF3' } });
     ui.pushListeners['device-live-end']?.({ data: { serial: camera.serial, unplayable: true } });
-    expect(ui.wizardLiveStatus.textContent, 'coded video that decoded to nothing says so').toBe(
+    expect(ui.wizardLiveStatus.textContent, 'coded video that decoded to nothing says so, camera or not').toBe(
       en.wizardLiveUnplayable,
     );
     expect(ui.wizardLiveDiagnose.hidden, 'and offers a capture in place').toBe(false);
@@ -2914,20 +2917,16 @@ describe('setup wizard', () => {
     expect(ui.wizardSettingsStatus.textContent).toBe(en.wizardSettingSent);
 
     await ui.wizardLivePlay.dispatch('click');
-    await ui.wizardMap.dispatch('click', {
-      target: { closest: () => ({ dataset: { serial: standalone.serial } }) },
-    } as never);
+    await visit(standalone.serial);
     expect(
       ui.requests.filter(({ path }) => path === '/device/live/stop'),
       'leaving a camera stops its stream',
     ).toHaveLength(2);
     expect(ui.wizardTitle.textContent).toBe('Synthetic Solo');
-    expect(ui.wizardNext.disabled).toBe(true);
 
-    await ui.wizardBack.dispatch('click');
+    await visit(sensor.serial);
     expect(ui.wizardTitle.textContent).toBe('Synthetic Sensor');
-    expect(ui.wizardLivePlay.hidden).toBe(true);
-    expect(ui.wizardLiveImage.src, 'a device that is not a camera shows its product picture').toBe(sensor.artwork);
+    expect(ui.wizardLive.hidden, 'nor has a sensor').toBe(true);
 
     await ui.wizardFinish.dispatch('click');
     expect(ui.wizardPanel.hidden).toBe(true);

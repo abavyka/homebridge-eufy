@@ -149,7 +149,8 @@ export type AdaptationRole =
   | 'return-audio'
   | 'recording'
   | 'preview-encode'
-  | 'preview-decode';
+  | 'preview-decode'
+  | 'preview-raw';
 
 /**
  * What one adaptation process did, at the granularity that decides where to look next.

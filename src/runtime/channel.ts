@@ -74,7 +74,7 @@ export const RUNTIME_DEVICE_SETTING_WRITE_PATH = '/runtime/device-settings/write
 
 /**
  * The path one camera's live preview streams on: a base64 JPEG frame per picture under the request's id, beside
- * the encoder it was decoded from and that encoder's rate, then a refusal once it ends, carrying `unplayable`
+ * the side it shows, the HomeKit side's encoder and that encoder's rate, then a refusal once it ends, carrying `unplayable`
  * where the coded video yielded no picture. Closing the connection stops it.
  */
 export const RUNTIME_DEVICE_LIVE_PATH = '/runtime/device-live';
@@ -92,8 +92,12 @@ export type DeviceSettingName = (typeof DEVICE_SETTINGS)[number];
 /** The end reason a live preview refusal carries where the coded video yielded no picture. */
 export const LIVE_UNPLAYABLE = 'unplayable';
 
-/** The live encoder a preview picture was decoded from, and the kilobits a second it has coded at once known. */
+/**
+ * Which side a preview picture shows, `raw` from the camera or `homekit` as HomeKit receives it, the live encoder
+ * of the HomeKit side, and the kilobits a second it has coded at once known.
+ */
 export interface RuntimeChannelLiveCoding {
+  side: 'raw' | 'homekit';
   encoder: string;
   kbps?: number;
 }
@@ -742,8 +746,9 @@ export class RuntimeChannelServer {
               const data = jpeg.toString('base64');
               if (connection.destroyed || connection.writableNeedDrain) return;
               if (data.length > this.frameBytes - LIVE_FRAME_MARGIN) return;
-              const { encoder, kbps } = coding;
-              connection.write(`${JSON.stringify({ id: request.id, ok: true, data, coding: { encoder, kbps } })}\n`);
+              const { side, encoder, kbps } = coding;
+              const response = { id: request.id, ok: true, data, coding: { side, encoder, kbps } };
+              connection.write(`${JSON.stringify(response)}\n`);
             },
             ended,
           )

@@ -2338,6 +2338,7 @@ const ADAPTATION_ROLES = new Set([
   'recording',
   'preview-encode',
   'preview-decode',
+  'preview-raw',
   'sdk',
 ]);
 /** What that process did. `output` is a process reported for what it wrote rather than for how it ended. */

@@ -115,8 +115,8 @@ export interface RuntimeDeviceSettingsChannel {
   readDeviceSettings(serial: string): Promise<RuntimeChannelDeviceSetting[] | undefined>;
   writeDeviceSetting(write: RuntimeChannelDeviceSettingWrite): Promise<boolean>;
   /**
-   * Streams one camera's live preview as base64 JPEG pictures, each with the live encoder and rate it was decoded
-   * from, until it ends, the runtime is gone, or `signal` aborts. Settles once it has stopped, true where the coded
+   * Streams one camera's live preview as base64 JPEG pictures, each with its side and the live encoder and rate
+   * of the HomeKit side, until it ends, the runtime is gone, or `signal` aborts. Settles once it has stopped, true where the coded
    * video yielded no picture; a runtime without the path, or with no preview to give, settles at once.
    */
   liveDevice(
@@ -476,9 +476,10 @@ export class RuntimeChannelClient
           const response = parsed as RuntimeChannelResponse;
           if (response?.id !== SETTINGS_REQUEST) continue;
           if (!response.ok) return conclude(response.data === LIVE_UNPLAYABLE);
-          if (typeof response.data !== 'string' || typeof response.coding?.encoder !== 'string') return conclude();
-          const { encoder, kbps } = response.coding;
-          onPicture(response.data, typeof kbps === 'number' ? { encoder, kbps } : { encoder });
+          const { side, encoder, kbps } = response.coding ?? {};
+          if (typeof response.data !== 'string' || typeof encoder !== 'string') return conclude();
+          if (side !== 'raw' && side !== 'homekit') return conclude();
+          onPicture(response.data, typeof kbps === 'number' ? { side, encoder, kbps } : { side, encoder });
         }
       });
     });

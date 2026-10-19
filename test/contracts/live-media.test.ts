@@ -2844,7 +2844,7 @@ describe('a live session on a qualified encoder', () => {
       ffmpeg,
       media,
       { live: async () => stream },
-      (_jpeg, coding) => encoders.push(coding.encoder),
+      (_jpeg, coding) => coding.side === 'homekit' && encoders.push(coding.encoder),
       () => undefined,
     );
     await settle();

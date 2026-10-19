@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import type { Readable, Writable } from 'node:stream';
 
 import type { LiveStreamConsumer, LiveVideoFrame } from '@mega-yfue/eufy-sdk';
 
@@ -22,10 +23,16 @@ const MAX_PICTURE_BYTES = 1024 * 1024;
 
 const JPEG_END = Buffer.from([0xff, 0xd9]);
 
+/** The JPEG output both preview sides are decoded into: five pictures a second, 640 pixels wide, on stdout. */
+const STILLS = ['-an', '-vf', 'fps=5,scale=640:-2', '-q:v', '8', '-f', 'image2pipe', '-c:v', 'mjpeg', 'pipe:1'];
+
+/** Which picture a preview still shows: the camera's own, or the camera coded as HomeKit receives it. */
+export type LivePreviewSide = 'raw' | 'homekit';
+
 /**
- * How one preview run ended, and what it was coded with: `picture` showed at least one picture, `unplayable`
- * coded video that decoded to none within {@link LIVE_PREVIEW_PICTURE_MS}, `stopped` was stopped before either,
- * and `no-video` ended on its own without a picture.
+ * How one preview run ended, and what it was coded with: `picture` showed at least one HomeKit picture,
+ * `stopped` was stopped before one, `unplayable` showed the camera but no HomeKit picture, and `no-video` ended
+ * without even a camera picture.
  */
 export interface LivePreviewResult {
   outcome: 'picture' | 'unplayable' | 'no-video' | 'stopped';
@@ -50,25 +57,27 @@ const IPHONE_SELECTION: NegotiatedLiveVideo = {
 };
 
 /**
- * A camera's live video as a live session codes it for {@link IPHONE_SELECTION}, decoded again into JPEG
- * pictures, five a second and 640 pixels wide, for the settings page.
+ * A camera's live video as JPEG pictures for the settings page, five a second and 640 pixels wide, on two sides:
+ * `raw` decoded straight from the camera, and `homekit` coded as a live session codes it for
+ * {@link IPHONE_SELECTION} and decoded again.
  *
- * Each picture carries the encoder that coded it and, once it has written for a second, the kilobits a second
- * it wrote.
+ * Each picture carries its side, the encoder of the HomeKit side and, once that has written for a second, the
+ * kilobits a second it wrote.
  *
- * One FFmpeg runs the session's own encoder and argument list and writes the coded H.264 elementary stream, and
- * a second FFmpeg decodes that stream into the pictures, so every picture went through the encode HomeKit gets.
- * Starts at the first keyframe and has no audio. A write the encoder refuses holds the SDK source until it
- * drains, so the SDK's keyframe-aware queue is the only one, and the decoder holds the encoder the same way. A
- * codec change, a source or FFmpeg failure, the time limit and the returned stop all end it, and `onEnd` is
- * called exactly once with the run's result whichever came first. `diagnostics` receives each process's
- * `started` and `output` notices as a live session's do, under the `preview-encode` and `preview-decode` roles.
+ * The SDK source is fanned out to two FFmpegs: one decodes it into the `raw` pictures, one runs the session's own
+ * encoder and argument list and writes the coded H.264 elementary stream, which a third decodes into the
+ * `homekit` pictures. Starts at the first keyframe and has no audio. A write either refuses holds the SDK source
+ * until it drains, so the SDK's keyframe-aware queue is the only one, and the HomeKit decoder holds the encoder
+ * the same way. A codec change, a source or FFmpeg failure, the time limit and the returned stop all end it, and
+ * `onEnd` is called exactly once with the run's result whichever came first. `diagnostics` receives each
+ * process's `started` and `output` notices as a live session's do, under the `preview-raw`, `preview-encode` and
+ * `preview-decode` roles.
  */
 export function startLivePreview(
   executable: string,
   media: Pick<FfmpegLiveMedia, 'videoAdaptation'>,
   source: LiveMediaSource,
-  onPicture: (jpeg: Buffer, coding: { encoder: string; kbps?: number }) => void,
+  onPicture: (jpeg: Buffer, coding: { side: LivePreviewSide; encoder: string; kbps?: number }) => void,
   onEnd: (result: LivePreviewResult) => void,
   diagnostics?: AdaptationDiagnostics,
 ): () => void {
@@ -79,9 +88,9 @@ export function startLivePreview(
   let codec: LiveVideoFrame['codec'] | undefined;
   let pictureless: ReturnType<typeof setTimeout> | undefined;
   let coding: { encoder: string; kbps?: number } | undefined;
-  let pictures = 0;
+  const pictures = { raw: 0, homekit: 0 };
   let ended = false;
-  const end = (reason?: 'unplayable' | 'stopped'): void => {
+  const end = (stopped = false): void => {
     if (ended) return;
     ended = true;
     clearTimeout(deadline);
@@ -101,7 +110,7 @@ export function startLivePreview(
     }
     const { profile, level, width, height, fps, maxBitRate } = IPHONE_SELECTION;
     onEnd({
-      outcome: pictures > 0 ? 'picture' : (reason ?? 'no-video'),
+      outcome: pictures.homekit ? 'picture' : stopped ? 'stopped' : pictures.raw ? 'unplayable' : 'no-video',
       selection: { profile, level, width, height, fps, maxBitRate },
       ...(coding ? { encoder: coding.encoder } : {}),
       ...(codec ? { source: codec } : {}),
@@ -125,25 +134,29 @@ export function startLivePreview(
     return process;
   };
 
-  const adapt = (input: LiveVideoFrame['codec']): ReturnType<typeof spawn> => {
+  const stills = (output: Readable, side: LivePreviewSide, coded: { encoder: string; kbps?: number }): void => {
+    let pending = Buffer.alloc(0);
+    output.on('data', (chunk: Buffer) => {
+      pending = Buffer.concat([pending, chunk]);
+      for (let at = pending.indexOf(JPEG_END); at !== -1; at = pending.indexOf(JPEG_END)) {
+        if (side === 'homekit') clearTimeout(pictureless);
+        pictures[side] += 1;
+        onPicture(pending.subarray(0, at + JPEG_END.length), { side, ...coded });
+        pending = pending.subarray(at + JPEG_END.length);
+      }
+      if (pending.length > MAX_PICTURE_BYTES) end();
+    });
+  };
+
+  const adapt = (input: LiveVideoFrame['codec']): ReturnType<typeof spawn>[] => {
     const { encoder, args } = media.videoAdaptation(input, IPHONE_SELECTION, ['-f', 'h264', 'pipe:1']);
     coding = { encoder };
     diagnostics?.report({ role: 'preview-encode', event: 'started', cause: 'first', encoder, source: input });
     const encoding = run('preview-encode', args);
     diagnostics?.report({ role: 'preview-decode', event: 'started', cause: 'first', source: 'h264' });
-    const decoding = run('preview-decode', [
-      ...commonArguments('h264'),
-      '-an',
-      '-vf',
-      'fps=5,scale=640:-2',
-      '-q:v',
-      '8',
-      '-f',
-      'image2pipe',
-      '-c:v',
-      'mjpeg',
-      'pipe:1',
-    ]);
+    const decoding = run('preview-decode', [...commonArguments('h264'), ...STILLS]);
+    diagnostics?.report({ role: 'preview-raw', event: 'started', cause: 'first', source: input });
+    const raw = run('preview-raw', [...commonArguments(input === 'h265' ? 'hevc' : input), ...STILLS]);
     const coded = coding;
     let firstCodedAt: number | undefined;
     let countedBytes = 0;
@@ -151,7 +164,7 @@ export function startLivePreview(
       const now = Date.now();
       if (firstCodedAt === undefined) {
         firstCodedAt = now;
-        pictureless = setTimeout(() => end('unplayable'), LIVE_PREVIEW_PICTURE_MS);
+        pictureless = setTimeout(() => end(), LIVE_PREVIEW_PICTURE_MS);
         pictureless.unref();
         return;
       }
@@ -159,18 +172,9 @@ export function startLivePreview(
       if (now - firstCodedAt >= 1_000) coded.kbps = Math.round((countedBytes * 8) / (now - firstCodedAt));
     });
     encoding.stdout!.pipe(decoding.stdin!);
-    let pending = Buffer.alloc(0);
-    decoding.stdout!.on('data', (chunk: Buffer) => {
-      pending = Buffer.concat([pending, chunk]);
-      for (let at = pending.indexOf(JPEG_END); at !== -1; at = pending.indexOf(JPEG_END)) {
-        clearTimeout(pictureless);
-        pictures += 1;
-        onPicture(pending.subarray(0, at + JPEG_END.length), coded);
-        pending = pending.subarray(at + JPEG_END.length);
-      }
-      if (pending.length > MAX_PICTURE_BYTES) end();
-    });
-    return encoding;
+    stills(decoding.stdout!, 'homekit', coded);
+    stills(raw.stdout!, 'raw', coded);
+    return [raw, encoding];
   };
 
   source.live({ signal: abandonment.signal }).then(
@@ -183,23 +187,30 @@ export function startLivePreview(
       consumer.on('error', () => end());
       consumer.on('stop', () => end());
       consumer.on('budget', (notice) => notice.extend());
-      let encoding: ReturnType<typeof spawn> | undefined;
+      let inputs: ReturnType<typeof spawn>[] | undefined;
+      let held = 0;
+      const feed = (stdin: Writable, data: Buffer): void => {
+        if (stdin.write(data)) return;
+        held += 1;
+        consumer.pause();
+        const release = (): void => {
+          stdin.off('drain', release).off('close', release);
+          if (--held === 0) consumer.resume();
+        };
+        stdin.on('drain', release).on('close', release);
+      };
       consumer.on('video', (frame: LiveVideoFrame) => {
         if (ended) return;
-        if (!encoding) {
+        if (!inputs) {
           if (!frame.keyframe) return;
           codec = frame.codec;
-          encoding = adapt(codec);
+          inputs = adapt(codec);
         }
         if (frame.codec !== codec) return end();
-        const stdin = encoding.stdin!;
-        if (!stdin.write(frame.data)) {
-          consumer.pause();
-          stdin.once('drain', () => consumer.resume());
-        }
+        for (const input of inputs) feed(input.stdin!, frame.data);
       });
     },
     () => end(),
   );
-  return () => end('stopped');
+  return () => end(true);
 }

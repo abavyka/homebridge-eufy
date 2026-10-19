@@ -1905,11 +1905,11 @@ button {
     transform 100ms var(--ease-out);
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled, .wizard-live-play) {
   background: color-mix(in srgb, var(--accent) 88%, var(--on-accent));
 }
 
-button:active:not(:disabled, .device-open-control) {
+button:active:not(:disabled, .device-open-control, .wizard-live-play) {
   transform: scale(0.97);
 }
 
@@ -2185,34 +2185,84 @@ input:focus-visible {
   display: block;
 }
 
+/* Sized by its container alone, never by a picture, and never selected or dragged by a click on it. One 16:9 frame
+   split down the middle: the camera's left half beside the right half of the same view as HomeKit receives it. */
 .wizard-live {
   position: relative;
   aspect-ratio: 16 / 9;
+  min-width: 0;
   overflow: hidden;
   border-radius: var(--radius-card);
   background: #000000;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
-.wizard-live > img {
+.wizard-live figure {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  clip-path: inset(0 50% 0 0);
+}
+
+.wizard-live figure + figure {
+  clip-path: inset(0 0 0 50%);
+}
+
+/* Until the HomeKit side has a picture, the camera's picture shows whole, with no split and no labels. */
+.wizard-live:has(figure + figure > img[hidden]) figure {
+  clip-path: none;
+}
+
+.wizard-live:has(figure + figure > img[hidden]) :is(.wizard-live-label, figure + figure),
+.wizard-live:has(figure + figure > img[hidden])::after {
+  display: none;
+}
+
+.wizard-live::after {
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: rgb(255 255 255 / 80%);
+  content: '';
+  pointer-events: none;
+}
+
+.wizard-live figure > img {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  pointer-events: none;
 }
 
+/* The whole box plays and stops; the pill is the icon. */
 .wizard-live-play {
   position: absolute;
-  inset: 50% auto auto 50%;
+  z-index: 1;
+  inset: 0;
   display: grid;
   place-items: center;
-  width: 72px;
-  height: 52px;
   padding: 0;
   border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.wizard-live-play img {
+  box-sizing: border-box;
+  width: 72px;
+  height: 52px;
+  padding: 8px 18px;
   border-radius: var(--radius-card);
   background: rgb(0 0 0 / 70%);
-  transform: translate(-50%, -50%);
-  cursor: pointer;
+}
+
+.wizard-live-play:hover img,
+.wizard-live-play:focus-visible img {
+  background: var(--accent);
 }
 
 /* Stop stays out of the picture until the pointer or the keyboard is on the video. */
@@ -2232,18 +2282,24 @@ input:focus-visible {
   }
 }
 
-.wizard-live-play img {
-  width: 36px;
-  height: 36px;
-}
-
+/* The reason the box has no picture, centred and large; below the spinner or the play button when either shows. */
 .wizard-live-status {
   position: absolute;
-  inset: auto 0 0;
+  inset: 0;
+  display: grid;
+  place-items: center;
   margin: 0;
-  padding: 8px 12px;
+  pointer-events: none;
+  padding: 24px;
   color: var(--tile-scene-ink);
-  background: linear-gradient(transparent, rgb(0 0 0 / 70%));
+  font-size: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+  background: rgb(0 0 0 / 45%);
+}
+
+.wizard-live:has(.wizard-live-spinner:not([hidden]), [data-wizard-live-play]:not([hidden])) .wizard-live-status {
+  padding-top: 120px;
 }
 
 .wizard-live-status:empty {
@@ -2251,13 +2307,18 @@ input:focus-visible {
 }
 
 /* Over the picture, so showing it does not move the play and stop buttons under the pointer. */
-.wizard-live-encoder {
+.wizard-live-label {
   position: absolute;
-  inset: 0 0 auto;
+  inset: 0 50% auto 0;
   margin: 0;
   padding: 8px 12px;
-  color: #fff;
+  color: var(--tile-scene-ink);
   background: linear-gradient(rgb(0 0 0 / 70%), transparent);
+}
+
+.wizard-live figure + figure .wizard-live-label {
+  inset: 0 0 auto 50%;
+  text-align: right;
 }
 
 .wizard-nav {
@@ -2306,26 +2367,6 @@ input:focus-visible {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent-ink);
   font-weight: 600;
-}
-
-.wizard-stage {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.wizard-arrow {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  padding: 0;
-  border-radius: var(--radius-pill);
-}
-
-.wizard-arrow:disabled {
-  visibility: hidden;
 }
 
 .wizard-card {

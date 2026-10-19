@@ -29,16 +29,21 @@ function frame(data: number[], keyframe: boolean, codec: 'h264' | 'h265' = 'h264
 describe('live preview', () => {
   let directory: string;
   /**
-   * An executable standing in for both FFmpegs that writes one progress line and echoes its input, so the coded
-   * stream is the bytes written in and the pictures out are the coded stream.
+   * An executable standing in for the three FFmpegs that writes one progress line and echoes its input, so the coded
+   * stream is the bytes written in and the pictures out of either side are those bytes.
    */
   let echo: string;
+  /** The same, except that the encoder codes everything into bytes that are no picture, so only the camera side shows. */
+  let garbling: string;
 
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), 'live-preview-'));
     echo = join(directory, 'ffmpeg');
     await writeFile(echo, "#!/bin/sh\necho 'bitrate= 287.0kbits/s' >&2\nexec cat\n");
     await chmod(echo, 0o755);
+    garbling = join(directory, 'garbling');
+    await writeFile(garbling, '#!/bin/sh\ncase "$*" in *libx264*) printf coded; cat >/dev/null ;; esac\nexec cat\n');
+    await chmod(garbling, 0o755);
   });
 
   afterAll(async () => {
@@ -46,9 +51,10 @@ describe('live preview', () => {
   });
 
   /**
-   * Nothing is adapted before the first keyframe, each JPEG end marker closes one picture carrying the encoder
-   * it was coded by, and the stop releases the SDK source and reports the result exactly once. Each process is
-   * reported as a live session's are, `started` and then its `output`, under its preview role.
+   * Nothing is adapted before the first keyframe, each JPEG end marker closes one picture carrying its side and the
+   * HomeKit side's encoder, the camera's bytes reach both sides, and the stop releases the SDK source and reports
+   * the result exactly once. Each process is reported as a live session's are, `started` and then its `output`,
+   * under its preview role.
    */
   it('hands on one picture per JPEG from the first keyframe, and stops once', async () => {
     const live = consumer();
@@ -59,7 +65,7 @@ describe('live preview', () => {
       echo,
       media,
       { live: async () => live as unknown as LiveStreamConsumer },
-      (jpeg, coding) => pictures.push(`${jpeg.toString('hex')}@${coding.encoder}`),
+      (jpeg, coding) => pictures.push(`${coding.side} ${jpeg.toString('hex')}@${coding.encoder}`),
       onEnd,
       { report: (notice) => notices.push(notice) },
     );
@@ -68,7 +74,14 @@ describe('live preview', () => {
     live.emit('video', frame([0xff, 0xd8, 0x00, 0xff, 0xd9], false));
     live.emit('video', frame([0xff, 0xd8, 0x01, 0xff, 0xd9, 0xff, 0xd8], true));
     live.emit('video', frame([0x02, 0xff, 0xd9], false));
-    await vi.waitFor(() => expect(pictures).toEqual(['ffd801ffd9@libx264', 'ffd802ffd9@libx264']));
+    await vi.waitFor(() =>
+      expect(pictures.sort()).toEqual([
+        'homekit ffd801ffd9@libx264',
+        'homekit ffd802ffd9@libx264',
+        'raw ffd801ffd9@libx264',
+        'raw ffd802ffd9@libx264',
+      ]),
+    );
 
     stop();
     stop();
@@ -79,35 +92,42 @@ describe('live preview', () => {
       encoder: 'libx264',
       source: 'h264',
     });
-    await vi.waitFor(() => expect(notices).toHaveLength(4));
-    expect(notices.slice(0, 2)).toEqual([
+    await vi.waitFor(() => expect(notices).toHaveLength(6));
+    expect(notices.slice(0, 3)).toEqual([
       { role: 'preview-encode', event: 'started', cause: 'first', encoder: 'libx264', source: 'h264' },
       { role: 'preview-decode', event: 'started', cause: 'first', source: 'h264' },
+      { role: 'preview-raw', event: 'started', cause: 'first', source: 'h264' },
     ]);
     expect(
       notices
-        .slice(2)
+        .slice(3)
         .map(({ role, event, stderr }) => `${role} ${event} ${stderr?.join()}`)
         .sort(),
-    ).toEqual(['preview-decode output bitrate= 287.0kbits/s', 'preview-encode output bitrate= 287.0kbits/s']);
+    ).toEqual([
+      'preview-decode output bitrate= 287.0kbits/s',
+      'preview-encode output bitrate= 287.0kbits/s',
+      'preview-raw output bitrate= 287.0kbits/s',
+    ]);
   });
 
-  /** Coded video that decodes to no picture within its bound ends the preview as unplayable. */
+  /** Coded video that decodes to no picture within its bound, while the camera side shows, ends as unplayable. */
   it('ends as unplayable when the coded video yields no picture', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       const live = consumer();
       const onEnd = vi.fn();
+      const sides: string[] = [];
       startLivePreview(
-        echo,
+        garbling,
         media,
         { live: async () => live as unknown as LiveStreamConsumer },
-        () => undefined,
+        (_jpeg, coding) => sides.push(coding.side),
         onEnd,
       );
       await vi.waitFor(() => expect(live.listenerCount('video')).toBe(1));
 
-      live.emit('video', frame([0x00, 0x00, 0x01, 0x65], true));
+      live.emit('video', frame([0xff, 0xd8, 0x65, 0xff, 0xd9], true));
+      await vi.waitFor(() => expect(sides).toEqual(['raw']));
       await vi.waitFor(() => expect(vi.getTimerCount(), 'the picture bound arms on the first coded bytes').toBe(2));
       vi.advanceTimersByTime(LIVE_PREVIEW_PICTURE_MS);
 
