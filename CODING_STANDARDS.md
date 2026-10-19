@@ -237,8 +237,8 @@ Every one of these has already produced a false conclusion, so each is checked r
   reads the manifest and the lockfile and checks the shape — an exact version rather than a range, a lockfile
   that agrees with the manifest, a `sha512-` integrity, a resolution from npmjs, and an installed directory
   that is not a symlink. A dist-tag such as `@beta` fails it, and a range that happens to resolve to an exact
-  version is still not an exact declared identity: the acceptance record hashes the one SDK build the plugin
-  was qualified against, and a floating specifier attests to an artifact the next `npm install` can replace.
+  version is still not an exact declared identity: a floating specifier names an artifact the next
+  `npm install` can replace.
   Bumping the SDK is therefore `npm pkg set` followed by `npm install`, with no literal to maintain by hand
   anywhere.
 - **Read the code that actually ran.** Grep the built `dist` for the symbol the change introduces or
