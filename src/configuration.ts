@@ -94,7 +94,8 @@ const ENTITY_PREFERENCE_KEYS = new Set<keyof EntityPreference>([...BOOLEAN_PREFE
 const SNAPSHOT_MODES = new Set<SnapshotMode>(['Cloud', 'Live', 'Refresh']);
 const ARMING_SLOTS = new Set<ArmingSlot>(['home', 'away', 'night', 'off']);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+/** Whether a value is an object that is neither null nor an array. */
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 

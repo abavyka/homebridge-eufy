@@ -4,10 +4,9 @@ import {
   parseAuthenticationAnswer,
   parseAuthenticationStart,
   parseDiagnosticsAuthorization,
-  parseDeviceImageRequest,
-  parseDeviceSettingsRequest,
   parseDeviceSettingWriteRequest,
   parseDiagnosticsUiEvent,
+  parseSerialRequest,
 } from '../../src/ui/server.js';
 
 const SUBMITTED_PASSWORD = 'synthetic-password-must-never-be-echoed';
@@ -192,7 +191,9 @@ describe('custom UI device image input', () => {
    * the boundary like every other submitted field. Rejection is generic and never repeats what was sent.
    */
   it('accepts one plausible serial and rejects anything else without echoing it', () => {
-    expect(parseDeviceImageRequest({ serial: 'T8410P00223SYNTH' })).toBe('T8410P00223SYNTH');
+    expect(parseSerialRequest({ serial: 'T8410P00223SYNTH' }, 'Invalid device image request', 128)).toBe(
+      'T8410P00223SYNTH',
+    );
 
     for (const value of [
       undefined,
@@ -205,9 +206,11 @@ describe('custom UI device image input', () => {
       { serial: 'T8410P00223SYNTH', extra: true },
       { serial: SUBMITTED_SERIAL },
     ]) {
-      expect(() => parseDeviceImageRequest(value)).toThrow('Invalid device image request');
+      expect(() => parseSerialRequest(value, 'Invalid device image request', 128)).toThrow(
+        'Invalid device image request',
+      );
       try {
-        parseDeviceImageRequest(value);
+        parseSerialRequest(value, 'Invalid device image request', 128);
       } catch (error) {
         expect((error as Error).message).not.toContain(SUBMITTED_SERIAL);
       }
@@ -218,9 +221,13 @@ describe('custom UI device image input', () => {
 describe('custom UI device settings input', () => {
   /** A settings read names one plausible serial and nothing else. */
   it('accepts a settings read for one serial only', () => {
-    expect(parseDeviceSettingsRequest({ serial: 'T8000P0000000000' })).toBe('T8000P0000000000');
+    expect(parseSerialRequest({ serial: 'T8000P0000000000' }, 'Invalid device settings request', 64)).toBe(
+      'T8000P0000000000',
+    );
     for (const value of [undefined, {}, { serial: '../x' }, { serial: 'T8000P0000000000', extra: true }]) {
-      expect(() => parseDeviceSettingsRequest(value)).toThrow('Invalid device settings request');
+      expect(() => parseSerialRequest(value, 'Invalid device settings request', 64)).toThrow(
+        'Invalid device settings request',
+      );
     }
   });
 

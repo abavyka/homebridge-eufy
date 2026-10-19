@@ -53,16 +53,6 @@ export type SdkLogger = Partial<PlatformLogger>;
 
 export type SdkClientFactory = (config: EufyConfig, stores?: RuntimeClientStores, logger?: SdkLogger) => SdkClient;
 
-export class SyntheticSdkClient implements SdkClient {
-  async start(): Promise<void> {}
-
-  async stop(): Promise<void> {}
-}
-
-export function createSyntheticSdkClient(_config: EufyConfig): SdkClient {
-  return new SyntheticSdkClient();
-}
-
 /** Long-lived SDK adapter that can only start from a locally accepted persisted session. */
 export class PersistedSdkClient implements SdkClient {
   private client?: EufyMega;
@@ -264,9 +254,6 @@ export class PersistedSdkClient implements SdkClient {
   }
 
   private async realtimeReady(client: EufyMega): Promise<boolean> {
-    if (typeof client.waitForRealtime !== 'function') {
-      return true;
-    }
     const readiness = await client.waitForRealtime();
     reportRealtimeReadiness(this.logger, readiness);
     return realtimeSettled(readiness);
@@ -293,8 +280,7 @@ export function createPersistedSdkClient(
   stores?: RuntimeClientStores,
   logger?: SdkLogger,
 ): SdkClient {
-  if (!stores) {
-    return createSyntheticSdkClient(config);
-  }
-  return new PersistedSdkClient(config, stores, undefined, logger);
+  return stores
+    ? new PersistedSdkClient(config, stores, undefined, logger)
+    : { start: async () => {}, stop: async () => {} };
 }

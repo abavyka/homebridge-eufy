@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { posix } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import type { LivePreviewAdaptation } from '../configuration.js';
+import { isRecord, type LivePreviewAdaptation } from '../configuration.js';
 import type { ActiveCondition, RuntimeState } from '../diagnostics.js';
 import { isSupportCaseId, knownCondition } from '../diagnostics.js';
 import { isBatteryLevel } from '../device/member-trust.js';
@@ -388,7 +388,7 @@ export function answeredDevice(device: RuntimeChannelDevice): RuntimeChannelDevi
  * runtime. Nothing is the answer for a body that carries no such identifier.
  */
 export function noticedAuthorization(value: unknown): RuntimeChannelAuthorization | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return undefined;
   }
   const candidate = value as Record<string, unknown>;
@@ -414,7 +414,7 @@ function isDeviceSettingValue(setting: DeviceSettingName, value: unknown): value
  * Untrusted input in the process that owns the Eufy session, so it is narrowed to one bounded serial.
  */
 export function noticedDeviceSettingsQuery(value: unknown): RuntimeChannelDeviceSettingsQuery | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return undefined;
   }
   const candidate = value as Record<string, unknown>;
@@ -427,8 +427,8 @@ export function noticedDeviceSettingsQuery(value: unknown): RuntimeChannelDevice
  */
 export function noticedLivePreviewQuery(value: unknown): RuntimeChannelLivePreviewQuery | undefined {
   const query = noticedDeviceSettingsQuery(value);
-  const candidate = (value as { adaptation?: unknown } | undefined)?.adaptation as Record<string, unknown> | undefined;
-  if (!query || typeof candidate !== 'object' || candidate === null) return undefined;
+  const candidate = (value as { adaptation?: unknown } | undefined)?.adaptation;
+  if (!query || !isRecord(candidate)) return undefined;
   const { ask, smallVideoPackets, liveVideoPassthrough, hardwareVideoEncoder, ignoreHomeBitRate } = candidate;
   const settings = { smallVideoPackets, liveVideoPassthrough, hardwareVideoEncoder, ignoreHomeBitRate };
   if ((ask !== 'wifi' && ask !== 'cellular') || Object.values(settings).some((on) => typeof on !== 'boolean')) {
@@ -443,7 +443,7 @@ export function noticedLivePreviewQuery(value: unknown): RuntimeChannelLivePrevi
  * Narrowed to a bounded serial, a setting of {@link DEVICE_SETTINGS}, and a value of the type that setting takes.
  */
 export function noticedDeviceSettingWrite(value: unknown): RuntimeChannelDeviceSettingWrite | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return undefined;
   }
   const candidate = value as Record<string, unknown>;
@@ -470,7 +470,7 @@ export function areRuntimeChannelDeviceSettings(value: unknown): value is Runtim
   return (
     Array.isArray(value) &&
     value.every((entry) => {
-      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      if (!isRecord(entry)) {
         return false;
       }
       const candidate = entry as Record<string, unknown>;
@@ -492,7 +492,7 @@ export function areRuntimeChannelDevices(value: unknown): value is RuntimeChanne
   return (
     Array.isArray(value) &&
     value.every((entry) => {
-      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      if (!isRecord(entry)) {
         return false;
       }
       const candidate = entry as Record<string, unknown>;
@@ -516,7 +516,7 @@ export function areRuntimeChannelDevices(value: unknown): value is RuntimeChanne
  * at, so an answer arriving on this channel is untrusted input.
  */
 export function isRuntimeChannelStatus(value: unknown): value is RuntimeChannelStatus {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (!isRecord(value)) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
@@ -563,19 +563,8 @@ interface RuntimeChannelServerOptions {
 export class RuntimeChannelServer {
   private server?: Server;
   private readonly connections = new Set<Socket>();
-  private readonly protocol: number;
-  private readonly idleTimeoutMs: number;
-  private readonly frameBytes: number;
-  private readonly devices?: () => RuntimeChannelDevice[];
-  private readonly authorization?: (notice: RuntimeChannelAuthorization) => boolean;
-  private readonly standDown?: () => boolean;
-  private readonly version?: string;
-  private readonly build?: string;
-  private readonly restartable?: boolean;
-  private readonly restart?: () => boolean;
-  private readonly deviceSettings?: RuntimeChannelServerOptions['deviceSettings'];
-  private readonly writeDeviceSetting?: RuntimeChannelServerOptions['writeDeviceSetting'];
-  private readonly deviceLive?: RuntimeChannelServerOptions['deviceLive'];
+  private readonly options: RuntimeChannelServerOptions &
+    Required<Pick<RuntimeChannelServerOptions, 'protocol' | 'idleTimeoutMs' | 'frameBytes'>>;
   /** The running live previews by camera serial, which an adapt request reaches. */
   private readonly previews = new Map<string, RuntimeChannelLivePreview>();
 
@@ -584,19 +573,12 @@ export class RuntimeChannelServer {
     private readonly status: () => RuntimeChannelStatus,
     options: RuntimeChannelServerOptions = {},
   ) {
-    this.protocol = options.protocol ?? RUNTIME_CHANNEL_PROTOCOL;
-    this.idleTimeoutMs = options.idleTimeoutMs ?? RUNTIME_CHANNEL_IDLE_TIMEOUT_MS;
-    this.frameBytes = options.frameBytes ?? RUNTIME_CHANNEL_FRAME_BYTES;
-    this.devices = options.devices;
-    this.authorization = options.authorization;
-    this.standDown = options.standDown;
-    this.version = options.version;
-    this.build = options.build;
-    this.restartable = options.restartable;
-    this.restart = options.restart;
-    this.deviceSettings = options.deviceSettings;
-    this.writeDeviceSetting = options.writeDeviceSetting;
-    this.deviceLive = options.deviceLive;
+    this.options = {
+      ...options,
+      protocol: options.protocol ?? RUNTIME_CHANNEL_PROTOCOL,
+      idleTimeoutMs: options.idleTimeoutMs ?? RUNTIME_CHANNEL_IDLE_TIMEOUT_MS,
+      frameBytes: options.frameBytes ?? RUNTIME_CHANNEL_FRAME_BYTES,
+    };
   }
 
   /** Binds the endpoint, reporting whether it bound. An unbound channel is an absent one. */
@@ -653,19 +635,19 @@ export class RuntimeChannelServer {
    */
   private answered(request: RuntimeChannelRequest): RuntimeChannelResponse | Promise<RuntimeChannelResponse> {
     try {
-      if (request.path === RUNTIME_DEVICE_SETTINGS_PATH && this.deviceSettings) {
+      if (request.path === RUNTIME_DEVICE_SETTINGS_PATH && this.options.deviceSettings) {
         const query = noticedDeviceSettingsQuery(request.body);
-        const settings = query ? this.deviceSettings(query) : undefined;
+        const settings = query ? this.options.deviceSettings(query) : undefined;
         return settings
           ? { id: request.id, ok: true, data: settings.map(answeredDeviceSetting) }
           : { id: request.id, ok: false };
       }
-      if (request.path === RUNTIME_DEVICE_SETTING_WRITE_PATH && this.writeDeviceSetting) {
+      if (request.path === RUNTIME_DEVICE_SETTING_WRITE_PATH && this.options.writeDeviceSetting) {
         const write = noticedDeviceSettingWrite(request.body);
         if (!write) {
           return { id: request.id, ok: false };
         }
-        return this.writeDeviceSetting(write).then(
+        return this.options.writeDeviceSetting(write).then(
           (ok) => ({ id: request.id, ok }),
           () => ({ id: request.id, ok: false }),
         );
@@ -679,18 +661,18 @@ export class RuntimeChannelServer {
       if (request.path === RUNTIME_STATUS_PATH) {
         return { id: request.id, ok: true, data: answeredStatus(this.status()) };
       }
-      if (request.path === RUNTIME_DEVICES_PATH && this.devices) {
-        return { id: request.id, ok: true, data: this.devices().map(answeredDevice) };
+      if (request.path === RUNTIME_DEVICES_PATH && this.options.devices) {
+        return { id: request.id, ok: true, data: this.options.devices().map(answeredDevice) };
       }
-      if (request.path === RUNTIME_DIAGNOSTICS_PATH && this.authorization) {
+      if (request.path === RUNTIME_DIAGNOSTICS_PATH && this.options.authorization) {
         const notice = noticedAuthorization(request.body);
-        return { id: request.id, ok: notice !== undefined && this.authorization(notice) };
+        return { id: request.id, ok: notice !== undefined && this.options.authorization(notice) };
       }
-      if (request.path === RUNTIME_STAND_DOWN_PATH && this.standDown) {
-        return { id: request.id, ok: this.standDown() };
+      if (request.path === RUNTIME_STAND_DOWN_PATH && this.options.standDown) {
+        return { id: request.id, ok: this.options.standDown() };
       }
-      if (request.path === RUNTIME_RESTART_PATH && this.restart) {
-        return { id: request.id, ok: this.restart() };
+      if (request.path === RUNTIME_RESTART_PATH && this.options.restart) {
+        return { id: request.id, ok: this.options.restart() };
       }
     } catch {
       return { id: request.id, ok: false };
@@ -710,21 +692,21 @@ export class RuntimeChannelServer {
 
   private serve(connection: Socket): void {
     this.connections.add(connection);
-    connection.setTimeout(this.idleTimeoutMs, () => connection.destroy());
+    connection.setTimeout(this.options.idleTimeoutMs, () => connection.destroy());
     connection.on('error', () => connection.destroy());
     connection.on('close', () => this.connections.delete(connection));
     const current = this.status();
     const greeting: RuntimeChannelGreeting = {
-      protocol: this.protocol,
+      protocol: this.options.protocol,
       ready: ready(current.state),
       state: current.state,
       ...(current.generation === undefined ? {} : { generation: current.generation }),
-      ...(this.version === undefined ? {} : { version: this.version }),
-      ...(this.build === undefined ? {} : { build: this.build }),
-      ...(this.restartable === undefined ? {} : { restartable: this.restartable }),
+      ...(this.options.version === undefined ? {} : { version: this.options.version }),
+      ...(this.options.build === undefined ? {} : { build: this.options.build }),
+      ...(this.options.restartable === undefined ? {} : { restartable: this.options.restartable }),
     };
     connection.write(`${JSON.stringify(greeting)}\n`);
-    const reader = new FrameReader(this.frameBytes);
+    const reader = new FrameReader(this.options.frameBytes);
     connection.on('data', (chunk) => {
       const frames = reader.accept(chunk);
       if (!frames) {
@@ -745,12 +727,12 @@ export class RuntimeChannelServer {
       connection.destroy();
       return;
     }
-    if (typeof request?.id !== 'number' || request.v !== this.protocol) {
+    if (typeof request?.id !== 'number' || request.v !== this.options.protocol) {
       connection.destroy();
       return;
     }
-    if (request.path === RUNTIME_DEVICE_LIVE_PATH && this.deviceLive) {
-      this.streamLive(connection, request, this.deviceLive);
+    if (request.path === RUNTIME_DEVICE_LIVE_PATH && this.options.deviceLive) {
+      this.streamLive(connection, request, this.options.deviceLive);
       return;
     }
     void Promise.resolve(this.answered(request)).then((response) => {
@@ -786,7 +768,7 @@ export class RuntimeChannelServer {
             (jpeg, coding) => {
               const data = jpeg.toString('base64');
               if (connection.destroyed || (connection.writableNeedDrain && jpeg.length > 0)) return;
-              if (data.length > this.frameBytes - LIVE_FRAME_MARGIN) return;
+              if (data.length > this.options.frameBytes - LIVE_FRAME_MARGIN) return;
               const { side, encoder, kbps } = coding;
               const response = { id: request.id, ok: true, data, coding: { side, encoder, kbps } };
               connection.write(`${JSON.stringify(response)}\n`);

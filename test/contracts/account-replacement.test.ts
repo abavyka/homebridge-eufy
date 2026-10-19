@@ -87,7 +87,7 @@ describe('atomic account replacement', () => {
   it('does not publish a replacement before the previous account-bound cleanup has finished', async () => {
     const root = await temporaryRoot();
     let cleaned = false;
-    const persistence = new AccountSessionPersistence(root, undefined, undefined, async () => {
+    const persistence = new AccountSessionPersistence(root, undefined, async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       cleaned = true;
     });
@@ -125,7 +125,7 @@ describe('atomic account replacement', () => {
   ])('keeps the prior active generation usable when %s persistence fails', async (boundary) => {
     const root = await temporaryRoot();
     let injectedBoundary: AccountPersistenceBoundary | undefined;
-    const persistence = new AccountSessionPersistence(root, undefined, {
+    const persistence = new AccountSessionPersistence(root, {
       before(boundaryName) {
         if (injectedBoundary === boundaryName) {
           throw new Error(`injected ${boundaryName} failure`);

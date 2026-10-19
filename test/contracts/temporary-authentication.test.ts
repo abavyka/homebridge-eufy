@@ -649,7 +649,7 @@ describe('temporary authentication', () => {
     const directory = await mkdtemp(join(tmpdir(), 'eufy-runtime-tracker-'));
     const path = join(directory, 'tracker.json');
     const now = Date.parse('2026-08-11T12:01:00.000Z');
-    const tracker = new RuntimeTracker(path, 90_000, () => now);
+    const tracker = new RuntimeTracker(path, () => now);
 
     try {
       await writeFile(
