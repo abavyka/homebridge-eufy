@@ -104,6 +104,7 @@ const wizardLiveStop = document.querySelector('[data-wizard-live-stop]');
 const wizardLiveSpinner = document.querySelector('[data-wizard-live-spinner]');
 const wizardLiveHomeKitSpinner = document.querySelector('[data-wizard-live-homekit-spinner]');
 const wizardLiveControls = document.querySelector('[data-wizard-live-controls]');
+const wizardLiveSave = document.querySelector('[data-wizard-live-save]');
 const wizardLiveEncoder = document.querySelector('[data-wizard-live-encoder]');
 const wizardLiveDiagnose = document.querySelector('[data-wizard-live-diagnose]');
 const wizardLiveDiagnoseStart = document.querySelector('[data-wizard-live-diagnose-start]');
@@ -891,13 +892,17 @@ async function openSetupWizard(trigger) {
   await renderWizardStep();
 }
 
-/** The advanced form's live video settings by name, which a preview starts from, saved or not. */
+/**
+ * The advanced form's live video settings by name. A camera may keep its own value of those in
+ * {@link WIZARD_LIVE_CAMERA}; the others are general, so the card's toggle for one is the advanced form's own.
+ */
 const wizardLiveSettings = {
   liveVideoPassthrough: advancedLiveVideoPassthrough,
   ignoreHomeBitRate: advancedIgnoreHomeBitRate,
   hardwareVideoEncoder: advancedHardwareVideoEncoder,
   smallVideoPackets: advancedSmallVideoPackets,
 };
+const WIZARD_LIVE_CAMERA = ['liveVideoPassthrough', 'ignoreHomeBitRate'];
 
 /** The ask and settings the preview's HomeKit side is coded with, as its controls stand. Never saved. */
 function wizardLiveAdaptation() {
@@ -927,7 +932,10 @@ function stopWizardLive() {
 async function showWizardCamera(serial, enabled) {
   wizardLive.hidden = false;
   wizardLiveImage.hidden = true;
-  for (const [name, input] of Object.entries(wizardLiveSettings)) wizardLiveControls.elements[name].checked = input.checked;
+  const own = configuredBlock()?.entityPreferences?.[serial] ?? {};
+  for (const [name, input] of Object.entries(wizardLiveSettings)) {
+    wizardLiveControls.elements[name].checked = own[name] ?? input.checked;
+  }
   // A camera switched off in the eufy app has nothing to stream, so it offers no play, only the reason.
   wizardLivePlay.hidden = enabled === false;
   wizardLiveStatus.textContent = enabled === false ? (messages.deviceStatusSwitchedOff ?? '') : '';
@@ -994,7 +1002,12 @@ homebridge.addEventListener('device-live', (event) => {
     .replace('{kbps}', String(event.data.kbps));
 });
 // Only the HomeKit side restarts: its half waits under a spinner while the camera plays on.
-wizardLiveControls.addEventListener('change', () => {
+wizardLiveControls.addEventListener('change', (event) => {
+  const name = event.target?.name;
+  if (wizardLiveSettings[name] && !WIZARD_LIVE_CAMERA.includes(name)) {
+    wizardLiveSettings[name].checked = event.target.checked;
+    void updateAdvancedSettings();
+  }
   if (!wizardLiveSerial) return;
   wizardLiveHomeKit.hidden = false;
   wizardLiveHomeKitSpinner.hidden = false;
@@ -1002,6 +1015,26 @@ wizardLiveControls.addEventListener('change', () => {
   wizardLiveDiagnose.hidden = true;
   const body = { serial: wizardLiveSerial, adaptation: wizardLiveAdaptation() };
   void requestWithinDeadline('/device/live/adapt', body, 12000).catch(() => undefined);
+});
+// Keeps this camera's own ticks, as its preference wherever they differ from the general setting.
+wizardLiveSave.addEventListener('click', async () => {
+  const serial = wizardSteps[wizardIndex]?.serial;
+  const existing = configuredBlock();
+  if (!serial || !existing) return;
+  const entityPreferences = { ...(existing.entityPreferences ?? {}) };
+  const preference = { ...(entityPreferences[serial] ?? {}) };
+  for (const name of WIZARD_LIVE_CAMERA) {
+    const checked = wizardLiveControls.elements[name].checked;
+    if (checked === wizardLiveSettings[name].checked) delete preference[name];
+    else preference[name] = checked;
+  }
+  if (Object.keys(preference).length === 0) delete entityPreferences[serial];
+  else entityPreferences[serial] = preference;
+  try {
+    await updateConfig({ ...existing, entityPreferences });
+  } catch {
+    wizardLiveStatus.textContent = messages.preferenceSaveFailed ?? '';
+  }
 });
 wizardLiveDiagnoseStart.addEventListener('click', () => openDiagnostics({ profile: 'live-media' }));
 homebridge.addEventListener('device-live-end', (event) => endWizardLive(event.data?.serial, event.data?.unplayable));

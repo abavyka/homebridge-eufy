@@ -1,6 +1,6 @@
 import type { API, DynamicPlatformPlugin, HAP, PlatformAccessory, PlatformConfig } from 'homebridge';
 
-import { ffmpegPathSource, parseConfig } from './configuration.js';
+import { ffmpegPathSource, parseConfig, resolveLiveVideoSettings } from './configuration.js';
 import {
   createDiagnosticLogger,
   DiagnosticConditions,
@@ -219,6 +219,7 @@ export function createEufyPlatform(
             mediaBudget,
             stationLiveSessions,
             configuredConfig.hdLiveVideo,
+            (serial) => resolveLiveVideoSettings(configuredConfig, serial),
           );
           this.reconciler.start();
         }

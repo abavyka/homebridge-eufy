@@ -240,18 +240,51 @@
           <p class="wizard-live-status" role="status" aria-live="polite" data-wizard-live-status></p>
         </div>
       </div>
-      <form class="wizard-card wizard-live-controls" data-wizard-live-controls hidden>
-        <label>
-          <span data-i18n="wizardLiveAsk"></span>
-          <select name="ask">
-            <option value="wifi" data-i18n="wizardLiveAskWifi"></option>
-            <option value="cellular" data-i18n="wizardLiveAskCellular"></option>
-          </select>
-        </label>
-        <label><input type="checkbox" name="liveVideoPassthrough" /><span data-i18n="advancedLiveVideoPassthroughLabel"></span></label>
-        <label><input type="checkbox" name="ignoreHomeBitRate" /><span data-i18n="advancedIgnoreHomeBitRateLabel"></span></label>
-        <label><input type="checkbox" name="hardwareVideoEncoder" /><span data-i18n="advancedHardwareVideoEncoderLabel"></span></label>
-        <label><input type="checkbox" name="smallVideoPackets" /><span data-i18n="advancedSmallVideoPacketsLabel"></span></label>
+      <form class="wizard-card" data-wizard-live-controls hidden aria-labelledby="wizard-live-title">
+        <h3 id="wizard-live-title" data-i18n="wizardLiveTitle"></h3>
+        <p class="preference-note" data-i18n="wizardLiveHelp"></p>
+        <div class="preference-grid">
+          <label class="wizard-setting" data-setting>
+            <span class="setting-label" data-i18n="wizardLiveAsk"></span>
+            <select name="ask">
+              <option value="wifi" data-i18n="wizardLiveAskWifi"></option>
+              <option value="cellular" data-i18n="wizardLiveAskCellular"></option>
+            </select>
+          </label>
+          <p class="preference-representation" data-i18n="wizardLiveThisCamera"></p>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="liveVideoPassthrough" />
+              <span class="setting-label" data-i18n="advancedLiveVideoPassthroughLabel"></span>
+            </label>
+            <p data-i18n="advancedLiveVideoPassthroughHelp"></p>
+          </div>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="ignoreHomeBitRate" />
+              <span class="setting-label" data-i18n="advancedIgnoreHomeBitRateLabel"></span>
+            </label>
+            <p data-i18n="advancedIgnoreHomeBitRateHelp"></p>
+          </div>
+          <div class="wizard-nav">
+            <button type="button" data-wizard-live-save data-i18n="wizardLiveSave"></button>
+          </div>
+          <p class="preference-representation" data-i18n="wizardLiveAllCameras"></p>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="hardwareVideoEncoder" />
+              <span class="setting-label" data-i18n="advancedHardwareVideoEncoderLabel"></span>
+            </label>
+            <p data-i18n="advancedHardwareVideoEncoderHelp"></p>
+          </div>
+          <div data-setting>
+            <label class="toggle">
+              <input type="checkbox" name="smallVideoPackets" />
+              <span class="setting-label" data-i18n="advancedSmallVideoPacketsLabel"></span>
+            </label>
+            <p data-i18n="advancedSmallVideoPacketsHelp"></p>
+          </div>
+        </div>
       </form>
       <p class="summary" data-wizard-live-diagnose hidden>
         <span data-i18n="wizardLiveDiagnoseHelp"></span>

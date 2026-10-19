@@ -2363,23 +2363,18 @@ input:focus-visible {
   cursor: pointer;
 }
 
+/* A HomeBase heading is a button and a standalone heading is not: the plain one takes the button's size. */
+p.wizard-map-base {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px 8px;
+}
+
 .wizard-map-device[aria-current='step'] {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent-ink);
   font-weight: 600;
-}
-
-/* Under the frame, outside its play and stop cover; always there for a camera, so nothing moves when it plays. */
-.wizard-live-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-}
-
-.wizard-live-controls label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .wizard-live figure + figure .wizard-live-spinner {

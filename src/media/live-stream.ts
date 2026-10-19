@@ -696,6 +696,12 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     return HARDWARE_ENCODERS.find((encoder) => this.qualified.get(encoder.name)?.has(key)) ?? LIBX264;
   }
 
+  /** The largest video packet a session sends under `settings`, or under this adapter's own without them. */
+  private packetSize(settings?: LiveVideoSettings): number {
+    if (!settings) return this.maxVideoPacketSize;
+    return settings.smallVideoPackets ? SMALL_VIDEO_PACKET_SIZE : Number.POSITIVE_INFINITY;
+  }
+
   /**
    * The encoder and the argument list a session would code `selection` from a `codec` source with, its video
    * written to `output` instead of RTP: every argument before `output` is the session's own, or that of a session
@@ -707,8 +713,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
     output: readonly string[],
     settings?: LiveVideoSettings,
   ): { encoder: string; args: string[] } {
-    const packet = settings ? (settings.smallVideoPackets ? SMALL_VIDEO_PACKET_SIZE : Infinity) : this.maxVideoPacketSize;
-    const video = { ...selection, mtu: Math.min(selection.mtu, packet) };
+    const video = { ...selection, mtu: Math.min(selection.mtu, this.packetSize(settings)) };
     const encoder = this.encoderFor(codec, video, settings);
     return { encoder: encoder === 'copy' ? encoder : encoder.name, args: videoArguments(codec, video, encoder, output) };
   }
@@ -722,7 +727,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
   async prepare(transport: LiveMediaTransport): Promise<PreparedLiveMedia> {
     const videoPort = await this.reservePort(transport.addressVersion);
     const targetAddress = transport.addressVersion === 'ipv6' ? `[${transport.targetAddress}]` : transport.targetAddress;
-    const maxVideoPacketSize = this.maxVideoPacketSize;
+    const maxVideoPacketSize = this.packetSize(transport.liveVideoSettings);
     let audioPort: ReservedMediaPort | undefined;
     try {
       audioPort = transport.audio ? await this.reservePort(transport.addressVersion) : undefined;
@@ -1001,7 +1006,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         adaptationConfig = videoConfig;
         videoSequence = (videoSequence + OUTPUT_SEQUENCE_STEP) & 0xffff;
         const { video } = negotiated;
-        const encoder = this.encoderFor(videoConfig.codec, video);
+        const encoder = this.encoderFor(videoConfig.codec, video, transport.liveVideoSettings);
         const child = this.createProcess(
           this.executable,
           videoArguments(

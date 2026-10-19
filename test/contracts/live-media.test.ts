@@ -24,6 +24,7 @@ import type {
   NegotiatedLiveAudio,
   NegotiatedLiveVideo,
   TalkbackOutcome,
+  LiveVideoSettings,
 } from '../../src/media/contracts.js';
 import {
   FfmpegLiveMedia,
@@ -2522,9 +2523,10 @@ function hardwareMedia({ copy = false, constantQuality = false, small = false } 
     copy,
     constantQuality,
   );
-  const open = async (video: NegotiatedLiveVideo = QUALIFIED_MAIN) => {
+  const open = async (video: NegotiatedLiveVideo = QUALIFIED_MAIN, liveVideoSettings?: LiveVideoSettings) => {
     const stream = new SyntheticLiveStream();
     const prepared = await media.prepare({
+      ...(liveVideoSettings ? { liveVideoSettings } : {}),
       addressVersion: 'ipv4',
       targetAddress: '192.0.2.10',
       video: {
@@ -2870,6 +2872,33 @@ describe('a live session on a qualified encoder', () => {
       runs.find((args) => args.includes('mjpeg')),
       'the coded stream is decoded into pictures',
     ).toEqual(expect.arrayContaining(['-f', 'h264', '-i', 'pipe:0', '-c:v', 'mjpeg']));
+  });
+
+  /**
+   * A camera that carries its own live video settings is coded with them, its packet size included, while another
+   * camera on the same adapter keeps the adapter's own.
+   */
+  it("codes a camera with its own settings, and another with the adapter's", async () => {
+    const { media, open } = hardwareMedia();
+    await media.qualify(DARWIN, qualificationRun().run);
+    const own = {
+      smallVideoPackets: true,
+      liveVideoPassthrough: false,
+      hardwareVideoEncoder: true,
+      ignoreHomeBitRate: true,
+    };
+    const overridden = await open(QUALIFIED_MAIN, own);
+    const global = await open(QUALIFIED_MAIN);
+    overridden.prepared.stop();
+    global.prepared.stop();
+
+    expect(overridden.args.slice(0, overridden.args.indexOf('-payload_type'))).toEqual(
+      media.videoAdaptation('h264', QUALIFIED_MAIN, [], own).args,
+    );
+    expect(overridden.args[overridden.args.indexOf('-crf') + 1]).toBe('23');
+    expect(overridden.args.at(-1)).toContain('pkt_size=1128');
+    expect(global.encoder, 'the other camera keeps the qualified hardware encoder').toBe('h264_videotoolbox');
+    expect(global.args.at(-1)).toContain('pkt_size=1378');
   });
 
   /**

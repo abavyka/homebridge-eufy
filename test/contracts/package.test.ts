@@ -236,6 +236,7 @@ async function renderUi(
   const wizardLiveHomeKit = { hidden: true, src: '' };
   const wizardLiveCamera = { hidden: true };
   const wizardLiveHomeKitSpinner = { hidden: true };
+  const wizardLiveSave = interactiveElement({});
   const wizardLiveControls = interactiveElement({
     hidden: true,
     elements: {
@@ -466,6 +467,7 @@ async function renderUi(
           '[data-wizard-live-camera]': wizardLiveCamera,
           '[data-wizard-live-homekit-spinner]': wizardLiveHomeKitSpinner,
           '[data-wizard-live-controls]': wizardLiveControls,
+          '[data-wizard-live-save]': wizardLiveSave,
           '[data-wizard-live-status]': wizardLiveStatus,
           '[data-wizard-live-play]': wizardLivePlay,
           '[data-wizard-live-stop]': wizardLiveStop,
@@ -679,6 +681,7 @@ async function renderUi(
     wizardLiveCamera,
     wizardLiveHomeKitSpinner,
     wizardLiveControls,
+    wizardLiveSave,
     wizardLiveStatus,
     wizardLivePlay,
     wizardLiveStop,
@@ -1166,6 +1169,11 @@ describe('packed plugin', () => {
           'wizardLiveAskWifi',
           'wizardLiveCamera',
           'wizardLiveDiagnose',
+          'wizardLiveHelp',
+          'wizardLiveSave',
+          'wizardLiveTitle',
+          'wizardLiveThisCamera',
+          'wizardLiveAllCameras',
           'wizardLiveDiagnoseHelp',
           'wizardRestartSummary',
         ].sort(),
@@ -2959,6 +2967,19 @@ describe('setup wizard', () => {
     });
     expect(ui.wizardSettingsStatus.textContent).toBe(en.wizardSettingSent);
 
+    const ticks = ui.wizardLiveControls.elements;
+    expect(ticks.smallVideoPackets!.checked, 'a general setting shows the advanced form').toBe(true);
+    ticks.smallVideoPackets!.checked = false;
+    await ui.wizardLiveControls.dispatch('change', { target: { name: 'smallVideoPackets', checked: false } });
+    expect(ui.advancedSmallVideoPackets.checked, 'and is the advanced form').toBe(false);
+    await vi.waitFor(() => expect(ui.updatedConfig?.[0]).not.toHaveProperty('smallVideoPackets'));
+    ticks.ignoreHomeBitRate!.checked = true;
+    await ui.wizardLiveSave.dispatch('click');
+    expect(
+      (ui.updatedConfig?.[0]?.entityPreferences as Record<string, unknown>)[camera.serial],
+      'only what differs from the general setting is kept, for this camera alone',
+    ).toEqual({ ignoreHomeBitRate: true });
+
     await ui.wizardLivePlay.dispatch('click');
     await visit(standalone.serial);
     expect(
@@ -2966,6 +2987,13 @@ describe('setup wizard', () => {
       'leaving a camera stops its stream',
     ).toHaveLength(2);
     expect(ui.wizardTitle.textContent).toBe('Synthetic Solo');
+    expect(ticks.ignoreHomeBitRate!.checked, 'another camera follows the general setting').toBe(false);
+    expect(ticks.smallVideoPackets!.checked, 'which carries across cameras').toBe(false);
+    await visit(camera.serial);
+    expect(ticks.ignoreHomeBitRate!.checked, 'and each camera shows its own').toBe(true);
+    ticks.ignoreHomeBitRate!.checked = false;
+    await ui.wizardLiveSave.dispatch('click');
+    expect(ui.updatedConfig?.[0]?.entityPreferences, 'ticks equal to the general ones save nothing').toEqual({});
 
     await visit(sensor.serial);
     expect(ui.wizardTitle.textContent).toBe('Synthetic Sensor');

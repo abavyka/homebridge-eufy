@@ -7,9 +7,9 @@ import type {
   VideoCodec,
 } from '@mega-yfue/eufy-sdk';
 
-import type { SnapshotMode } from '../configuration.js';
+import type { LiveVideoSettings, SnapshotMode } from '../configuration.js';
 
-export type { SnapshotMode } from '../configuration.js';
+export type { LiveVideoSettings, SnapshotMode } from '../configuration.js';
 
 export interface LiveMediaSource {
   live(options?: { signal?: AbortSignal }): Promise<LiveStreamConsumer>;
@@ -329,6 +329,8 @@ export interface LiveMediaTransport {
   readonly targetAddress: string;
   readonly video: LiveMediaTarget;
   readonly audio?: LiveMediaTarget;
+  /** The live video settings this camera is coded with, where they are not the adapter's own. */
+  readonly liveVideoSettings?: LiveVideoSettings;
   readonly onVideoFailure?: () => void;
   readonly onSessionOutcome?: (outcome: LiveSessionOutcome) => void;
   readonly onSessionReleased?: (
