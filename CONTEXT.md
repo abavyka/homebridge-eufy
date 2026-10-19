@@ -130,32 +130,6 @@ _Avoid_: V4 configuration identity, configuration backward compatibility
 A sparse plugin-owned representation or media preference keyed by the SDK entity serial and retained while that entity is absent from the current device snapshot.
 _Avoid_: Device state, device metadata, ignore list
 
-## Release
-
-**Private pilot artifact**:
-An immutable plugin build distributed directly to the authorized maintainer for V5 qualification without advancing a public npm user channel.
-_Avoid_: Beta release, public prerelease
-
-**Release canary**:
-A disposable prerelease published on a non-user npm channel solely to prove publication identity, provenance, and installation mechanics before or after an administrative release-system change.
-_Avoid_: Private pilot, beta promotion
-
-**Rollback baseline**:
-The restorable pre-pilot Homebridge state together with the exact prior plugin version required to return to the previous release. It does not imply that the previous release can consume state written by V5.
-_Avoid_: In-place downgrade, configuration migration
-
-**Public beta promotion**:
-The explicit decision to advance the npm beta channel from private V5 qualification to an anonymously installable release after its distribution and acceptance gates pass.
-_Avoid_: Pilot completion, SDK publication, elapsed-time rollout
-
-**Acceptance matrix**:
-A versioned, cumulative record of automated and human checks whose passed results qualify one immutable artifact for an implementation, private-pilot, or public-beta acceptance tier.
-_Avoid_: Test checklist, elapsed-time qualification, general confidence
-
-**Fleet projection**:
-An allowlisted, de-identified description of model, topology, and capability shapes derived from explicitly initiated observation-only fleet reads and used to inform synthetic verification fixtures.
-_Avoid_: Fleet dump, live test dependency, redacted raw record
-
 ## Media
 
 **Stored-only snapshot**:
