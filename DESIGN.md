@@ -300,8 +300,8 @@ A 16:9 black frame split down the middle by a 2px white seam: the camera's pictu
 
 ### Don't:
 
-- **Don't** introduce a second accent hue. The live preview's red play hover (`#e53935`) and its red-tinted current-device highlight are known drift to bring back to teal.
-- **Don't** write literal radii or undefined variables. The wizard map and wizard card use `12px`, `6px`, `14px`, and `var(--border, rgb(128 128 128 / 30%))`, and should use `rounded.*` and `line`.
+- **Don't** introduce a second accent hue.
+- **Don't** write literal radii or undefined variables; use `rounded.*` and `line`.
 - **Don't** add a shadow to a resting surface; use an edge.
 - **Don't** add a fifth text gray or a weight outside 400/500/600/700.
 - **Don't** set a body background. The host page shows through.
