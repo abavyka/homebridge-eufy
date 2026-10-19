@@ -2,6 +2,7 @@ import type { LiveAudioFrame, LiveStreamConsumer, LiveVideoConfig, LiveVideoFram
 import { LiveStreamStartError, StationKeyUnavailableError, StationUnreachableError } from '@mega-yfue/eufy-sdk';
 import { createSocket } from 'node:dgram';
 import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Readable, Writable } from 'node:stream';
 
@@ -10,6 +11,7 @@ import type {
   AdaptationCause,
   AdaptationDiagnostics,
   AdaptationEvent,
+  AdaptationNotice,
   AdaptationRole,
   LiveMediaAdapter,
   LiveMediaSource,
@@ -24,7 +26,18 @@ import type {
 } from './contracts.js';
 
 /** How long a deliberately stopped adaptation process is given to exit before it is killed. */
-export const PROCESS_STOP_GRACE_MS = 2_000;
+const PROCESS_STOP_GRACE_MS = 2_000;
+
+/** Closes an adaptation process's input and terminates it, killing it if it has not exited within the grace. */
+export function stopProcess(
+  process: Pick<MediaProcess, 'kill'> & { readonly stdin: Writable | null; on(event: 'exit', listener: () => void): unknown },
+): void {
+  process.stdin?.destroy();
+  process.kill('SIGTERM');
+  const killDeadline = setTimeout(() => process.kill('SIGKILL'), PROCESS_STOP_GRACE_MS);
+  killDeadline.unref?.();
+  process.on('exit', () => clearTimeout(killDeadline));
+}
 
 /**
  * Whether an adaptation opened for `running` can code what the source announced as `announced`.
@@ -104,14 +117,21 @@ const SOURCE_ACQUISITION_TIMEOUT = Symbol('source-acquisition-timeout');
  * and reported `audio-only`. Every other stage is a source error, because nothing else distinguishes it
  * from a transport that failed.
  */
-function sourceFailure(error: unknown): LiveSessionFailure {
+function liveSourceFailure(error: unknown): LiveSessionFailure {
+  return error instanceof LiveStreamStartError && error.stage === 'audio-only' ? 'source-audio-only' : sourceFailure(error);
+}
+
+/**
+ * Why a source stopped producing, as this domain's bounded vocabulary.
+ *
+ * A station names its own failures apart from the camera's: every camera behind a base that did not connect
+ * fails together, and a sealed start the station gave no key for does not resolve by retrying.
+ */
+export function sourceFailure(error: unknown): 'station-unreachable' | 'station-key-unavailable' | 'source-error' {
   if (error instanceof StationUnreachableError) {
     return 'station-unreachable';
   }
-  if (error instanceof StationKeyUnavailableError) {
-    return 'station-key-unavailable';
-  }
-  return error instanceof LiveStreamStartError && error.stage === 'audio-only' ? 'source-audio-only' : 'source-error';
+  return error instanceof StationKeyUnavailableError ? 'station-key-unavailable' : 'source-error';
 }
 
 /** One adaptation process, in the terms every adapted media session controls it by. */
@@ -203,14 +223,14 @@ export class AdaptationStderr {
  * exists: a bundled static build and a distribution build on the same host have completely different
  * encoder sets, and neither can be inferred from the host facts alone.
  */
-export interface FfmpegIdentity {
+interface FfmpegIdentity {
   readonly path: string;
   readonly source: 'bundled' | 'configured';
   readonly version?: string;
 }
 
 /** How the version banner is read: the executable's own answer, or nothing where it did not give one. */
-export type FfmpegVersionProbe = (path: string) => Promise<string | undefined>;
+type FfmpegVersionProbe = (path: string) => Promise<string | undefined>;
 
 /** How long the version probe is allowed to take before the binary counts as not having answered. */
 const FFMPEG_VERSION_PROBE_TIMEOUT_MS = 5_000;
@@ -224,18 +244,14 @@ const FFMPEG_VERSION_BANNER_LENGTH = 120;
  * to know whether this binary can be asked to encode: a missing file, a file that is not executable, one
  * that is not FFmpeg, and one that hangs all mean the same thing to the media that would have used it.
  */
-const probeFfmpegVersion: FfmpegVersionProbe = (path) =>
-  new Promise((resolve) => {
-    execFile(
-      path,
-      ['-hide_banner', '-version'],
-      { timeout: FFMPEG_VERSION_PROBE_TIMEOUT_MS, maxBuffer: 64 * 1024, windowsHide: true },
-      (error, stdout) => {
-        const banner = error ? undefined : stdout.split(/\r?\n/, 1)[0]?.trim().slice(0, FFMPEG_VERSION_BANNER_LENGTH);
-        resolve(banner === undefined || banner === '' ? undefined : banner);
-      },
-    );
-  });
+const probeFfmpegVersion: FfmpegVersionProbe = async (path) => {
+  const { stdout } = await promisify(execFile)(path, ['-hide_banner', '-version'], {
+    timeout: FFMPEG_VERSION_PROBE_TIMEOUT_MS,
+    maxBuffer: 64 * 1024,
+    windowsHide: true,
+  }).catch(() => ({ stdout: '' }));
+  return stdout.split(/\r?\n/, 1)[0]?.trim().slice(0, FFMPEG_VERSION_BANNER_LENGTH) || undefined;
+};
 
 /**
  * Resolves the complete identity of one adaptation binary, without opening any media.
@@ -252,20 +268,20 @@ export async function resolveFfmpegIdentity(
   return { path, source, ...(version === undefined ? {} : { version }) };
 }
 
-export interface ReservedMediaPort {
+interface ReservedMediaPort {
   readonly port: number;
   onMessage(listener: () => void): void;
   close(): void | Promise<void>;
 }
 
-export type LiveMediaProcessFactory = (executable: string, args: readonly string[]) => MediaProcess;
-export interface ReturnAudioProcess extends MediaProcess {
+type LiveMediaProcessFactory = (executable: string, args: readonly string[]) => MediaProcess;
+interface ReturnAudioProcess extends MediaProcess {
   readonly stdout: Readable;
   /** FFmpeg's fd 3: the AAC-ELD FLV output. */
   readonly eld: Readable;
 }
-export type ReturnAudioProcessFactory = (executable: string, args: readonly string[]) => ReturnAudioProcess;
-export type MediaPortFactory = (addressVersion: 'ipv4' | 'ipv6') => Promise<ReservedMediaPort>;
+type ReturnAudioProcessFactory = (executable: string, args: readonly string[]) => ReturnAudioProcess;
+type MediaPortFactory = (addressVersion: 'ipv4' | 'ipv6') => Promise<ReservedMediaPort>;
 
 /**
  * Reports what one adaptation process did to `diagnostics`, whether or not the session it belonged to fails for it.
@@ -282,6 +298,7 @@ export function adaptationReporter(diagnostics: AdaptationDiagnostics | undefine
     stderr: AdaptationStderr,
     code?: number | null,
     signal?: NodeJS.Signals | null,
+    extras?: Pick<AdaptationNotice, 'sourceFragments'>,
   ): void => {
     const tail = stderr.tail();
     if (event === 'output' && tail.length === 0) {
@@ -292,6 +309,7 @@ export function adaptationReporter(diagnostics: AdaptationDiagnostics | undefine
       event,
       ...(typeof code === 'number' ? { code } : {}),
       ...(typeof signal === 'string' ? { signal } : {}),
+      ...extras,
       ...(tail.length ? { stderr: tail } : {}),
     });
   };
@@ -824,17 +842,13 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
 
     const reportAdaptation = adaptationReporter(adaptationDiagnostics);
 
-    const stopProcess = (process: MediaProcess | undefined): void => {
+    const stopAdaptation = (process: MediaProcess | undefined): void => {
       if (!process) {
         return;
       }
       stoppingProcesses.add(process);
-      process.stdin.destroy();
+      stopProcess(process);
       releaseAdaptation(process.stdin);
-      process.kill('SIGTERM');
-      const killDeadline = setTimeout(() => process.kill('SIGKILL'), PROCESS_STOP_GRACE_MS);
-      killDeadline.unref?.();
-      process.on('exit', () => clearTimeout(killDeadline));
     };
     /** Stop a caller-owned SDK handle without allowing synchronous or asynchronous faults to abort cleanup. */
     const stopTalkbackHandle = (handle: TalkbackHandle): void => {
@@ -847,7 +861,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         return;
       }
       talkbackEnded = true;
-      stopProcess(returnAudioProcess);
+      stopAdaptation(returnAudioProcess);
       returnAudioProcess?.stdout.destroy();
       returnAudioProcess?.eld.destroy();
       returnAudioProcess = undefined;
@@ -876,8 +890,8 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
       clearTimeout(initialRtcpGrace);
       clearTimeout(videoStartBackstop);
       stopTalkback();
-      stopProcess(videoProcess);
-      stopProcess(audioProcess);
+      stopAdaptation(videoProcess);
+      stopAdaptation(audioProcess);
       source?.stop();
       if (negotiated) {
         transport.onSessionReleased?.(
@@ -999,7 +1013,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           return;
         }
         videoCause = 'source-configuration';
-        stopProcess(videoProcess);
+        stopAdaptation(videoProcess);
         videoProcess = undefined;
       }
       if (!videoProcess) {
@@ -1105,14 +1119,14 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           if (!stoppingProcesses.has(child) && audioProcess === child) {
             reportAdaptation('live-audio', 'input-failed', stderr);
           }
-          stopProcess(child);
+          stopAdaptation(child);
           clearChild();
         });
         child.on('error', () => {
           if (!stoppingProcesses.has(child)) {
             reportAdaptation('live-audio', producedOutput ? 'exited-while-streaming' : 'spawn-failed', stderr);
           }
-          stopProcess(child);
+          stopAdaptation(child);
           clearChild();
         });
         child.on('exit', (code, signal) => {
@@ -1131,7 +1145,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
         });
       }
       if (audioInputCodec !== frame.codec) {
-        stopProcess(audioProcess);
+        stopAdaptation(audioProcess);
         audioProcess = undefined;
         audioInputCodec = undefined;
         writeAudio(frame);
@@ -1355,7 +1369,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
           ]);
         } catch (error) {
           acquisition.abort(new Error('live media source acquisition was cancelled'));
-          failVideo(error === SOURCE_ACQUISITION_TIMEOUT ? 'source-acquisition-timeout' : sourceFailure(error), error);
+          failVideo(error === SOURCE_ACQUISITION_TIMEOUT ? 'source-acquisition-timeout' : liveSourceFailure(error), error);
           throw error === SOURCE_ACQUISITION_TIMEOUT ? new Error('live media source acquisition timed out') : error;
         } finally {
           clearTimeout(acquisitionDeadline);
@@ -1375,7 +1389,7 @@ export class FfmpegLiveMedia implements LiveMediaAdapter {
             notice.extend();
           }
         });
-        source.on('error', (error) => failVideo(sourceFailure(error), error));
+        source.on('error', (error) => failVideo(liveSourceFailure(error), error));
         source.on('stop', () => failVideo('source-stopped'));
         await returnAudioReady;
       },

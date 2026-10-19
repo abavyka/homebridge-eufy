@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { StationLiveClaim } from '../../src/media/contracts.js';
 import { StationLiveSessions } from '../../src/media/station-live-sessions.js';
 
 /**
@@ -16,29 +17,39 @@ const STANDALONE = 'T8410P0000000002';
 /** Two cameras of one base: the pair whose stills contend. */
 const CAM_A = 'T8114P0000000000';
 const CAM_B = 'T8210P0000000001';
+/** A camera of the same base that holds nothing, whose still is refused by whatever holds the station. */
+const CAM_C = 'T8210P0000000004';
+
+/** A registry, and the claim a still from {@link CAM_C} finds holding a station: what refused it, or nothing. */
+function registry() {
+  let refusedBy: StationLiveClaim | undefined;
+  const sessions = new StationLiveSessions((decision) => {
+    if (decision.action === 'refused') {
+      refusedBy = decision.by;
+    }
+  });
+  const heldFor = (stationSn = BASE) => (sessions.admits(stationSn, CAM_C, 'snapshot') ? undefined : refusedBy);
+  return { sessions, heldFor };
+}
 
 describe('StationLiveSessions', () => {
-  it('reports nothing holding a station to begin with', () => {
-    expect(new StationLiveSessions().heldFor(BASE)).toBeUndefined();
-  });
-
   it('reports what a held session holds the station for', () => {
-    const sessions = new StationLiveSessions();
+    const { sessions, heldFor } = registry();
     sessions.hold(BASE, CAM_A, 'recording');
-    expect(sessions.heldFor(BASE)).toBe('recording');
+    expect(heldFor()).toBe('recording');
   });
 
   it('reports a continuous claim ahead of a still while several hold one station', () => {
-    const sessions = new StationLiveSessions();
+    const { sessions, heldFor } = registry();
     sessions.hold(BASE, CAM_A, 'snapshot');
     sessions.hold(BASE, CAM_B, 'live');
-    expect(sessions.heldFor(BASE)).toBe('live');
+    expect(heldFor()).toBe('live');
   });
 
   it('leaves another station alone', () => {
-    const sessions = new StationLiveSessions();
+    const { sessions, heldFor } = registry();
     sessions.hold(BASE, CAM_A, 'live');
-    expect(sessions.heldFor(STANDALONE)).toBeUndefined();
+    expect(heldFor(STANDALONE)).toBeUndefined();
   });
 
   describe('admits', () => {
@@ -119,11 +130,11 @@ describe('StationLiveSessions', () => {
     });
 
     it('leaves a holder alone when it stated no way to be stopped cleanly', () => {
-      const sessions = new StationLiveSessions();
+      const { sessions, heldFor } = registry();
       sessions.hold(BASE, CAM_A, 'snapshot');
 
       expect(() => sessions.hold(BASE, CAM_B, 'live')).not.toThrow();
-      expect(sessions.heldFor(BASE)).toBe('live');
+      expect(heldFor()).toBe('live');
     });
 
     it('leaves a still on ANOTHER station untouched', () => {
@@ -138,42 +149,36 @@ describe('StationLiveSessions', () => {
   });
 
   describe('releasing', () => {
-    it('frees the station when the only session releases', () => {
-      const sessions = new StationLiveSessions();
+    it('frees the station when the only session releases, so nothing accumulates', () => {
+      const { sessions, heldFor } = registry();
       sessions.hold(BASE, CAM_A, 'live')();
-      expect(sessions.heldFor(BASE)).toBeUndefined();
+      expect(heldFor()).toBeUndefined();
     });
 
     it('keeps the station held while any session on it remains', () => {
-      const sessions = new StationLiveSessions();
+      const { sessions, heldFor } = registry();
       const first = sessions.hold(BASE, CAM_A, 'live');
       sessions.hold(BASE, CAM_B, 'live');
       first();
-      expect(sessions.heldFor(BASE)).toBe('live');
+      expect(heldFor()).toBe('live');
     });
 
     /** A release runs once: a session reporting its end twice must not free a peer's hold. */
     it('ignores a repeated release', () => {
-      const sessions = new StationLiveSessions();
+      const { sessions, heldFor } = registry();
       const release = sessions.hold(BASE, CAM_A, 'live');
       sessions.hold(BASE, CAM_B, 'live');
       release();
       release();
-      expect(sessions.heldFor(BASE)).toBe('live');
+      expect(heldFor()).toBe('live');
     });
 
     it('reports the still once every continuous pull has gone', () => {
-      const sessions = new StationLiveSessions();
+      const { sessions, heldFor } = registry();
       sessions.hold(BASE, CAM_A, 'snapshot');
       const live = sessions.hold(BASE, CAM_B, 'live');
       live();
-      expect(sessions.heldFor(BASE)).toBe('snapshot');
-    });
-
-    it('forgets a station once its last session has gone, so nothing accumulates', () => {
-      const sessions = new StationLiveSessions();
-      sessions.hold(BASE, CAM_A, 'live')();
-      expect(sessions.held).toBe(0);
+      expect(heldFor()).toBe('snapshot');
     });
   });
 

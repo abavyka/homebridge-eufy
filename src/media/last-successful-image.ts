@@ -186,27 +186,17 @@ export class PersistedLastSuccessfulImages {
 
   /** A file that cannot be removed is not a reason to fail startup or a snapshot request. */
   private async remove(file: string): Promise<void> {
-    try {
-      await rm(file, { force: true });
-    } catch {
-      return;
-    }
+    await rm(file, { force: true }).catch(() => {});
   }
 
   /** Moves discarded data out of the readable namespace before best-effort physical removal. */
   private async discardPath(path: string, recursive = false): Promise<void> {
     const discarded = `${path}.discarded.${process.pid}.${(this.replacements += 1)}`;
-    try {
-      await rename(path, discarded);
-    } catch {
-      try {
-        await rm(path, { force: true, recursive });
-      } catch {}
-      return;
-    }
-    try {
-      await rm(discarded, { force: true, recursive });
-    } catch {}
+    const target = await rename(path, discarded).then(
+      () => discarded,
+      () => path,
+    );
+    await rm(target, { force: true, recursive }).catch(() => {});
   }
 
   private file(serial: string): string {
