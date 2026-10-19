@@ -97,34 +97,19 @@
   }
 
   /**
-   * The eight battery icons the shipped set draws, from empty to full.
-   *
-   * Ordered, because the level picks one by its position: eight steps of twelve and a half percent each.
-   */
-  const BATTERY_STEPS = [
-    'battery_0',
-    'battery_1',
-    'battery_2',
-    'battery_3',
-    'battery_4',
-    'battery_5',
-    'battery_6',
-    'battery_full',
-  ];
-
-  /**
    * The battery badge a device gets, where it reports a level, and nothing where it does not.
    *
    * The icon carries the level and the exact percentage goes to the label: a tile is read at a glance, and a
    * number on every tile would be read deliberately or not at all. A device on mains power reports no level, and
-   * neither does one nothing is observing, so both are left without a badge rather than shown an empty one.
+   * neither does one nothing is observing, so both are left without a badge rather than shown an empty one. The
+   * shipped set draws eight icons, `battery_0` to `battery_6` then `battery_full`, one per twelve and a half percent.
    */
   function batteryBadge(device, messages) {
     if (typeof device.battery !== 'number') {
       return undefined;
     }
-    const step = Math.floor(device.battery / (100 / BATTERY_STEPS.length));
-    const icon = BATTERY_STEPS[Math.min(BATTERY_STEPS.length - 1, Math.max(0, step))];
+    const step = Math.min(7, Math.max(0, Math.floor(device.battery / 12.5)));
+    const icon = step === 7 ? 'battery_full' : `battery_${step}`;
     const label = (messages.deviceBattery ?? '').replace('{level}', String(Math.round(device.battery)));
     return label ? { icon, label, variant: 'battery' } : undefined;
   }

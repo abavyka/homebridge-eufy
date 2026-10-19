@@ -19,7 +19,6 @@ const challengeSubmit = document.querySelector('[data-challenge-submit]');
 const dashboard = document.querySelector('[data-dashboard]');
 const dashboardState = document.querySelector('[data-dashboard-state]');
 const dashboardTitle = document.querySelector('[data-dashboard-title]');
-const dashboardBadge = document.querySelector('[data-dashboard-badge]');
 const dashboardSummary = document.querySelector('[data-dashboard-summary]');
 const dashboardAuthenticate = document.querySelector('[data-dashboard-authenticate]');
 const reauthDialog = document.querySelector('[data-reauth-dialog]');
@@ -136,9 +135,6 @@ let panelReturn;
 let dashboardAttention;
 let dashboardPanelTrigger;
 const dashboardView = window.HomebridgeEufyDashboard;
-const legacySettingsView = window.HomebridgeEufyLegacySettings;
-const diagnosticsWizard = window.HomebridgeEufyDiagnosticsWizard;
-const setupWizard = window.HomebridgeEufySetupWizard;
 const dashboardElements = {
   dashboard,
   title: dashboardTitle,
@@ -174,7 +170,7 @@ function requestWithinDeadline(path, body, timeoutMs = 320000) {
 }
 
 function isDashboardUiReproducing(state = diagnosticsState) {
-  return diagnosticsWizard.backgroundActive(state);
+  return state.status === 'reproducing' && state.profile === 'dashboard-ui';
 }
 
 async function recordActiveUiEvent(event) {
@@ -258,6 +254,16 @@ const diagnosticsProfiles = {
   other: { title: 'diagnosticsProfileOther', action: 'diagnosticsOtherAction' },
 };
 
+/**
+ * Which screen a session puts on the panel: its file while one can be downloaded, its capture while one runs, and
+ * otherwise the question, since picking an area replaces the session with a capture of that area.
+ */
+function diagnosticsScreen(session) {
+  if (session.partialExportAvailable) return 'review';
+  if (session.status === 'reproducing') return 'reproduce';
+  return 'choose';
+}
+
 function renderDiagnosticsGuidance(profile) {
   const guidance = diagnosticsProfiles[profile] ?? diagnosticsProfiles.other;
   diagnosticsPhaseTitle.textContent = messages[guidance.title] ?? '';
@@ -292,7 +298,7 @@ async function endDiagnosticsCase() {
 function renderDiagnostics(state) {
   if (state.supportCaseId !== diagnosticsState.supportCaseId) diagnosticsArchiveDownloaded = false;
   diagnosticsState = state;
-  const screen = diagnosticsWizard.screen(state);
+  const screen = diagnosticsScreen(state);
   const choosing = screen === 'choose';
   const reviewing = screen === 'review';
   renderDiagnosticsEntries();
@@ -589,7 +595,7 @@ async function openDiagnostics(preset) {
     recordActiveUiEventBestEffort('request-failed');
     return;
   }
-  if (diagnosticsWizard.screen(diagnosticsState) !== 'choose') return;
+  if (diagnosticsScreen(diagnosticsState) !== 'choose') return;
   if (preset) await startDiagnosticsCapture(preset.profile);
   else if (signingIn) {
     diagnosticsTiles.find((tile) => tile.dataset.diagnosticsTile === 'startup-authentication')?.focus?.();
@@ -600,7 +606,7 @@ mastheadDiagnostics.addEventListener('click', () => openDiagnostics());
 
 /** While the dashboard shows a problem and no session is under way, the action names it before opening the wizard. */
 menuDiagnostics.addEventListener('click', () => {
-  if (!menuDiagnostics.dataset.attention || diagnosticsWizard.screen(diagnosticsState) !== 'choose') {
+  if (!menuDiagnostics.dataset.attention || diagnosticsScreen(diagnosticsState) !== 'choose') {
     return openDiagnostics();
   }
   attentionTitle.textContent = dashboardAttention.title;
@@ -874,19 +880,61 @@ function wizardPluginUp() {
   return dashboardPluginState === 'ready' || dashboardPluginState === 'degraded';
 }
 
+/** The browser key marking a sign-in whose devices have not been walked through yet. */
+const WIZARD_PENDING_KEY = 'homebridge-eufy.setup-wizard-pending';
+
 function wizardPending(pending) {
   try {
-    if (pending === undefined) return localStorage.getItem(setupWizard.PENDING_KEY) === 'pending';
-    if (pending) localStorage.setItem(setupWizard.PENDING_KEY, 'pending');
-    else localStorage.removeItem(setupWizard.PENDING_KEY);
+    if (pending === undefined) return localStorage.getItem(WIZARD_PENDING_KEY) === 'pending';
+    if (pending) localStorage.setItem(WIZARD_PENDING_KEY, 'pending');
+    else localStorage.removeItem(WIZARD_PENDING_KEY);
   } catch {
     return false;
   }
   return pending;
 }
 
+/**
+ * The devices the wizard walks through, in the map's order so the arrows follow it: each HomeBase then what hangs
+ * off it, then the devices that stand alone. Every camera is one, and every other device with a HomeKit choice to
+ * make; a device the plugin only diagnoses has nothing to set.
+ */
+function setupWizardSteps(devices) {
+  const walkable = (devices ?? []).filter(
+    (device) => !device.diagnosticOnly && (device.deviceClass === 'camera' || device.preferences?.length > 0),
+  );
+  const { bases, standalone } = setupWizardTopology(walkable, devices);
+  return [
+    ...bases.flatMap(({ base, members }) => [...(base && walkable.includes(base) ? [base] : []), ...members]),
+    ...standalone,
+  ];
+}
+
+/**
+ * The household as the map draws it: each HomeBase with the devices that hang off it, then the devices that are
+ * their own station. A base is named by its own entry where the dashboard lists one; a device whose base it does
+ * not list stays with that base all the same, under no name.
+ */
+function setupWizardTopology(steps, devices) {
+  const bases = new Map();
+  const standalone = [];
+  for (const device of devices ?? []) {
+    if (device.deviceClass === 'homebase') bases.set(device.serial, { base: device, members: [] });
+  }
+  for (const device of steps) {
+    if (device.deviceClass === 'homebase') continue;
+    if (!device.station) {
+      standalone.push(device);
+      continue;
+    }
+    if (!bases.has(device.station)) bases.set(device.station, { base: undefined, members: [] });
+    bases.get(device.station).members.push(device);
+  }
+  return { bases: [...bases.values()], standalone };
+}
+
 async function openSetupWizard(trigger) {
-  wizardSteps = setupWizard.steps(dashboardDevices);
+  wizardSteps = setupWizardSteps(dashboardDevices);
   wizardIndex = 0;
   openDashboardPanel(wizardPanel, trigger);
   await renderWizardStep();
@@ -1103,7 +1151,7 @@ function wizardMapEntry(device, current) {
  * is a step too where it has HomeKit choices, so its name opens it like any other device.
  */
 function renderWizardMap(current) {
-  const { bases, standalone } = setupWizard.topology(wizardSteps, dashboardDevices);
+  const { bases, standalone } = setupWizardTopology(wizardSteps, dashboardDevices);
   const group = (title, members, base) => {
     const section = document.createElement('div');
     section.className = 'wizard-map-group';
@@ -1165,7 +1213,9 @@ async function renderWizardStep() {
   renderWizardMap(device.serial);
   dashboardView.renderDeviceSettings(device, configuredBlock() ?? {}, messages, wizardElements);
   wizardHomeKit.hidden = !(device.preferences?.length > 0);
-  wizardProgress.textContent = setupWizard.progress(messages.wizardProgress, wizardIndex, wizardSteps.length);
+  wizardProgress.textContent = (messages.wizardProgress ?? '')
+    .replace('{current}', String(wizardIndex + 1))
+    .replace('{total}', String(wizardSteps.length));
   // Only a camera has a picture to show; any other device's step is its settings alone.
   wizardLive.hidden = device.deviceClass !== 'camera';
   wizardLiveControls.hidden = wizardLive.hidden;
@@ -1411,6 +1461,40 @@ if (updateRestart) {
   });
 }
 
+/** The V4 settings a legacy block sets to something other than its default, which V5 no longer reads. */
+function legacySettingNames(block) {
+  const defaults = { CameraMaxLivestreamDuration: 30, hkHome: 1, hkAway: 0, hkNight: 3, hkOff: 63 };
+  const effectful = (key, value) => {
+    if (Object.hasOwn(defaults, key)) return value !== defaults[key];
+    if (Array.isArray(value)) return value.length > 0;
+    if (value && typeof value === 'object') return Object.keys(value).length > 0;
+    return Boolean(value);
+  };
+  return [
+    'CameraMaxLivestreamDuration',
+    'autoSyncStation',
+    'cameras',
+    'cleanCache',
+    'debugLivestream',
+    'enableDetailedLogging',
+    'enableEmbeddedPKCS1Support',
+    'experimentalMode',
+    'hkAway',
+    'hkHome',
+    'hkNight',
+    'hkOff',
+    'ignoreDevices',
+    'ignoreMultipleDevicesWarning',
+    'ignoreStations',
+    'omitLogFiles',
+    'stations',
+    'syncStationModes',
+    'useEmbeddedPKCS1Support',
+  ]
+    .filter((key) => Object.hasOwn(block, key) && effectful(key, block[key]))
+    .sort();
+}
+
 homebridge.addEventListener('ready', async () => {
   homebridge.disableSaveButton();
   shell.dataset.theme = await homebridge.userCurrentLightingMode();
@@ -1434,7 +1518,7 @@ homebridge.addEventListener('ready', async () => {
   } else {
     const legacyBlock = pluginConfig.find((block) => block.platform === 'EufySecurity');
     if (legacyBlock) {
-      legacyNames = legacySettingsView.names(legacyBlock);
+      legacyNames = legacySettingNames(legacyBlock);
     }
   }
   legacyNotice.hidden = legacyNames.length === 0 || legacyAcknowledged;
