@@ -99,6 +99,38 @@ export function required(parsed, name) {
 }
 
 /**
+ * Pairs one temporary controller for `fn` and, however it ends, closes every session it pushed onto
+ * `sessions` and removes the pairing, so the instance is left unpaired for the next run. The persistent
+ * connection is required: an accessory tears a session down when the connection that set it up closes.
+ */
+export async function withPairedController(parsed, fn) {
+  const module = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
+  const { HttpClient } = await import(module).catch(() => {
+    throw new Error(`hap-controller is unavailable at ${module}; install it outside this repository`);
+  });
+  const client = new HttpClient(
+    required(parsed, 'device-id'),
+    required(parsed, 'address'),
+    Number(required(parsed, 'port')),
+    undefined,
+    { usePersistentConnections: true, subscriptionsUseSameConnection: true },
+  );
+  await client.pairSetup(required(parsed, 'pin'));
+  console.log('paired one temporary controller');
+  const sessions = [];
+  try {
+    return await fn(client, sessions);
+  } finally {
+    for (const session of sessions) {
+      session.close();
+    }
+    await client.removePairing(client.pairingProtocol.iOSDevicePairingID);
+    await client.close();
+    console.log('removed the temporary controller pairing');
+  }
+}
+
+/**
  * Pass, fail, and unverified accounting for one live run, including the summary it exits with, so every
  * check in this directory reports and fails a live observation the same way.
  */
@@ -635,6 +667,71 @@ export function adaptationProcessRoles(processes) {
     }
   }
   return roles;
+}
+
+/**
+ * Judges the adaptation processes the plugin owns against `expectedSessions` live sessions, with the
+ * negotiated `applied` selection matched but never printed.
+ *
+ * Video and audio are separate inputs and therefore separate processes, so they are counted separately:
+ * one video adaptation per expected session, and one audio adaptation per session only when the camera
+ * actually delivered source audio. Counting them together fails every audio-capable camera. A video
+ * adaptation is the one asked to drop audio, and an audio adaptation the one asked to drop video, which is
+ * the only part of an argument list that may be matched here because the rest carries SRTP key material.
+ */
+export function observeAdaptation(results, pid, label, expectedSessions, applied) {
+  const processes = adaptationProcesses(pid);
+  const { check } = results;
+  if (processes === undefined) {
+    results.unverified(`${label} adaptation processes=not-observed (pass --homebridge-pid to verify them)`);
+    return;
+  }
+  const { video, audio, returnAudio, other } = adaptationProcessRoles(processes);
+  console.log(
+    `${label} adaptation processes=${processes.length} video=${video.length} audio=${audio.length}` +
+      ` return-audio=${returnAudio.length} other=${other.length}`,
+  );
+  check(video.length === expectedSessions, `${label} ran exactly ${expectedSessions} video adaptation(s)`);
+  check(
+    audio.length <= expectedSessions,
+    `${label} ran no more than ${expectedSessions} audio adaptation(s), one per session that carried source audio`,
+  );
+  check(
+    returnAudio.length <= expectedSessions,
+    `${label} ran no more than ${expectedSessions} return-audio adaptation(s), one per talkback-capable session`,
+  );
+  check(
+    video.length + audio.length + returnAudio.length === processes.length,
+    `${label} ran no unclassified adaptation process`,
+  );
+  if (!applied || video.length === 0) {
+    return;
+  }
+  check(
+    video.some(({ args }) => args.includes(`${applied.width}:${applied.height}`)),
+    `${label} adaptation applied ${applied.width}x${applied.height}`,
+  );
+  check(
+    video.some(({ args }) => new RegExp(`-fpsmax\\s+${applied.fps}\\b`).test(args)),
+    `${label} adaptation bounded the rate at ${applied.fps}fps`,
+  );
+  check(
+    video.every(({ args }) => !/(?:^|\s)-r\s+\d/.test(args)),
+    `${label} adaptation pinned no constant output rate`,
+  );
+  const budgets = video.map(({ args }) => Number(/-maxrate\s+(\d+)k/.exec(args)?.[1]));
+  console.log(`${label} adaptation video budget=${budgets.join(',')}kbps of ${applied.bitrate}kbps negotiated`);
+  check(
+    budgets.length > 0 && budgets.every((budget) => budget > 0 && budget < applied.bitrate),
+    `${label} asked the encoder for strictly less than the negotiated ${applied.bitrate}kbps, reserving its transport`,
+  );
+  check(
+    video.every(({ args }) => {
+      const [, maxrate, bufsize] = /-maxrate\s+(\d+)k.*?-bufsize\s+(\d+)k/.exec(args) ?? [];
+      return maxrate !== undefined && Number(bufsize) <= Number(maxrate);
+    }),
+    `${label} bounded the VBV buffer to one second of the encoder budget`,
+  );
 }
 
 /** Attributes a failed cold start to the narrowest lifecycle boundary visible to the live harness. */

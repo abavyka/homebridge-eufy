@@ -42,9 +42,11 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { parseArgs } from 'node:util';
 import { gunzipSync } from 'node:zlib';
 
 import { AccountOwnership, isOwnerProcessAlive } from '../dist/account/ownership.js';
+import { observations } from './hap-live-harness.mjs';
 
 /** Persisted configuration fields that are credentials. Their values are never printed or digested. */
 const SECRET_FIELDS = new Set(['password']);
@@ -66,38 +68,12 @@ function usage(message) {
   process.exit(2);
 }
 
-function parseArguments(argv) {
-  const options = { command: argv[0] };
-  for (let index = 1; index < argv.length; index += 1) {
-    const flag = argv[index];
-    if (!flag.startsWith('--')) {
-      usage(`unexpected argument ${flag}`);
-    }
-    const next = argv[index + 1];
-    if (next === undefined || next.startsWith('--')) {
-      options[flag.slice(2)] = true;
-    } else {
-      options[flag.slice(2)] = next;
-      index += 1;
-    }
-  }
-  return options;
-}
-
 const digest = (value) => createHash('sha256').update(value).digest('hex').slice(0, 12);
 
-function fail(message) {
-  process.stdout.write(`FAIL ${message}\n`);
-  process.exitCode = 1;
-}
-
-function pass(message) {
-  process.stdout.write(`PASS ${message}\n`);
-}
-
-function info(message) {
-  process.stdout.write(`     ${message}\n`);
-}
+const results = observations('authentication handoff evidence');
+const pass = (message) => results.check(true, message);
+const fail = (message) => results.check(false, message);
+const info = (message) => console.log(`       ${message}`);
 
 /** Walks the storage root, reporting paths with account-derived names reduced to shapes. */
 function walk(root, directory = root, into = []) {
@@ -581,12 +557,28 @@ async function observeOwnership(root, kind, timeoutSeconds) {
   fail(`never observed a live ${kind} lease before the observation window closed`);
 }
 
-const options = parseArguments(process.argv.slice(2));
+const text = { type: 'string' };
+const {
+  values: options,
+  positionals: [command],
+} = parseArgs({
+  strict: false,
+  allowPositionals: true,
+  options: {
+    storage: text,
+    'ui-log': text,
+    'host-log': text,
+    'expect-kind': text,
+    'observe-kind': text,
+    'timeout-seconds': text,
+    since: text,
+  },
+});
 if (!options.storage) {
   usage('--storage <root> is required');
 }
 
-switch (options.command) {
+switch (command) {
   case 'sinks':
     auditSinks(
       options.storage,
@@ -611,5 +603,7 @@ switch (options.command) {
     await probeConflict(options.storage);
     break;
   default:
-    usage(`unknown command ${options.command}`);
+    usage(`unknown command ${command}`);
 }
+
+results.summarize();

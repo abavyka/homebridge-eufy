@@ -1,20 +1,9 @@
-#!/usr/bin/env node
-// The cases `report-completeness.yml` is judged on, run against the workflow's own script.
-//
-// The script decides whether a report is answered, held or closed, and a mistake in it acts on a stranger's
-// issue where nothing rehearses it. So the script is read out of the workflow and driven here against a fake
-// GitHub, and the reports below are the ones whose outcome is a decision rather than a default.
-//
-// Run it after any edit to the workflow: `node scripts/report-completeness-cases.mjs`
-
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import assert from 'node:assert/strict';
 
-const workflow = join(dirname(fileURLToPath(import.meta.url)), '..', '.github', 'workflows', 'report-completeness.yml');
+import { describe, expect, it } from 'vitest';
+
 const source = /script: \|\n([\s\S]*)$/
-  .exec(readFileSync(workflow, 'utf8'))[1]
+  .exec(readFileSync(new URL('../../.github/workflows/report-completeness.yml', import.meta.url), 'utf8'))![1]!
   .split('\n')
   .map((line) => line.replace(/^ {12}/, ''))
   .join('\n');
@@ -23,7 +12,7 @@ const assess = new Function('context', 'github', 'core', `return (async () => {$
 const ARCHIVE = 'https://github.com/user-attachments/files/1/x.eufysupport.gz';
 const FLOW_LINE = '- **Diagnostics profile**: live-media (now)';
 
-const bugReport = ({ flow, version }) =>
+const bugReport = ({ flow, version }: { flow: boolean; version: string }) =>
   [
     '### Environment',
     '',
@@ -42,7 +31,17 @@ const bugReport = ({ flow, version }) =>
     'it broke',
   ].join('\n');
 
-/** What the workflow did, in the vocabulary the cases are stated in rather than as REST calls. */
+interface Report {
+  action: string;
+  flow?: boolean;
+  archive?: boolean;
+  version?: string;
+  bugForm?: boolean;
+  closed?: boolean;
+  upload?: string;
+  by?: string;
+}
+
 async function outcomeOf({
   action,
   flow = false,
@@ -52,8 +51,8 @@ async function outcomeOf({
   closed = false,
   upload,
   by = 'reporter',
-}) {
-  const acted = [];
+}: Report): Promise<string> {
+  const acted: string[] = [];
   const issue = {
     number: 1,
     body: bugForm ? bugReport({ flow, version }) : '### Model\n\nT8000P0000000000',
@@ -61,7 +60,9 @@ async function outcomeOf({
     state: closed ? 'closed' : 'open',
     user: { login: 'reporter' },
   };
-  const comments = archive ? [{ id: 9, body: ARCHIVE, author_association: 'NONE' }] : [];
+  const comments: { id: number; body: string; author_association?: string }[] = archive
+    ? [{ id: 9, body: ARCHIVE, author_association: 'NONE' }]
+    : [];
   if (closed) {
     comments.unshift({
       id: 8,
@@ -81,7 +82,7 @@ async function outcomeOf({
     rest: {
       issues: {
         listComments: {},
-        createComment: async ({ body }) =>
+        createComment: async ({ body }: { body: string }) =>
           acted.push(
             /closed as it stands/.test(body)
               ? 'redirected'
@@ -91,14 +92,14 @@ async function outcomeOf({
                   ? 'warned'
                   : 'asked',
           ),
-        deleteComment: async ({ comment_id }) => {
+        deleteComment: async ({ comment_id }: { comment_id: number }) => {
           comments.splice(
             comments.findIndex(({ id }) => id === comment_id),
             1,
           );
           acted.push('deleted a comment');
         },
-        update: async (fields) =>
+        update: async (fields: { state?: string; state_reason?: string }) =>
           acted.push(
             fields.state === 'open'
               ? 'reopened'
@@ -106,8 +107,8 @@ async function outcomeOf({
                 ? `closed as ${fields.state_reason}`
                 : 'edited the body',
           ),
-        addLabels: async ({ labels }) => acted.push(`labelled ${labels.join()}`),
-        removeLabel: async ({ name }) => acted.push(`unlabelled ${name}`),
+        addLabels: async ({ labels }: { labels: string[] }) => acted.push(`labelled ${labels.join()}`),
+        removeLabel: async ({ name }: { name: string }) => acted.push(`unlabelled ${name}`),
       },
     },
   };
@@ -119,7 +120,7 @@ async function outcomeOf({
   return acted.join(', ') || 'nothing';
 }
 
-const CASES = [
+const CASES: [string, Report, string][] = [
   [
     'a report opened outside the flow is redirected and closed',
     { action: 'opened' },
@@ -174,8 +175,13 @@ const CASES = [
   ],
 ];
 
-for (const [name, report, expected] of CASES) {
-  assert.equal(await outcomeOf(report), expected, name);
-  console.log(`ok  ${name}`);
-}
-console.log(`${CASES.length} cases`);
+/**
+ * The workflow's own script, read out of `report-completeness.yml` and driven against a fake GitHub, decides
+ * whether a report is answered, held, closed or reopened, on every report whose outcome is a decision rather
+ * than a default.
+ */
+describe('report completeness workflow', () => {
+  it.each(CASES)('%s', async (_name, report, expected) => {
+    expect(await outcomeOf(report)).toBe(expected);
+  });
+});

@@ -59,6 +59,7 @@ import {
   selectCameras,
   videoSelection,
   waitFor,
+  withPairedController,
 } from './hap-live-harness.mjs';
 
 const FIRST_PACKET_TIMEOUT_MS = 25_000;
@@ -69,11 +70,6 @@ const address = required(parsed, 'address');
 const seconds = Number(parsed.get('seconds') ?? 8);
 const requested = videoSelection(parsed);
 const homebridgePid = parsed.get('homebridge-pid');
-const controllerModule = parsed.get('hap-controller') ?? process.env.HAP_CONTROLLER ?? 'hap-controller';
-const { HttpClient } = await import(controllerModule).catch(() => {
-  throw new Error(`hap-controller is unavailable at ${controllerModule}; install it outside this repository`);
-});
-
 const results = observations('live codec matrix qualification');
 const check = results.check;
 
@@ -153,14 +149,7 @@ async function exercise(client, accessory, selection) {
   return { label, coded };
 }
 
-const client = new HttpClient(required(parsed, 'device-id'), address, Number(required(parsed, 'port')), undefined, {
-  usePersistentConnections: true,
-  subscriptionsUseSameConnection: true,
-});
-await client.pairSetup(required(parsed, 'pin'));
-console.log('paired one temporary controller');
-
-try {
+await withPairedController(parsed, async (client) => {
   const { accessories } = await client.getAccessories();
   const cameras = selectCameras(accessories, {
     battery: parsed.has('battery'),
@@ -192,10 +181,6 @@ try {
   for (const entry of observed) {
     console.log(`  ${entry.label} -> ${entry.coded}`);
   }
-} finally {
-  await client.removePairing(client.pairingProtocol.iOSDevicePairingID);
-  client.close();
-  console.log('removed the temporary controller pairing');
-}
+});
 
 results.summarize();
