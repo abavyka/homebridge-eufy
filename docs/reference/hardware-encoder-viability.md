@@ -219,6 +219,15 @@ encoder present in every published `ffmpeg-for-homebridge` Linux artifact.
   default as "By default, this property is NULL, indicating unknown", but the FFmpeg wrapper defaults
   `realtime` to `0` and applies it whenever the value is `>= 0` (`videotoolboxenc.c:1533`), so the wrapper
   explicitly sets RealTime **false** unless `-realtime 1` is passed.
+- **Measured (Intel Mac, macOS 13, MacPorts FFmpeg 9.0.1).** The qualification arguments at `main` 3.1,
+  1280x720, 30 fps, 287k: a 2 s `testsrc2` clip codes to 157 KB against a 108 KB bound, and a 10 s clip to
+  916 KB against 395 KB, so the overshoot grows with time rather than coming from the first keyframe. The
+  `DataRateLimits` hard limit from `-maxrate` is not held on detailed content. `-qmax 51` gives byte-identical
+  output; it maps to `kVTCompressionPropertyKey_MaxAllowedFrameQP`, which Apple lists from macOS 14, so this
+  run says nothing about it. `-constant_bit_rate 1` fails to open on this
+  encoder ("not supported by the encoder"). A `smptebars` clip codes to 8 KB, well inside the bound, so the
+  result depends on picture detail. Apple silicon is not measured here; the bundled darwin binary needs
+  macOS 15 or newer.
 
 #### `h264_amf`
 
