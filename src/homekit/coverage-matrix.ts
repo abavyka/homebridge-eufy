@@ -60,9 +60,5 @@ function reviewedRows() {
   });
 }
 
-/** Every SDK member classified against the adapter registry, counted into the release acceptance record. */
-export const SDK_HAP_COVERAGE_MATRIX = {
-  version: 1,
-  hapContract: 'Homebridge 2 HAP definitions',
-  rows: reviewedRows(),
-};
+/** Every SDK member classified against the adapter registry. */
+export const SDK_HAP_COVERAGE_MATRIX = reviewedRows();

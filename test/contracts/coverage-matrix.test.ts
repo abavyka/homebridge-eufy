@@ -5,13 +5,12 @@ import { SDK_HAP_COVERAGE_MATRIX } from '../../src/homekit/coverage-matrix.js';
 
 describe('SDK/HAP coverage matrix', () => {
   it('classifies the complete current SDK member surface', () => {
-    expect(SDK_HAP_COVERAGE_MATRIX.version).toBe(1);
-    expect(SDK_HAP_COVERAGE_MATRIX.rows.length).toBeGreaterThan(0);
-    expect(new Set(SDK_HAP_COVERAGE_MATRIX.rows.map((row) => row.id)).size).toBe(SDK_HAP_COVERAGE_MATRIX.rows.length);
+    expect(SDK_HAP_COVERAGE_MATRIX.length).toBeGreaterThan(0);
+    expect(new Set(SDK_HAP_COVERAGE_MATRIX.map((row) => row.id)).size).toBe(SDK_HAP_COVERAGE_MATRIX.length);
   });
 
   it('records an adapter for every represented row', () => {
-    for (const row of SDK_HAP_COVERAGE_MATRIX.rows) {
+    for (const row of SDK_HAP_COVERAGE_MATRIX) {
       expect(row.id).toMatch(/\.(read|event|persistent-operation|momentary-action)$/);
       if (row.disposition === 'required-adapter') {
         expect(row.adapter, row.id).toBeTruthy();
@@ -22,7 +21,7 @@ describe('SDK/HAP coverage matrix', () => {
   it('admits only represented rows into the closed-world adapter registry', () => {
     const represented = [
       ...new Set(
-        SDK_HAP_COVERAGE_MATRIX.rows.filter((row) => row.disposition === 'required-adapter').map((row) => row.adapter!),
+        SDK_HAP_COVERAGE_MATRIX.filter((row) => row.disposition === 'required-adapter').map((row) => row.adapter!),
       ),
     ];
 
@@ -32,15 +31,14 @@ describe('SDK/HAP coverage matrix', () => {
         .flatMap((adapter) => adapter.coverage)
         .sort(),
     ).toEqual(
-      SDK_HAP_COVERAGE_MATRIX.rows
-        .filter((row) => row.disposition === 'required-adapter')
+      SDK_HAP_COVERAGE_MATRIX.filter((row) => row.disposition === 'required-adapter')
         .map((row) => row.id)
         .sort(),
     );
     expect(
-      SDK_HAP_COVERAGE_MATRIX.rows
-        .filter((row) => row.disposition !== 'required-adapter')
-        .every((row) => row.adapter === null),
+      SDK_HAP_COVERAGE_MATRIX.filter((row) => row.disposition !== 'required-adapter').every(
+        (row) => row.adapter === null,
+      ),
     ).toBe(true);
   });
 
@@ -57,22 +55,20 @@ describe('SDK/HAP coverage matrix', () => {
       }
     }
 
-    const informationRows = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ id }) => id.startsWith('info.'));
+    const informationRows = SDK_HAP_COVERAGE_MATRIX.filter(({ id }) => id.startsWith('info.'));
     expect(informationRows.filter(({ adapter }) => adapter === 'accessory.information')).toHaveLength(6);
 
-    const representedBattery = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ adapter }) => adapter === 'battery.status');
+    const representedBattery = SDK_HAP_COVERAGE_MATRIX.filter(({ adapter }) => adapter === 'battery.status');
     expect(representedBattery.map(({ id }) => id).sort()).toEqual(
       ['battery.level.read', 'battery.charging.read', 'battery.batteryAlert.event'].sort(),
     );
 
-    const representedSiren = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ adapter }) => adapter === 'siren.test');
+    const representedSiren = SDK_HAP_COVERAGE_MATRIX.filter(({ adapter }) => adapter === 'siren.test');
     expect(representedSiren.map(({ id }) => id).sort()).toEqual(
       ['siren.active.read', 'siren.test.momentary-action', 'siren.stop.momentary-action'].sort(),
     );
 
-    const representedSmartLight = SDK_HAP_COVERAGE_MATRIX.rows.filter(
-      ({ adapter }) => adapter === 'smart-light.lightbulb',
-    );
+    const representedSmartLight = SDK_HAP_COVERAGE_MATRIX.filter(({ adapter }) => adapter === 'smart-light.lightbulb');
     expect(representedSmartLight.map(({ id }) => id).sort()).toEqual(
       [
         'smart_light.power.read',
@@ -84,9 +80,7 @@ describe('SDK/HAP coverage matrix', () => {
       ].sort(),
     );
 
-    const representedCameraControls = SDK_HAP_COVERAGE_MATRIX.rows.filter(
-      ({ adapter }) => adapter === 'camera.controls',
-    );
+    const representedCameraControls = SDK_HAP_COVERAGE_MATRIX.filter(({ adapter }) => adapter === 'camera.controls');
     expect(representedCameraControls.map(({ id }) => id).sort()).toEqual(
       [
         'camera.enabled.read',
@@ -103,7 +97,7 @@ describe('SDK/HAP coverage matrix', () => {
       ].sort(),
     );
 
-    const representedStreaming = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ adapter }) => adapter === 'camera.streaming');
+    const representedStreaming = SDK_HAP_COVERAGE_MATRIX.filter(({ adapter }) => adapter === 'camera.streaming');
     expect(representedStreaming.map(({ id }) => id).sort()).toEqual(
       [
         'camera.live.momentary-action',
@@ -119,7 +113,7 @@ describe('SDK/HAP coverage matrix', () => {
       ].sort(),
     );
 
-    const representedLock = SDK_HAP_COVERAGE_MATRIX.rows.filter(({ adapter }) => adapter === 'lock.mechanism');
+    const representedLock = SDK_HAP_COVERAGE_MATRIX.filter(({ adapter }) => adapter === 'lock.mechanism');
     expect(representedLock.map(({ id }) => id).sort()).toEqual(
       [
         'lock.lock.momentary-action',
@@ -130,7 +124,7 @@ describe('SDK/HAP coverage matrix', () => {
       ].sort(),
     );
 
-    const diagnosticOnlySiren = SDK_HAP_COVERAGE_MATRIX.rows.filter(
+    const diagnosticOnlySiren = SDK_HAP_COVERAGE_MATRIX.filter(
       ({ id, disposition }) => id.startsWith('siren.') && disposition === 'diagnostic-only',
     );
     expect(diagnosticOnlySiren.map(({ id }) => id)).toEqual(
